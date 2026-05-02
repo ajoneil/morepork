@@ -635,7 +635,9 @@ impl TraceStore {
 /// Returns a JS object with alignment info: { mapA: Uint32Array, mapB: Uint32Array, len: number }
 /// The original stores are not modified — the maps provide index remapping.
 ///
-/// Sync modes: "pc" (default), "none", or any condition string like "ly=0", "lcdc&80".
+/// Sync modes: "auto" (default — cartridge-entry skip if both start at PC=0x0100,
+/// else first-common-PC), "cartridge", "pc", "none", or any condition string like
+/// "pc=0x0101", "ly=10", "lcdc&80" (values are parsed as hex).
 #[wasm_bindgen(js_name = prepareForDiff)]
 pub fn prepare_for_diff(a: &TraceStore, b: &TraceStore, sync: Option<String>) -> Result<JsValue, JsError> {
     let diff = gbtrace::comparison::TraceComparison::align(

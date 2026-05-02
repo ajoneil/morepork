@@ -78,8 +78,9 @@ enum Command {
         /// Exclude these fields from comparison (comma-separated)
         #[arg(long)]
         exclude: Option<String>,
-        /// Sync condition before comparing (default: pc).
-        /// "none" for no sync, or field=value / field&mask.
+        /// Sync mode before comparing. Modes: auto (default; cartridge-entry
+        /// skip if both start at PC=0x0100, else first-common-PC), cartridge,
+        /// pc, none, or a condition like `pc=0x0101` / `lcdc&80` (hex values).
         #[arg(long)]
         sync: Option<String>,
         /// One-line-per-field summary output

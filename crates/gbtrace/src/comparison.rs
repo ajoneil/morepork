@@ -45,9 +45,18 @@ impl<'a> TraceComparison<'a> {
     /// Create a TraceComparison by aligning two traces.
     ///
     /// Sync modes:
-    /// - `None` or `Some("pc")`: align by first common PC value
-    /// - `Some("none")`: no alignment, compare from entry 0
-    /// - `Some("field=value")`: align both to first match of condition
+    /// - `None` or `Some("auto")` — pick the best built-in mode for the inputs.
+    ///   If both traces start at PC=0x0100 (cartridge ROM entry), advance both
+    ///   to the first PC=0x0101 to skip the post-boot WriteOp tail and the
+    ///   first NOP (where adapters' clocks land at different sub-phases).
+    ///   Otherwise fall back to first-common-PC alignment.
+    /// - `Some("cartridge")` — explicitly require cartridge-entry alignment;
+    ///   errors if either trace's first entry isn't PC=0x0100.
+    /// - `Some("pc")` — first-common-PC alignment (legacy default).
+    /// - `Some("none")` — no alignment, compare from entry 0.
+    /// - `Some("field=value")` / `Some("field&mask")` — advance both stores to
+    ///   the first entry matching the condition. Values are parsed as hex
+    ///   (with or without `0x` prefix), matching the `query --where` syntax.
     pub fn align(
         store_a: &'a dyn TraceStore,
         store_b: &'a dyn TraceStore,
@@ -70,9 +79,23 @@ impl<'a> TraceComparison<'a> {
         };
 
         // Apply sync alignment
-        let sync_mode = sync.unwrap_or("pc");
+        let sync_mode = sync.unwrap_or("auto");
         match sync_mode {
             "none" => {}
+            "auto" => {
+                if !try_align_cartridge_entry(store_a, store_b, &mut map_a, &mut map_b) {
+                    align_by_pc(store_a, store_b, &mut map_a, &mut map_b);
+                }
+            }
+            "cartridge" => {
+                if !try_align_cartridge_entry(store_a, store_b, &mut map_a, &mut map_b) {
+                    return Err(Error::Diff(
+                        "sync=cartridge: both traces must start at PC=0x0100 \
+                         (cartridge ROM entry) and contain a later PC=0x0101 entry"
+                            .into(),
+                    ));
+                }
+            }
             "pc" => {
                 align_by_pc(store_a, store_b, &mut map_a, &mut map_b);
             }
@@ -591,6 +614,12 @@ fn collapse_indices(store: &dyn TraceStore) -> Result<Vec<usize>> {
     Ok(indices)
 }
 
+/// First entry in `map` whose `pc` column equals `target`. Returns the
+/// position within `map` (not the original row index).
+fn find_pc_position(store: &dyn TraceStore, pc_col: usize, map: &[usize], target: u16) -> Option<usize> {
+    map.iter().position(|&i| store.get_numeric(pc_col, i) as u16 == target)
+}
+
 /// Align index maps by first common PC value.
 fn align_by_pc(
     store_a: &dyn TraceStore,
@@ -609,29 +638,21 @@ fn align_by_pc(
 
         if pc_a == pc_b { return; } // already aligned
 
-        // Find a common PC in the first 100 entries of each
-        let target = (0..map_a.len().min(100))
-            .find(|&i| store_a.get_numeric(ca, map_a[i]) as u16 == pc_b)
-            .map(|_| pc_b)
-            .or_else(|| {
-                (0..map_b.len().min(100))
-                    .find(|&i| store_b.get_numeric(cb, map_b[i]) as u16 == pc_a)
-                    .map(|_| pc_a)
-            });
+        // Look for the other side's first PC in our first 100 entries.
+        let head_a = &map_a[..map_a.len().min(100)];
+        let head_b = &map_b[..map_b.len().min(100)];
+        let target = find_pc_position(store_a, ca, head_a, pc_b).map(|_| pc_b)
+            .or_else(|| find_pc_position(store_b, cb, head_b, pc_a).map(|_| pc_a));
 
         if let Some(target_pc) = target {
             if pc_a != target_pc {
-                if let Some(pos) = map_a.iter().position(|&idx| {
-                    store_a.get_numeric(ca, idx) as u16 == target_pc
-                }) {
-                    *map_a = map_a[pos..].to_vec();
+                if let Some(pos) = find_pc_position(store_a, ca, map_a, target_pc) {
+                    map_a.drain(..pos);
                 }
             }
             if pc_b != target_pc {
-                if let Some(pos) = map_b.iter().position(|&idx| {
-                    store_b.get_numeric(cb, idx) as u16 == target_pc
-                }) {
-                    *map_b = map_b[pos..].to_vec();
+                if let Some(pos) = find_pc_position(store_b, cb, map_b, target_pc) {
+                    map_b.drain(..pos);
                 }
             }
         }
@@ -654,13 +675,8 @@ fn align_by_condition(
         return Err(Error::Diff(format!("invalid sync condition: {condition}")));
     };
 
-    let val = if let Some(hex) = value.strip_prefix("0x") {
-        u64::from_str_radix(hex, 16)
-            .map_err(|_| Error::Diff(format!("invalid value: {value}")))?
-    } else {
-        value.parse::<u64>()
-            .map_err(|_| Error::Diff(format!("invalid value: {value}")))?
-    };
+    let val = crate::query::parse_number(value)
+        .ok_or_else(|| Error::Diff(format!("invalid value: {value}")))?;
 
     let matches_condition = |store: &dyn TraceStore, row: usize| -> bool {
         if let Some(col) = store.field_col(field) {
@@ -676,11 +692,162 @@ fn align_by_condition(
     };
 
     if let Some(pos) = map_a.iter().position(|&idx| matches_condition(store_a, idx)) {
-        *map_a = map_a[pos..].to_vec();
+        map_a.drain(..pos);
     }
     if let Some(pos) = map_b.iter().position(|&idx| matches_condition(store_b, idx)) {
-        *map_b = map_b[pos..].to_vec();
+        map_b.drain(..pos);
     }
 
     Ok(())
+}
+
+/// Cartridge ROM header entry point: the post-boot CPU is poised to fetch
+/// the first cartridge instruction here. Conventionally a NOP, with JP nn
+/// at 0x0101.
+const CARTRIDGE_ENTRY: u16 = 0x0100;
+/// One byte past `CARTRIDGE_ENTRY`. Aligning here skips the post-boot
+/// WriteOp tail and the entry NOP, where adapters land at different
+/// M-cycle sub-phases (see `missingno-gb`'s `Cpu::new` comment about the
+/// in-flight `LDH (FF50), A` residual).
+const CARTRIDGE_AFTER_NOP: u16 = 0x0101;
+
+/// Advance both maps to the first `CARTRIDGE_AFTER_NOP` entry, but only if
+/// both traces start at `CARTRIDGE_ENTRY`. Returns `true` when alignment
+/// was applied. Used by `auto` and `cartridge` sync modes.
+fn try_align_cartridge_entry(
+    store_a: &dyn TraceStore,
+    store_b: &dyn TraceStore,
+    map_a: &mut Vec<usize>,
+    map_b: &mut Vec<usize>,
+) -> bool {
+    let pc_col_a = match store_a.field_col("pc") { Some(c) => c, None => return false };
+    let pc_col_b = match store_b.field_col("pc") { Some(c) => c, None => return false };
+    if map_a.is_empty() || map_b.is_empty() { return false; }
+
+    let pc_a0 = store_a.get_numeric(pc_col_a, map_a[0]) as u16;
+    let pc_b0 = store_b.get_numeric(pc_col_b, map_b[0]) as u16;
+    if pc_a0 != CARTRIDGE_ENTRY || pc_b0 != CARTRIDGE_ENTRY { return false; }
+
+    match (
+        find_pc_position(store_a, pc_col_a, map_a, CARTRIDGE_AFTER_NOP),
+        find_pc_position(store_b, pc_col_b, map_b, CARTRIDGE_AFTER_NOP),
+    ) {
+        (Some(a), Some(b)) => {
+            map_a.drain(..a);
+            map_b.drain(..b);
+            true
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::header::{BootRom, TraceHeader, Trigger};
+
+    /// Minimal in-memory TraceStore for alignment tests. Holds only a `pc`
+    /// column — alignment paths only read that field.
+    struct PcStore {
+        header: TraceHeader,
+        pcs: Vec<u16>,
+    }
+
+    impl PcStore {
+        fn new(pcs: Vec<u16>) -> Self {
+            Self {
+                header: TraceHeader {
+                    _header: true,
+                    format_version: "0.1.0".into(),
+                    emulator: "test".into(),
+                    emulator_version: "0".into(),
+                    rom_sha256: "0".into(),
+                    model: "DMG".into(),
+                    boot_rom: BootRom::Skip,
+                    profile: "test".into(),
+                    fields: vec!["pc".into()],
+                    trigger: Trigger::Tcycle,
+                    extension_fields: std::collections::BTreeMap::new(),
+                    notes: String::new(),
+                },
+                pcs,
+            }
+        }
+    }
+
+    impl TraceStore for PcStore {
+        fn header(&self) -> &TraceHeader { &self.header }
+        fn entry_count(&self) -> usize { self.pcs.len() }
+        fn field_col(&self, name: &str) -> Option<usize> {
+            if name == "pc" { Some(0) } else { None }
+        }
+        fn frame_boundaries(&self) -> Vec<u32> { vec![0] }
+        fn get_str(&self, _col: usize, row: usize) -> String { format!("{:04x}", self.pcs[row]) }
+        fn get_numeric(&self, _col: usize, row: usize) -> u64 { self.pcs[row] as u64 }
+        fn get_bool(&self, _col: usize, _row: usize) -> bool { false }
+        fn is_null(&self, _col: usize, _row: usize) -> bool { false }
+    }
+
+    fn cartridge_like() -> PcStore {
+        PcStore::new(vec![0x0100, 0x0100, 0x0100, 0x0101, 0x0101, 0x0102, 0x0103, 0x0150])
+    }
+
+    #[test]
+    fn auto_skips_post_boot_tail_when_both_at_cartridge_entry() {
+        let a = PcStore::new(vec![0x0100, 0x0100, 0x0100, 0x0100, 0x0100, 0x0101, 0x0102]);
+        let b = PcStore::new(vec![0x0100, 0x0100, 0x0100, 0x0101, 0x0102]);
+        let cmp = TraceComparison::align(&a, &b, None).unwrap();
+        // Both should land on PC=0x0101 at aligned index 0, then walk forward
+        // truncated to the shorter map (b has 2 entries from PC=0x0101 onward).
+        assert_eq!(cmp.len(), 2);
+        assert_eq!(a.pcs[cmp.original_a(0)], 0x0101);
+        assert_eq!(b.pcs[cmp.original_b(0)], 0x0101);
+        assert_eq!(a.pcs[cmp.original_a(1)], 0x0102);
+        assert_eq!(b.pcs[cmp.original_b(1)], 0x0102);
+    }
+
+    #[test]
+    fn auto_falls_back_to_pc_when_not_cartridge_entry() {
+        // Neither starts at 0x0100 → cartridge mode declines; fall back to
+        // first-common-PC. Both already share 0x0150 at index 0, so no shift.
+        let a = PcStore::new(vec![0x0150, 0x0151, 0x0152]);
+        let b = PcStore::new(vec![0x0150, 0x0151, 0x0152]);
+        let cmp = TraceComparison::align(&a, &b, None).unwrap();
+        assert_eq!(cmp.len(), 3);
+        assert_eq!(cmp.original_a(0), 0);
+        assert_eq!(cmp.original_b(0), 0);
+    }
+
+    #[test]
+    fn cartridge_mode_errors_when_traces_dont_start_at_0x0100() {
+        let a = PcStore::new(vec![0x0150, 0x0151]);
+        let b = PcStore::new(vec![0x0150, 0x0151]);
+        match TraceComparison::align(&a, &b, Some("cartridge")) {
+            Err(Error::Diff(msg)) => assert!(msg.contains("cartridge")),
+            Err(other) => panic!("expected Diff error, got {other:?}"),
+            Ok(_) => panic!("expected error, alignment succeeded"),
+        }
+    }
+
+    #[test]
+    fn pc_mode_keeps_legacy_first_common_pc_behavior() {
+        // Both start at 0x0100 → pc mode is a no-op (already common).
+        let a = cartridge_like();
+        let b = cartridge_like();
+        let cmp = TraceComparison::align(&a, &b, Some("pc")).unwrap();
+        assert_eq!(cmp.len(), a.pcs.len());
+        assert_eq!(cmp.original_a(0), 0);
+    }
+
+    #[test]
+    fn condition_mode_parses_value_as_hex_with_or_without_prefix() {
+        let a = cartridge_like();
+        let b = cartridge_like();
+
+        let cmp_prefixed = TraceComparison::align(&a, &b, Some("pc=0x0101")).unwrap();
+        let cmp_bare = TraceComparison::align(&a, &b, Some("pc=0101")).unwrap();
+        assert_eq!(cmp_prefixed.len(), cmp_bare.len());
+        assert_eq!(a.pcs[cmp_prefixed.original_a(0)], 0x0101);
+        assert_eq!(a.pcs[cmp_bare.original_a(0)], 0x0101);
+    }
 }
