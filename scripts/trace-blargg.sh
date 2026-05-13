@@ -24,7 +24,7 @@ NAME="${ROM_REL//\//__}"
 BASENAME="$(basename "$ROM" .gb)"
 PIX_REF="$(dirname "$ROM")/${BASENAME}.pix"
 
-MAX_FRAMES=1200
+MAX_FRAMES=2000
 TMP="/tmp/gbtrace_blargg_${NAME}_${ADAPTER}_$$"
 stderr_file="${TMP}.stderr"
 tmp_trace="${TMP}.gbtrace"
