@@ -11,7 +11,7 @@ on:
         description: "Test suite"
         default: "all"
         type: choice
-        options: [all, gbmicrotest, blargg, mooneye, gambatte-tests, mealybug-tearoom, dmg-acid2, age, mooneye-wilbertpol, samesuite, scribbltests, bully, little-things, mbc3-tester, strikethrough, turtle-tests]
+        options: [all, gbmicrotest, blargg, mooneye, gambatte-tests, mealybug-tearoom, dmg-acid2, age, mooneye-wilbertpol, samesuite, scribbltests, bully, mbc3-tester, strikethrough, turtle-tests]
       emulator:
         description: "Emulator (all, gambatte, sameboy, gateboy, missingno, docboy)"
         default: "all"
@@ -32,7 +32,7 @@ jobs:
     steps:
       - id: set
         run: |
-          SUITES='["gbmicrotest","blargg","mooneye","gambatte-tests","mealybug-tearoom","dmg-acid2","age","mooneye-wilbertpol","samesuite","scribbltests","bully","little-things","mbc3-tester","strikethrough","turtle-tests"]'
+          SUITES='["gbmicrotest","blargg","mooneye","gambatte-tests","mealybug-tearoom","dmg-acid2","age","mooneye-wilbertpol","samesuite","scribbltests","bully","mbc3-tester","strikethrough","turtle-tests"]'
           EMUS='["gambatte","sameboy","gateboy","missingno","docboy"]'
 
           if [ "${{ inputs.suite }}" != "" ] && [ "${{ inputs.suite }}" != "all" ]; then
@@ -182,12 +182,6 @@ jobs:
               ;;
             bully)
               PROFILE="test-suites/bully/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 30
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            little-things)
-              PROFILE="test-suites/little-things/profile.toml"
               while IFS= read -r -d '' rom; do
                 run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 30
               done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)

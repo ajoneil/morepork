@@ -154,15 +154,6 @@ def main():
         'scripts/trace-screenshot-suite.sh',
     )
 
-    little_things_stamps = gen_suite(
-        'little-things',
-        'test-suites/little-things',
-        'test-suites/little-things/profile.toml',
-        '$(LITTLE_THINGS_TRACE_DIR)',
-        emus,
-        'scripts/trace-screenshot-suite.sh',
-    )
-
     mbc3_tester_stamps = gen_suite(
         'mbc3-tester',
         'test-suites/mbc3-tester',
@@ -210,8 +201,6 @@ def main():
     print(f"SCRIBBLTESTS_STAMPS := {' '.join(scribbltests_stamps)}")
     print()
     print(f"BULLY_STAMPS := {' '.join(bully_stamps)}")
-    print()
-    print(f"LITTLE_THINGS_STAMPS := {' '.join(little_things_stamps)}")
     print()
     print(f"MBC3_TESTER_STAMPS := {' '.join(mbc3_tester_stamps)}")
     print()

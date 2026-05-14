@@ -147,15 +147,6 @@ const TEST_SUITES = [
     categories: [],
   },
   {
-    name: 'little-things',
-    base: 'tests/little-things',
-    profile: 'tests/little-things/profile.toml',
-    manifest: 'tests/little-things/manifest.json',
-    preferredEmu: 'gateboy',
-    tests: null,
-    categories: [],
-  },
-  {
     name: 'mbc3-tester',
     base: 'tests/mbc3-tester',
     profile: 'tests/mbc3-tester/profile.toml',

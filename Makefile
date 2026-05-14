@@ -43,7 +43,6 @@ MOONEYE_WILBERTPOL_TRACE_DIR := $(BUILD_DIR)/traces/mooneye-wilbertpol
 SAMESUITE_TRACE_DIR := $(BUILD_DIR)/traces/samesuite
 SCRIBBLTESTS_TRACE_DIR := $(BUILD_DIR)/traces/scribbltests
 BULLY_TRACE_DIR := $(BUILD_DIR)/traces/bully
-LITTLE_THINGS_TRACE_DIR := $(BUILD_DIR)/traces/little-things
 MBC3_TESTER_TRACE_DIR := $(BUILD_DIR)/traces/mbc3-tester
 STRIKETHROUGH_TRACE_DIR := $(BUILD_DIR)/traces/strikethrough
 TURTLE_TESTS_TRACE_DIR := $(BUILD_DIR)/traces/turtle-tests
@@ -81,7 +80,7 @@ DMG_ACID2_REF := test-suites/dmg-acid2/reference.pix
 .PHONY: all adapters cli wasm traces traces-gbmicrotest traces-blargg \
         traces-mooneye traces-gambatte-tests traces-mealybug-tearoom traces-dmg-acid2 \
         traces-age traces-mooneye-wilbertpol traces-samesuite traces-scribbltests \
-        traces-bully traces-little-things traces-mbc3-tester traces-strikethrough \
+        traces-bully traces-mbc3-tester traces-strikethrough \
         traces-turtle-tests manifests site serve clean
 
 all: site
@@ -92,7 +91,7 @@ cli: $(CLI)
 
 traces: traces-gbmicrotest traces-blargg traces-mooneye traces-gambatte-tests traces-mealybug-tearoom traces-dmg-acid2 \
         traces-age traces-mooneye-wilbertpol traces-samesuite traces-scribbltests \
-        traces-bully traces-little-things traces-mbc3-tester traces-strikethrough \
+        traces-bully traces-mbc3-tester traces-strikethrough \
         traces-turtle-tests
 
 traces-gbmicrotest: $(RULES_MK) $(GBMICROTEST_STAMPS)
@@ -165,11 +164,6 @@ traces-bully: $(RULES_MK) pix-refs $(BULLY_STAMPS)
 	@echo "Generating bully manifest..."
 	@python3 scripts/manifest.py "$(BULLY_TRACE_DIR)" "test-suites/bully"
 	@echo "=== bully complete ==="
-
-traces-little-things: $(RULES_MK) pix-refs $(LITTLE_THINGS_STAMPS)
-	@echo "Generating little-things manifest..."
-	@python3 scripts/manifest.py "$(LITTLE_THINGS_TRACE_DIR)" "test-suites/little-things"
-	@echo "=== little-things complete ==="
 
 traces-mbc3-tester: $(RULES_MK) pix-refs $(MBC3_TESTER_STAMPS)
 	@echo "Generating mbc3-tester manifest..."
