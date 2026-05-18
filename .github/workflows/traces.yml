@@ -189,7 +189,7 @@ jobs:
             mbc3-tester)
               PROFILE="test-suites/mbc3-tester/profile.toml"
               while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 40
+                run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 120
               done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
               ;;
             strikethrough)

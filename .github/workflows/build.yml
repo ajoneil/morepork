@@ -160,6 +160,7 @@ jobs:
         if: matrix.emulator == 'missingno'
         run: |
           cd adapters/missingno
+          cargo update -p missingno-gb
           cargo build --release
           cp target/release/gbtrace-missingno .
 
