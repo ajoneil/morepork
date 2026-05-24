@@ -65,14 +65,25 @@ impl<'a> TraceComparison<'a> {
         let a_tcycle = matches!(store_a.header().trigger, crate::header::Trigger::Tcycle);
         let b_tcycle = matches!(store_b.header().trigger, crate::header::Trigger::Tcycle);
 
-        // Build base index maps (all entries, or collapsed to instructions)
-        let mut map_a = if a_tcycle && !b_tcycle {
+        // When triggers differ (mcycle vs tcycle, instruction vs tcycle, etc.) collapse
+        // BOTH traces to PC-change boundaries. Otherwise the side with finer granularity
+        // has more entries per instruction (e.g. an M-cycle trace emits one entry per
+        // M-cycle, including ones where PC doesn't change like LD (HL+),A's write step),
+        // which drifts the alignment by one per such instruction.
+        let triggers_differ = matches!(
+            (&store_a.header().trigger, &store_b.header().trigger),
+            (a, b) if a != b
+        );
+        let collapse_a = (a_tcycle && !b_tcycle) || triggers_differ;
+        let collapse_b = (b_tcycle && !a_tcycle) || triggers_differ;
+
+        let mut map_a = if collapse_a {
             collapse_indices(store_a)?
         } else {
             (0..store_a.entry_count()).collect()
         };
 
-        let mut map_b = if b_tcycle && !a_tcycle {
+        let mut map_b = if collapse_b {
             collapse_indices(store_b)?
         } else {
             (0..store_b.entry_count()).collect()

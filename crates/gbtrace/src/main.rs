@@ -66,6 +66,26 @@ enum Command {
         #[arg(long)]
         frames: Option<String>,
     },
+    /// Downsample a trace to a coarser trigger (e.g. tcycle → mcycle).
+    ///
+    /// Useful for inspecting an M-cycle view of a T-cycle trace without
+    /// running a comparison. For missingno (which exposes `mcycle_phase`),
+    /// the default keeps entries at M-cycle boundary (phase=0x00). For
+    /// other T-cycle adapters without that field, the default keeps every
+    /// 4th entry. Override with `--keep` for a custom condition.
+    Downsample {
+        /// Input trace file
+        input: PathBuf,
+        /// Output trace file (default: <input>.downsampled.gbtrace)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Target trigger (default: mcycle)
+        #[arg(long, default_value = "mcycle")]
+        target: String,
+        /// Custom keep condition (e.g. `mcycle_phase=0x00`). Overrides defaults.
+        #[arg(long)]
+        keep: Option<String>,
+    },
     /// Compare two trace files and report divergences
     Diff {
         /// First trace file (reference)
@@ -107,6 +127,7 @@ fn main() {
         }
         Command::Frames { input } => cmd_frames(&input),
         Command::Render { input, output, frames } => cmd_render(&input, output, frames),
+        Command::Downsample { input, output, target, keep } => cmd_downsample(&input, output, &target, keep.as_deref()),
         Command::Diff {
             trace_a,
             trace_b,
@@ -409,6 +430,147 @@ fn convert_to_gbtrace(
     0
 }
 
+// ---------------------------------------------------------------------------
+// downsample
+// ---------------------------------------------------------------------------
+
+fn cmd_downsample(input: &PathBuf, output: Option<PathBuf>, target: &str, keep: Option<&str>) -> i32 {
+    use gbtrace::format::write::GbtraceWriter;
+    use gbtrace::header::Trigger;
+    use gbtrace::profile::FieldType;
+
+    let target_trigger = match target.to_lowercase().as_str() {
+        "instruction" => Trigger::Instruction,
+        "mcycle" => Trigger::Mcycle,
+        "tcycle" => Trigger::Tcycle,
+        "scanline" => Trigger::Scanline,
+        "frame" => Trigger::Frame,
+        "custom" => Trigger::Custom,
+        other => { eprintln!("Error: unknown target trigger '{other}'"); return 1; }
+    };
+
+    let store = match gbtrace::store::open_trace_store(input) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("Error opening input: {e}"); return 1; }
+    };
+
+    // Pick the keep filter. Explicit --keep wins; otherwise default by input trigger.
+    enum Filter {
+        Condition(gbtrace::query::Condition),
+        EveryNth(usize),
+    }
+    let filter = if let Some(cond_str) = keep {
+        match gbtrace::query::parse_condition(cond_str) {
+            Ok(c) => Filter::Condition(c),
+            Err(e) => { eprintln!("Error: bad --keep condition: {e}"); return 1; }
+        }
+    } else {
+        // Default for tcycle → mcycle: mcycle_phase=0x00 if field exists, else every 4th.
+        let input_is_tcycle = matches!(store.header().trigger, Trigger::Tcycle);
+        let target_is_mcycle = matches!(target_trigger, Trigger::Mcycle);
+        if input_is_tcycle && target_is_mcycle {
+            if store.has_field("mcycle_phase") {
+                // Missingno's mcycle_phase ring counter is (in order within one
+                // M-cycle) 0x0E → 0x07 → 0x01 → 0x08. Phase 0x0E is the first
+                // T-cycle of an M-cycle — picking it gives one entry per M-cycle
+                // at the "after previous M-cycle's commits" sample point, which
+                // is the natural alignment for an M-cycle-cadence trace.
+                match gbtrace::query::parse_condition("mcycle_phase=0x0e") {
+                    Ok(c) => Filter::Condition(c),
+                    Err(e) => { eprintln!("Error: internal default condition failed: {e}"); return 1; }
+                }
+            } else {
+                Filter::EveryNth(4)
+            }
+        } else {
+            eprintln!("Error: no default filter for {:?} → {:?}; pass --keep <condition>",
+                store.header().trigger, target_trigger);
+            return 1;
+        }
+    };
+
+    // Build the output header by cloning the input's and overriding trigger.
+    let mut out_header = store.header().clone();
+    out_header.trigger = target_trigger.clone();
+    let groups = gbtrace::format::read::derive_groups_pub(&out_header.fields);
+
+    let output = output.unwrap_or_else(|| {
+        let mut p = input.clone();
+        let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "trace".to_string());
+        p.set_file_name(format!("{stem}.downsampled.gbtrace"));
+        p
+    });
+
+    let mut writer = match GbtraceWriter::create(&output, &out_header, &groups) {
+        Ok(w) => w,
+        Err(e) => { eprintln!("Error creating output: {e}"); return 1; }
+    };
+
+    // Frame boundaries from input — map old entry index → emit a mark_frame
+    // at the first kept entry on/after that index.
+    let frame_in_indices: Vec<u32> = store.frame_boundaries();
+    let mut frame_cursor = 0usize;
+
+    let total = store.entry_count();
+    let mut kept = 0u64;
+
+    for i in 0..total {
+        // Always include entry 0 so the trace start is preserved. T-cycle
+        // adapters that begin capture partway through an M-cycle (e.g.
+        // missingno's step_tcycle takes 2 phases before its first capture)
+        // leave the first M-cycle missing the canonical "boundary" phase the
+        // filter looks for. Including entry 0 unconditionally keeps the first
+        // visible PC in the downsampled trace.
+        let keep_this = i == 0 || match &filter {
+            Filter::Condition(c) => store.eval_condition_trait(c, i),
+            Filter::EveryNth(n) => i % n == (n - 1),
+        };
+        if !keep_this { continue; }
+
+        // Copy all fields for this row into the writer.
+        for (col, name) in out_header.fields.iter().enumerate() {
+            let ft = out_header.resolve_field_type(name);
+            let nullable = out_header.resolve_field_nullable(name);
+            let in_col = match store.field_col(name) { Some(c) => c, None => { writer.set_null(col); continue; } };
+
+            if nullable && store.is_null(in_col, i) { writer.set_null(col); continue; }
+
+            match ft {
+                FieldType::UInt64 => writer.set_u64(col, store.get_numeric(in_col, i)),
+                FieldType::UInt16 => writer.set_u16(col, store.get_numeric(in_col, i) as u16),
+                FieldType::UInt8  => writer.set_u8(col, store.get_numeric(in_col, i) as u8),
+                FieldType::Bool   => writer.set_bool(col, store.get_bool(in_col, i)),
+                FieldType::Str    => writer.set_str(col, &store.get_str(in_col, i)),
+            }
+        }
+
+        if let Err(e) = writer.finish_entry() {
+            eprintln!("Error writing entry {kept}: {e}"); return 1;
+        }
+
+        // Emit any frame boundaries from input that fall at or before this row.
+        while frame_cursor < frame_in_indices.len()
+            && (frame_in_indices[frame_cursor] as usize) <= i
+        {
+            if let Err(e) = writer.mark_frame(None) {
+                eprintln!("Error marking frame: {e}"); return 1;
+            }
+            frame_cursor += 1;
+        }
+
+        kept += 1;
+    }
+
+    if let Err(e) = writer.finish() {
+        eprintln!("Error finalizing: {e}"); return 1;
+    }
+
+    let out_size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
+    println!("Downsampled {total} entries → {kept} ({} bytes) at {}",
+        out_size, output.display());
+    0
+}
 
 // ---------------------------------------------------------------------------
 fn cmd_query(input: &PathBuf, conditions: &[String], max: usize, context: usize, field_filter: Option<&[String]>) -> i32 {
