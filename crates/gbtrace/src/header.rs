@@ -35,6 +35,12 @@ impl BootRom {
     }
 }
 
+impl Default for BootRom {
+    fn default() -> Self {
+        BootRom::Builtin
+    }
+}
+
 impl Serialize for BootRom {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
@@ -63,9 +69,10 @@ impl<'de> Deserialize<'de> for BootRom {
 }
 
 /// When trace entries are emitted.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Trigger {
+    #[default]
     Instruction,
     Mcycle,
     Tcycle,
@@ -98,36 +105,52 @@ pub struct ExtensionField {
 fn is_false(b: &bool) -> bool { !b }
 
 /// The header line of a `.gbtrace` file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// In the JSONL interchange format only `_header: true` is required; all other
+/// fields default per the file-format spec (`receipts/design/file-format.md`).
+/// Field types are resolved from name via the built-in catalogue, so an emulator
+/// can emit data lines with no header and the reader will synthesise one.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TraceHeader {
     /// Always `true`. Identifies this line as the header.
     pub _header: bool,
 
     /// Spec version (semver).
+    #[serde(default = "default_format_version")]
     pub format_version: String,
 
     /// Emulator identifier (lowercase, no spaces).
+    #[serde(default = "default_emulator")]
     pub emulator: String,
 
     /// Emulator version string.
+    #[serde(default)]
     pub emulator_version: String,
 
     /// SHA-256 hex digest of the ROM file.
+    #[serde(default)]
     pub rom_sha256: String,
 
     /// Hardware model identifier (e.g. "DMG-B", "CGB-E").
+    #[serde(default = "default_model")]
     pub model: String,
 
     /// How the boot ROM was handled.
+    #[serde(default)]
     pub boot_rom: BootRom,
 
     /// Name of the capture profile used.
+    #[serde(default)]
     pub profile: String,
 
     /// Ordered list of field names present in each state entry.
+    /// When empty (and JSONL input has no `fields` in its header), the
+    /// reader infers field names from the first data line's keys.
+    #[serde(default)]
     pub fields: Vec<String>,
 
     /// When entries are emitted.
+    #[serde(default)]
     pub trigger: Trigger,
 
     /// Adapter-defined extension fields. Maps field name → type metadata
@@ -143,17 +166,17 @@ pub struct TraceHeader {
     pub notes: String,
 }
 
+fn default_format_version() -> String { "1.0".to_string() }
+fn default_emulator() -> String { "unknown".to_string() }
+fn default_model() -> String { "DMG".to_string() }
+
 impl TraceHeader {
-    /// Validate header invariants.
+    /// Validate header invariants. Empty `fields` is permitted at this
+    /// stage — JSONL inputs may infer them from the first data line.
     pub fn validate(&self) -> crate::error::Result<()> {
         if !self._header {
             return Err(crate::error::Error::InvalidHeader(
                 "_header must be true".into(),
-            ));
-        }
-        if self.fields.is_empty() {
-            return Err(crate::error::Error::InvalidHeader(
-                "fields must not be empty".into(),
             ));
         }
         // Reject extension fields that shadow built-in field names —

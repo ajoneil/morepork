@@ -121,6 +121,9 @@ fn header_validation() {
     };
     assert!(h.validate().is_err());
 
+    // Empty `fields` is permitted at validate time — JSONL inputs may infer
+    // fields from the first data line, so the construction-time check would
+    // be too strict. Field-list emptiness shows up later as a no-op trace.
     let h = TraceHeader {
         _header: true,
         format_version: "0.1.0".into(),
@@ -135,5 +138,5 @@ fn header_validation() {
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
     };
-    assert!(h.validate().is_err());
+    assert!(h.validate().is_ok());
 }

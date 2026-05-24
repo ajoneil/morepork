@@ -378,6 +378,18 @@ fn convert_to_gbtrace(
                     eprintln!("Error writing entry {count}: {e}");
                     return 1;
                 }
+
+                // Spec: `_frame: true` marks a frame boundary at the current entry.
+                let frame_boundary = entry
+                    .get("_frame")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if frame_boundary {
+                    if let Err(e) = writer.mark_frame(None) {
+                        eprintln!("Error marking frame at entry {count}: {e}");
+                        return 1;
+                    }
+                }
                 count += 1;
             }
             Err(e) => {

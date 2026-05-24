@@ -42,8 +42,15 @@ fn reader_to_store(
 
         for result in entries {
             let entry = result?;
+            let frame_boundary = entry
+                .get("_frame")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             write_entry_to_gbtrace(&mut writer, &entry, &header)?;
             writer.finish_entry()?;
+            if frame_boundary {
+                writer.mark_frame(None)?;
+            }
         }
 
         writer.finish()?;
