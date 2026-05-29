@@ -199,6 +199,9 @@ const EMU_SHORT = { missingno: 'MN', docboy: 'DB', gambatte: 'Ga', sameboy: 'SB'
 
 const SYSTEMS = ['dmg', 'cgb'];
 const SYSTEM_LABEL = { dmg: 'DMG', cgb: 'CGB' };
+// DMG and CGB are modelled as separate but related systems — surfaced as the
+// two top-level tabs. Everything below a tab refers only to that system.
+const SYSTEM_NAME = { dmg: 'Game Boy', cgb: 'Game Boy Color' };
 
 // Trace blobs are hosted off-Pages (DigitalOcean Spaces) because the full set
 // far exceeds the 1 GB Pages limit. Production sets `window.GBTRACE_TRACE_BASE`
@@ -307,16 +310,18 @@ export class TestPicker extends LitElement {
     .cat-chip:hover { border-color: var(--accent); color: var(--accent); }
     .cat-chip.active { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
 
-    .system-toggle {
-      display: inline-flex; gap: 0; margin-left: auto; border: 1px solid var(--border);
-      border-radius: 6px; overflow: hidden;
+    /* Top-level Game Boy / Game Boy Color tabs above the picker card. */
+    .system-tabs {
+      display: flex; gap: 8px; width: 100%; max-width: 800px;
+      margin-bottom: 14px; border-bottom: 1px solid var(--border);
     }
-    .system-chip {
-      padding: 3px 10px; background: var(--bg); color: var(--text-muted); cursor: pointer;
-      font-size: 0.72rem; font-family: var(--mono); font-weight: 600;
+    .system-tab {
+      padding: 8px 16px; cursor: pointer; font-size: 0.9rem; font-weight: 600;
+      color: var(--text-muted); border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
     }
-    .system-chip:hover { color: var(--accent); }
-    .system-chip.active { background: var(--accent); color: var(--bg); }
+    .system-tab:hover { color: var(--accent); }
+    .system-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
     .search {
       width: 100%; padding: 5px 10px; background: var(--bg);
@@ -379,12 +384,39 @@ export class TestPicker extends LitElement {
     this._loadManifests();
   }
 
-  /** Systems (dmg/cgb) for which this suite has any traces. */
-  _systemsFor(suite) {
-    if (!suite.tests) return ['dmg'];
-    const present = SYSTEMS.filter(m =>
-      suite.tests.some(t => t.systems && t.systems[m] && Object.keys(t.systems[m]).length));
-    return present.length ? present : ['dmg'];
+  /** Does a test entry have any trace for `system`? */
+  _testInSystem(test, system) {
+    const m = test.systems?.[system];
+    return !!(m && Object.keys(m).length);
+  }
+
+  /** Systems (dmg/cgb) a given test entry has traces for. */
+  _systemsForTest(test) {
+    return SYSTEMS.filter(s => this._testInSystem(test, s));
+  }
+
+  /** This suite's tests that belong to `system` (its slice of the split). */
+  _systemTests(suite, system) {
+    if (!suite.tests) return [];
+    return suite.tests.filter(t => this._testInSystem(t, system));
+  }
+
+  /** True if the suite has any test for `system` (null = not loaded yet). */
+  _hasSystem(suite, system) {
+    return suite.tests === null || suite.tests.some(t => this._testInSystem(t, system));
+  }
+
+  /** Suites available under `system`, as {suite, index} into TEST_SUITES. */
+  _suitesForSystem(system) {
+    return TEST_SUITES
+      .map((suite, index) => ({ suite, index }))
+      .filter(({ suite }) => this._hasSystem(suite, system));
+  }
+
+  /** Test count for a suite under the current system, or null if not loaded. */
+  _suiteCount(suite) {
+    if (!suite.tests) return null;
+    return this._systemTests(suite, this._system).length;
   }
 
   async _loadManifests() {
@@ -402,11 +434,13 @@ export class TestPicker extends LitElement {
 
   _getSuiteStats(suite) {
     if (!suite.tests) return {};
-    const totalTests = suite.tests.length;
+    // Counts reference only the current system's slice of the suite.
+    const systemTests = this._systemTests(suite, this._system);
+    const totalTests = systemTests.length;
     const stats = {};
     for (const emu of EMULATORS) {
       let pass = 0, fail = 0;
-      for (const test of suite.tests) {
+      for (const test of systemTests) {
         const s = test.systems?.[this._system]?.[emu];
         if (s === 'pass') pass++;
         else if (s === 'fail') fail++;
@@ -419,7 +453,7 @@ export class TestPicker extends LitElement {
 
   _getTests(suite) {
     if (!suite.tests) return [];
-    let tests = suite.tests;
+    let tests = this._systemTests(suite, this._system);
     if (this._category) {
       tests = tests.filter(t =>
         t.name.includes(this._category) ||
@@ -440,18 +474,28 @@ export class TestPicker extends LitElement {
     const suite = TEST_SUITES[this._selectedSuite];
     const tests = this._getTests(suite);
     const stats = this._getSuiteStats(suite);
-    const systems = this._systemsFor(suite);
+    const suites = this._suitesForSystem(this._system);
 
     return html`
+      <div class="system-tabs">
+        ${SYSTEMS.map(sys => html`
+          <span class="system-tab ${this._system === sys ? 'active' : ''}"
+            @click=${() => this._selectSystem(sys)}>${SYSTEM_NAME[sys]}</span>
+        `)}
+      </div>
+
       <div class="picker">
         <h3>Test Suites</h3>
 
         <div class="suite-row">
           <select class="suite-select" @change=${e => this._selectSuite(parseInt(e.target.value, 10))}>
-            ${TEST_SUITES.map((s, i) => html`
-              <option value=${i} ?selected=${i === this._selectedSuite}
-              >${s.name}${s.tests ? ` (${s.tests.length})` : ''}</option>
-            `)}
+            ${suites.map(({ suite: s, index }) => {
+              const count = this._suiteCount(s);
+              return html`
+                <option value=${index} ?selected=${index === this._selectedSuite}
+                >${s.name}${count != null ? ` (${count})` : ''}</option>
+              `;
+            })}
           </select>
 
           ${suite.categories?.length ? html`
@@ -461,15 +505,6 @@ export class TestPicker extends LitElement {
               <span class="cat-chip ${this._category === c.filter ? 'active' : ''}"
                 @click=${() => this._selectCategory(c.filter)}>${c.name}</span>
             `)}
-          ` : ''}
-
-          ${systems.length > 1 ? html`
-            <span class="system-toggle">
-              ${systems.map(m => html`
-                <span class="system-chip ${this._system === m ? 'active' : ''}"
-                  @click=${() => this._selectSystem(m)}>${SYSTEM_LABEL[m]}</span>
-              `)}
-            </span>
           ` : ''}
         </div>
 
@@ -543,14 +578,20 @@ export class TestPicker extends LitElement {
     this._category = '';
     this._search = '';
     this._error = null;
-    // Keep the current system if the new suite has it; otherwise switch.
-    const systems = this._systemsFor(TEST_SUITES[i]);
-    if (!systems.includes(this._system)) this._system = systems[0];
   }
 
   _selectSystem(system) {
+    if (system === this._system) return;
     this._system = system;
     this._selectedTest = -1;
+    this._category = '';
+    this._search = '';
+    // The suite dropdown only lists suites for the active system; if the
+    // current suite isn't one of them, fall back to the first that is.
+    const suites = this._suitesForSystem(system);
+    if (suites.length && !suites.some(({ index }) => index === this._selectedSuite)) {
+      this._selectedSuite = suites[0].index;
+    }
   }
 
   _selectCategory(filter) {
@@ -590,9 +631,14 @@ export class TestPicker extends LitElement {
 
     this._selectedSuite = TEST_SUITES.indexOf(suite);
     this._category = '';
-    this._selectedTest = suite.tests.indexOf(test);
-    const systems = this._systemsFor(suite);
-    if (!systems.includes(this._system)) this._system = systems[0];
+    this._search = '';
+    // Pick a system this test exists under, preferring the active tab.
+    const testSystems = this._systemsForTest(test);
+    if (testSystems.length && !testSystems.includes(this._system)) {
+      this._system = testSystems[0];
+    }
+    // Highlight within the system-filtered list the UI actually shows.
+    this._selectedTest = this._systemTests(suite, this._system).indexOf(test);
     this.requestUpdate();
 
     const emus = test.systems?.[this._system] || {};
