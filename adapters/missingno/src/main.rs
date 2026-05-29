@@ -150,6 +150,13 @@ impl Console for GameBoyColor {
     }
 }
 
+/// T-cycles in one DMG/CGB frame. Used as a time-based safety budget so a
+/// ROM that disables the LCD (no frame is ever produced) still terminates
+/// instead of spinning the frame-count loop forever — gbmicrotest toggle_lcdc
+/// is the canonical offender. missingno's own test harness notes the same
+/// trap and bounds by step count for the same reason.
+const CYCLES_PER_FRAME: u64 = 70224;
+
 fn framebuffer_to_rgb555<C: Console>(gb: &C) -> Vec<u8> {
     let mut buf = Vec::with_capacity(160 * 144 * 3);
     for y in 0..144 {
@@ -225,9 +232,22 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
     // Detect serial writes by watching SC bit 7 (transfer start)
     let mut prev_sc_high = (gb.peek(0xFF02) & 0x80) != 0;
 
+    // Time-based safety budget: bounds the run even when the LCD never turns on
+    // and `frame_count` can't advance. One frame of slack keeps it from ever
+    // truncating a legitimate `--frames`-bounded run.
+    let max_tcycles = (args.frames as u64)
+        .saturating_add(1)
+        .saturating_mul(CYCLES_PER_FRAME);
+    let mut total_tcycles: u64 = 0;
+
     loop {
         if frame_count >= args.frames {
             eprintln!("Frame limit reached ({} frames)", args.frames);
+            break;
+        }
+
+        if total_tcycles >= max_tcycles {
+            eprintln!("T-cycle limit reached ({total_tcycles} cycles; LCD likely off)");
             break;
         }
 
@@ -237,11 +257,12 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
             }
         }
 
-        let new_screen = if is_tcycle {
+        let (new_screen, tcycles) = if is_tcycle {
             step_tcycle(&mut gb, &mut tracer)
         } else {
             step_instruction(&mut gb, &mut tracer)
         };
+        total_tcycles += tcycles;
 
         if !stop_triggered {
             if let Some(opcode) = args.stop_opcode {
@@ -323,8 +344,10 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
 }
 
 /// Step one instruction via T-cycle phases, capturing at each dot.
-fn step_tcycle<C: Console>(gb: &mut C, tracer: &mut Tracer) -> bool {
+/// Returns `(new_screen, tcycles_captured)`.
+fn step_tcycle<C: Console>(gb: &mut C, tracer: &mut Tracer) -> (bool, u64) {
     let mut new_screen = false;
+    let mut tcycles: u64 = 0;
 
     gb.take_instruction_boundary();
 
@@ -347,17 +370,19 @@ fn step_tcycle<C: Console>(gb: &mut C, tracer: &mut Tracer) -> bool {
 
         tracer.capture(&*gb).unwrap();
         tracer.advance_dot();
+        tcycles += 1;
 
         if gb.cpu().at_instruction_boundary() {
             break;
         }
     }
 
-    new_screen
+    (new_screen, tcycles)
 }
 
 /// Step one instruction, capture once.
-fn step_instruction<C: Console>(gb: &mut C, tracer: &mut Tracer) -> bool {
+/// Returns `(new_screen, tcycles_consumed)`.
+fn step_instruction<C: Console>(gb: &mut C, tracer: &mut Tracer) -> (bool, u64) {
     tracer.capture(&*gb).unwrap();
     let result = gb.step_instr();
     tracer.advance(result.tcycles);
@@ -366,5 +391,5 @@ fn step_instruction<C: Console>(gb: &mut C, tracer: &mut Tracer) -> bool {
         tracer.mark_frame().unwrap();
     }
 
-    result.new_screen
+    (result.new_screen, result.tcycles as u64)
 }

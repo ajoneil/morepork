@@ -187,6 +187,12 @@ static inline uint16_t read_cpu_reg16(const std::string &name) {
 
 // --- Emit one trace entry ---
 
+// Count of entries written so far — used as a time-based safety budget so a
+// ROM that disables the LCD (no VBlank → frame counter never advances) still
+// terminates instead of ticking forever. gbmicrotest toggle_lcdc is the
+// canonical offender.
+static uint64_t g_entry_count = 0;
+
 static void emit_entry() {
     snapshot_cpu();
 
@@ -226,6 +232,7 @@ static void emit_entry() {
     }
 
     gbtrace_writer_finish_entry(g_writer);
+    g_entry_count++;
 }
 
 // --- SHA-256 ---
@@ -437,7 +444,20 @@ int main(int argc, char *argv[]) {
     bool stop_opcode_triggered = false;
     uint8_t prev_ppu_mode = 0;
 
+    // T-cycle (entry) safety budget: bounds the run even when the LCD never
+    // turns on and `frames` can't advance. One frame of slack keeps it from
+    // ever truncating a legitimate `--frames`-bounded run.
+    static const uint64_t CYCLES_PER_FRAME = 70224;
+    const uint64_t max_entries =
+        static_cast<uint64_t>(max_frames + 1) * CYCLES_PER_FRAME;
+
     while (frames < max_frames) {
+        if (g_entry_count >= max_entries) {
+            std::fprintf(stderr,
+                         "T-cycle limit reached (%llu entries; LCD likely off)\n",
+                         static_cast<unsigned long long>(g_entry_count));
+            break;
+        }
         try {
             core.cycle();
         } catch (const std::runtime_error &) {
