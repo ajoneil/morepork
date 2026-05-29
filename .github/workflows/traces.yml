@@ -97,7 +97,13 @@ jobs:
           branch: main
 
       - name: Make CLI executable
-        run: chmod +x target/release/gbtrace
+        # `touch` is essential: the unzipped artifact keeps its original build
+        # mtime, which is older than the just-checked-out source. The `$(CLI)`
+        # make target lists crates/gbtrace/src as prerequisites, so without this
+        # make would rebuild the CLI from scratch (~2 min) on every trace job.
+        run: |
+          chmod +x target/release/gbtrace
+          touch target/release/gbtrace
 
       # Download adapter from latest build (docboy ships a second CGB binary)
       - name: Download adapter
