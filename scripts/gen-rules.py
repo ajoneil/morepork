@@ -81,6 +81,7 @@ def model_has_ref(rom, model, cgb_only):
     For a CGB-only suite the unsuffixed base name *is* the CGB reference.
     """
     d = os.path.dirname(rom)
+    parent = os.path.dirname(d)  # refs may sit one level above the ROM (blargg)
     stem = os.path.basename(rom)
     stem = stem[:-4] if stem.endswith('.gbc') else stem[:-3]
     if model == 'dmg':
@@ -89,7 +90,8 @@ def model_has_ref(rom, model, cgb_only):
         cands = [f'{stem}_cgb04c', f'{stem}_cgb_c', f'{stem}-cgb']
         if cgb_only:
             cands.append(stem)
-    return any(os.path.exists(os.path.join(d, f'{c}.png')) for c in cands)
+    return any(os.path.exists(os.path.join(dd, f'{c}.png'))
+               for c in cands for dd in (d, parent))
 
 
 def gambatte_models(rom):
@@ -150,9 +152,14 @@ def gen_suite(stamps, rom_dir, profile, trace_dir, emus, script, policy,
 SUITES = [
     ('GBMICROTEST_STAMPS', 'test-suites/gbmicrotest', 'test-suites/gbmicrotest/profile.toml',
      '$(GBMICROTEST_TRACE_DIR)', 'scripts/trace-gbmicrotest.sh', {'root_models': ['dmg']}, {}),
+    # blargg root (cpu_instrs, instr_timing, mem_timing[-2], oam_bug, halt_bug):
+    # screenshot tests on DMG, ref_driven so the combined no-reference ROMs are
+    # skipped rather than failing. dmg_sound + cgb_sound are system-specific and
+    # handled as separate sub-suites below.
     ('BLARGG_STAMPS', 'test-suites/blargg', 'test-suites/blargg/profile.toml',
      '$(BLARGG_TRACE_DIR)', 'scripts/trace-blargg.sh',
-     {'root_models': ['dmg'], 'cgb_subdir': True}, {'exclude_dirs': {'test-suites/blargg/dmg_sound'}}),
+     {'root_models': ['dmg'], 'cgb_subdir': True, 'ref_driven': True},
+     {'exclude_dirs': {'test-suites/blargg/dmg_sound', 'test-suites/blargg/cgb_sound'}}),
     ('MOONEYE_STAMPS', 'test-suites/mooneye', 'test-suites/mooneye/profile.toml',
      '$(MOONEYE_TRACE_DIR)', 'scripts/trace-mooneye.sh', {'root_models': ['dmg']}, {}),
     ('GAMBATTE_TESTS_STAMPS', 'test-suites/gambatte', 'test-suites/gambatte/profile.toml',
@@ -215,8 +222,16 @@ def main():
     dmg_sound = []
     gen_suite(dmg_sound, 'test-suites/blargg/dmg_sound', 'test-suites/blargg/dmg_sound/profile.toml',
               '$(BLARGG_TRACE_DIR)', emus, 'scripts/trace-dmg-sound.sh',
-              {'root_models': ['dmg']}, name_base='test-suites/blargg', systems=systems)
+              {'root_models': ['dmg'], 'ref_driven': True}, name_base='test-suites/blargg', systems=systems)
     var_stamps['BLARGG_STAMPS'].extend(dmg_sound)
+
+    # cgb_sound: blargg sub-suite, CGB-only (tests the CGB APU — must not run on
+    # DMG). Uses the APU-rich dmg_sound profile for richer sound traces.
+    cgb_sound = []
+    gen_suite(cgb_sound, 'test-suites/blargg/cgb_sound', 'test-suites/blargg/dmg_sound/profile.toml',
+              '$(BLARGG_TRACE_DIR)', emus, 'scripts/trace-blargg.sh',
+              {'root_models': ['cgb'], 'ref_driven': True}, name_base='test-suites/blargg', systems=systems)
+    var_stamps['BLARGG_STAMPS'].extend(cgb_sound)
 
     for var, _, _, _, _, _, _ in SUITES:
         print(f"{var} := {' '.join(var_stamps.get(var, []))}")

@@ -10,8 +10,9 @@
 # find_ref <rom> <model> echoes the best matching .rgb555 reference path, or
 # nothing if none exists. References live next to the ROM.
 find_ref() {
-    local rom="$1" model="$2" dir stem c
+    local rom="$1" model="$2" dir parent stem c d
     dir="$(dirname "$rom")"
+    parent="$(dirname "$dir")"
     stem="$(basename "$rom")"; stem="${stem%.gbc}"; stem="${stem%.gb}"
     local cands
     if [[ "$model" == cgb ]]; then
@@ -21,10 +22,14 @@ find_ref() {
     else
         cands=("${stem}_dmg08" "${stem}-dmg" "${stem}")
     fi
+    # Look next to the ROM and one level up — some suites (e.g. blargg) keep
+    # references in the parent dir while ROMs are nested in individual/rom_singles/.
     for c in "${cands[@]}"; do
-        if [[ -f "$dir/$c.rgb555" ]]; then
-            echo "$dir/$c.rgb555"
-            return
-        fi
+        for d in "$dir" "$parent"; do
+            if [[ -f "$d/$c.rgb555" ]]; then
+                echo "$d/$c.rgb555"
+                return
+            fi
+        done
     done
 }
