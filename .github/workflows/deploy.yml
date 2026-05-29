@@ -1,8 +1,11 @@
 name: Deploy Site
 
 on:
+  # Deploy after every Build (so the site updates on push without regenerating
+  # traces) and after a manual Generate Traces run (so refreshed coverage gets
+  # published). Manifests are rebuilt from the latest trace-list artifacts.
   workflow_run:
-    workflows: [Generate Traces]
+    workflows: [Build, Generate Traces]
     types: [completed]
     branches: [main]
   workflow_dispatch:

@@ -1,10 +1,8 @@
 name: Generate Traces
 
 on:
-  workflow_run:
-    workflows: [Build]
-    types: [completed]
-    branches: [main]
+  # Trace generation is expensive (~20 GB), so it does NOT run automatically
+  # on push — trigger it manually when you want to refresh the trace set.
   workflow_dispatch:
     inputs:
       suite:
