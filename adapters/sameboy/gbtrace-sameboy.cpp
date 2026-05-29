@@ -538,16 +538,27 @@ int main(int argc, char *argv[]) {
     }
     GB_set_turbo_mode(g_gb, true, true);
 
-    // Run boot ROM without tracing — advance until PC reaches 0x0100
+    // Run boot ROM without tracing until it unmaps itself. The boot ROM's
+    // final act is writing $FF50 to disable itself (latched, read back as
+    // 0xFE | finished) before handing off to the cartridge at $0100.
+    //
+    // We must NOT stop at "pc >= 0x0100": the CGB boot ROM is mapped at both
+    // $0000-$00FF and $0200-$08FF, so its own code executes above $0100 partway
+    // through boot — stopping there would begin tracing *inside* the CGB boot
+    // ROM (the logo/animation), which is what was leaking into CGB traces.
     std::fprintf(stderr, "Running boot ROM (no trace)...\n");
-    while (true) {
-        unsigned ticks = GB_run(g_gb);
-        g_total_8mhz_ticks += ticks;
-        GB_registers_t *regs = GB_get_registers(g_gb);
-        if (regs->pc >= 0x0100) break;
+    const uint64_t BOOT_TICK_CAP = 100000000ull;  // ~12s emulated; real boot is far shorter
+    while ((GB_safe_read_memory(g_gb, 0xFF50) & 1) == 0) {
+        g_total_8mhz_ticks += GB_run(g_gb);
+        if (g_total_8mhz_ticks > BOOT_TICK_CAP) {
+            std::fprintf(stderr, "Warning: boot ROM did not finish within %llu ticks\n",
+                         (unsigned long long)BOOT_TICK_CAP);
+            break;
+        }
     }
-    std::fprintf(stderr, "Boot complete at cycle %llu\n",
-                 (unsigned long long)(g_total_8mhz_ticks / 2));
+    std::fprintf(stderr, "Boot complete at cycle %llu (pc=0x%04X)\n",
+                 (unsigned long long)(g_total_8mhz_ticks / 2),
+                 GB_get_registers(g_gb)->pc);
 
     // Reset cycle origin so traces start at cy=0 post-boot
     g_total_8mhz_ticks = 0;
