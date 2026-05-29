@@ -201,23 +201,43 @@ def check_hex(expected_hex, img):
                     return False
     return True
 
-def main():
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <expected_hex> <png_file>", file=sys.stderr)
-        sys.exit(2)
+def check_blank(img):
+    """Check that the whole screen is background (light). Used by Gambatte
+    `_blank` tests, where the ROM is expected to produce a blank screen."""
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b = img.getpixel((x, y))[:3]
+            if (r + g + b) / 3 <= 128:  # any dark pixel → not blank
+                return False
+    return True
 
-    expected = sys.argv[1]
-    png_path = sys.argv[2]
+
+def main():
+    args = sys.argv[1:]
+    blank = False
+    if args and args[0] == '--blank':
+        blank = True
+        args = args[1:]
+
+    if blank:
+        if len(args) != 1:
+            print(f"Usage: {sys.argv[0]} --blank <png_file>", file=sys.stderr)
+            sys.exit(2)
+        png_path = args[0]
+        expected = None
+    else:
+        if len(args) != 2:
+            print(f"Usage: {sys.argv[0]} [--blank] <expected_hex> <png_file>", file=sys.stderr)
+            sys.exit(2)
+        expected, png_path = args
 
     img = Image.open(png_path).convert('RGB')
     if img.size != (160, 144):
         print(f"Error: expected 160x144, got {img.size}", file=sys.stderr)
         sys.exit(2)
 
-    if check_hex(expected, img):
-        sys.exit(0)
-    else:
-        sys.exit(1)
+    ok = check_blank(img) if blank else check_hex(expected, img)
+    sys.exit(0 if ok else 1)
 
 if __name__ == '__main__':
     main()

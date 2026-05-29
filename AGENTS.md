@@ -118,34 +118,59 @@ but the directory still builds.
 
 ### Test suites (`test-suites/`)
 
-Each suite directory contains the ROMs (`*.gb`) plus a `profile.toml`. Trace generation
-goes through one of the per-suite shell scripts (`scripts/trace-<suite>.sh`) which invoke
-the adapter, then use the CLI to determine pass/fail (typically by querying a "magic"
-memory address) and rename the output to `<rom>_<emu>_<status>.gbtrace`. Screenshot-based
-suites additionally compare a captured `.pix` framebuffer against a checked-in `.png`
-reference (converted to `.pix` via `make pix-refs`, which calls
-`scripts/png-to-pix.py`).
+Each suite directory contains the ROMs (`*.gb`/`*.gbc`) plus a `profile.toml`. Trace
+generation goes through one of the per-suite shell scripts (`scripts/trace-<suite>.sh`)
+which invoke the adapter, then use the CLI to determine pass/fail (typically by querying a
+"magic" memory address) and rename the output to `<rom>_<emu>_<model>_<status>.gbtrace`.
 
-`scripts/manifest.py` writes a `manifest.json` per suite trace dir that the web viewer
-reads to populate the test browser. The list of emulators it understands is hard-coded
+**Model dimension (DMG/CGB).** Each suite runs under one or both models. Which models a
+ROM runs under is decided in `scripts/gen-rules.py` by a per-suite policy:
+`root_models` (`dmg`/`cgb`/both), an optional `cgb/` subdir holding a curated CGB-only ROM
+set (from `missingno-gbc`), `gambatte` mode (model read from filename tags `_dmg08`/
+`_cgb04c`/`_blank`), and `ref_driven` (screenshot suites run a model only when a matching
+reference exists). The model is passed to the trace scripts via the `MODEL` env var, and
+docboy — which selects DMG/CGB at compile time — resolves `(docboy, cgb)` to the separate
+`gbtrace-docboy-cgb` binary.
+
+**Screenshot references** are raw **RGB555** (`.rgb555`, 160×144×3 bytes, 5-bit/channel),
+generated from a checked-in `.png` by `make pix-refs` (`scripts/png-to-pix.py`). Comparing
+at the CGB's native 5-bit precision is expansion-neutral. `scripts/ref-lib.sh`'s
+`find_ref` picks the model-appropriate reference (CGB-specific `_cgb04c`/`_cgb_c`/`-cgb`,
+falling back to the DMG/base ref). Gambatte `_out<hex>`/`_blank`/`_outaudio` tests need no
+reference image — the expected value is decoded from the filename (`check-gambatte-hex.py`,
+adapter `--report-audio`).
+
+`scripts/manifest.py` writes a `manifest.json` per suite trace dir, keyed per test with a
+`models: { dmg: {emu: status}, cgb: {emu: status} }` map. The emulator list is hard-coded
 near the top — keep it in sync with the `EMUS`/`ADAPTERS` Makefile vars.
 
 ### Web viewer (`web/`)
 
 Lit-based static site (no bundler). `web/index.html` imports `lit` from a CDN via an
-import map. Components in `web/src/components/` use the WASM bridge in
-`web/src/lib/wasm-bridge.js` to read traces from the same `gbtrace` core that powers the
-CLI. `make site` copies `web/`, the WASM artifacts, traces, ROMs, and profiles into
-`build/site/` for deployment to GitHub Pages.
+import map. Components in `web/src/components/` use the WASM bridge to read traces from the
+same `gbtrace` core that powers the CLI. The test picker has a **DMG/CGB toggle** and reads
+trace blobs from a configurable base URL (`window.GBTRACE_TRACE_BASE`); manifests + ROMs
+are same-origin. `make site` assembles `build/site/` for local serving.
+
+**Trace hosting.** The full trace set (~20 GB) far exceeds the 1 GB GitHub Pages limit, so
+**Pages hosts only the app + manifests + ROMs + profiles**, and the `.gbtrace` blobs live
+on **DigitalOcean Spaces** (S3-compatible). `traces.yml` `aws s3 sync`s the blobs up;
+`deploy.yml` injects the Spaces CDN URL as `window.GBTRACE_TRACE_BASE`. Required repo
+secrets/vars: `SPACES_KEY`/`SPACES_SECRET` (secrets), `SPACES_BUCKET`/`SPACES_REGION`/
+`TRACE_BASE` (vars).
 
 ### CI workflows (`.github/workflows/`)
 
-- `build.yml` — builds CLI/FFI/WASM, uploads artifacts.
-- `traces.yml` — generates traces (parameterised by `EMUS` dropdown).
-- `deploy.yml` — assembles and deploys the site.
+- `build.yml` — builds CLI/FFI/WASM + adapters, uploads artifacts (docboy ships two
+  binaries: `gbtrace-docboy` + `gbtrace-docboy-cgb`).
+- `traces.yml` — generates traces per `(suite × emulator)` via `make traces-<suite>`
+  (which encodes the model policy), uploads blobs to Spaces + tiny filename-list artifacts.
+- `deploy.yml` — rebuilds manifests from the filename lists, assembles + deploys the Pages
+  site (no blobs).
 
-When adding/removing an emulator or test suite, update **all of**: the Makefile
-(`ADAPTERS`, `EMUS`, suite vars), `scripts/gen-rules.py` (default emus, suite call), the
-relevant `scripts/trace-<suite>.sh`, `scripts/manifest.py` (`EMULATORS` list),
-`web/src/components/test-picker.js`, and the workflow YAML files. The bgb README
-documents this matrix in detail.
+`gateboy` and `mgba` are no longer in automated collection (their adapter dirs still
+build). When adding/removing an emulator or test suite, update **all of**: the Makefile
+(`ADAPTERS`, `EMUS`, suite vars + trace dirs + `traces-<suite>` target), `scripts/gen-rules.py`
+(default emus, `SUITES` table), the relevant `scripts/trace-<suite>.sh`,
+`scripts/manifest.py` (`EMULATORS`), `web/src/components/test-picker.js` (`EMULATORS`,
+`TEST_SUITES`), and the workflow YAMLs.

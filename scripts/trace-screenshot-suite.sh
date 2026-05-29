@@ -16,21 +16,23 @@ ROM_DIR="${5:-$(dirname "$ROM")}"
 MAX_FRAMES="${6:-300}"
 CLI="${CLI:-target/release/gbtrace}"
 
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//')"
+ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
+MODEL="${MODEL:-dmg}"
+source "$(dirname "$0")/ref-lib.sh"
 
 # Use relative path from ROM_DIR as the test name, flattening subdirs with __
 ROM_REL="$(realpath --relative-to="$ROM_DIR" "$ROM")"
-ROM_REL="${ROM_REL%.gb}"
+ROM_REL="${ROM_REL%.gbc}"; ROM_REL="${ROM_REL%.gb}"
 NAME="${ROM_REL//\//__}"
 
-BASENAME="$(basename "$ROM" .gb)"
-PIX_REF="$(dirname "$ROM")/${BASENAME}.pix"
+BASENAME="$(basename "$ROM")"; BASENAME="${BASENAME%.gbc}"; BASENAME="${BASENAME%.gb}"
+PIX_REF="$(find_ref "$ROM" "$MODEL")"
 
 TMP="/tmp/gbtrace_screenshot_${NAME}_${ADAPTER}_$$"
 stderr_file="${TMP}.stderr"
 tmp_trace="${TMP}.gbtrace"
 
-cleanup() { rm -f "$stderr_file" "$tmp_trace" "${ROM%.gb}.sav"; }
+cleanup() { rm -f "$stderr_file" "$tmp_trace" "${ROM%.gb}.sav" "${ROM%.gbc}.sav"; }
 trap cleanup EXIT
 
 # --- Capture ---
@@ -41,7 +43,7 @@ fi
 
 (
     set +eo pipefail
-    timeout 120 "$BIN" --rom "$ROM" --profile "$PROFILE" \
+    timeout 120 "$BIN" --rom "$ROM" --profile "$PROFILE" --model "$MODEL" \
         --frames "$MAX_FRAMES" \
         "${EXTRA_ARGS[@]}" \
         --output "$tmp_trace" >/dev/null 2>"$stderr_file" </dev/null
@@ -61,7 +63,7 @@ fi
 
 # --- Output ---
 mkdir -p "$OUT_DIR"
-out="${OUT_DIR}/${NAME}_${ADAPTER}_${status}.gbtrace"
+out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"
 mv "$tmp_trace" "$out"
 
 entries=$("$CLI" info "$out" 2>/dev/null | grep Entries | awk '{print $2}')

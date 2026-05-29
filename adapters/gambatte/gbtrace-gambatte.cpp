@@ -13,6 +13,7 @@
 #include <gambatte.h>
 #include "gbtrace.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -142,17 +143,50 @@ static void capture_frame_pixels() {
 }
 
 // --- Reference matching ---
-static std::string g_reference_pix;
+// References are raw RGB555 (160*144*3 bytes, each channel 0-31). Comparing
+// at the CGB's native 5-bit precision is expansion-neutral, so a correct
+// emulator isn't penalised for its 555→888 display-expansion curve.
+static std::string g_reference;  // raw RGB555 bytes
 
 static bool load_reference(const std::string &path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return false;
-    g_reference_pix.assign(std::istreambuf_iterator<char>(f),
-                           std::istreambuf_iterator<char>());
-    while (!g_reference_pix.empty() &&
-           (g_reference_pix.back() == '\n' || g_reference_pix.back() == '\r'))
-        g_reference_pix.pop_back();
-    return (int)g_reference_pix.size() == 160 * 144;
+    g_reference.assign(std::istreambuf_iterator<char>(f),
+                       std::istreambuf_iterator<char>());
+    return g_reference.size() == (size_t)(160 * 144 * 3);
+}
+
+static bool frame_matches_reference() {
+    if (g_reference.size() != (size_t)(160 * 144 * 3) || !g_video_buf_ptr) return false;
+    const unsigned char *ref = reinterpret_cast<const unsigned char *>(g_reference.data());
+    for (int i = 0; i < 160 * 144; i++) {
+        // gambatte emits RGB32 (native endian) = 0x00RRGGBB.
+        gambatte::uint_least32_t px = g_video_buf_ptr[i];
+        int r = (int)((px >> 16) & 0xFF) >> 3;
+        int g = (int)((px >> 8) & 0xFF) >> 3;
+        int b = (int)(px & 0xFF) >> 3;
+        if (std::abs(r - ref[i * 3]) > 1 || std::abs(g - ref[i * 3 + 1]) > 1 ||
+            std::abs(b - ref[i * 3 + 2]) > 1)
+            return false;
+    }
+    return true;
+}
+
+// --- Audio activity (gambatte _outaudio tests) ---
+// gambatte packs each stereo sample as two signed 16-bit channels in a
+// uint_least32_t (left in low 16 bits, right in high 16). A frame is
+// "silent" when every sample matches the first; "has audio" otherwise.
+// Tolerance ~0.005 of full-scale (matching missingno) absorbs APU DC drift.
+static bool last_frame_has_audio(const gambatte::uint_least32_t *buf, std::size_t n) {
+    if (n == 0) return false;
+    int16_t l0 = static_cast<int16_t>(buf[0] & 0xFFFF);
+    int16_t r0 = static_cast<int16_t>(buf[0] >> 16);
+    for (std::size_t i = 1; i < n; i++) {
+        int16_t l = static_cast<int16_t>(buf[i] & 0xFFFF);
+        int16_t r = static_cast<int16_t>(buf[i] >> 16);
+        if (std::abs(l - l0) > 163 || std::abs(r - r0) > 163) return true;
+    }
+    return false;
 }
 
 static void build_emitters(const Profile &prof) {
@@ -349,6 +383,7 @@ static void print_usage(const char *argv0) {
         "  --stop-on-serial <B> Stop when byte B (hex) is sent via serial (e.g. 0A for newline)\n"
         "  --stop-serial-count <N> Stop on Nth occurrence of serial byte (default: 1)\n"
         "  --model <model>      dmg or cgb (default: dmg)\n"
+        "  --report-audio       print AUDIO=0/1 (last-frame activity) for _outaudio tests\n"
         "  --boot-rom <path>    Boot ROM file (default: skip boot)\n",
         argv0);
 }
@@ -362,6 +397,7 @@ int main(int argc, char *argv[]) {
     std::string model = "DMG-B";
     std::string reference_path;
     int extra_frames = 0;
+    bool report_audio = false;
     int stop_opcode = -1;  // -1 = disabled
     unsigned load_flags = gambatte::GB::LoadFlag::NO_BIOS;
     std::vector<StopCondition> stop_conditions;
@@ -389,7 +425,9 @@ int main(int argc, char *argv[]) {
         } else if (arg == "--model" && i + 1 < argc) {
             std::string m = argv[++i];
             if (m == "cgb" || m == "CGB") {
-                model = "CGB-E";
+                // gambatte-speedrun emulates cgb04c (CPU-CGB-C); label it
+                // accordingly so it lines up with missingno's CGB-C traces.
+                model = "CGB-C";
                 load_flags |= gambatte::GB::LoadFlag::CGB_MODE;
             }
         } else if (arg == "--reference" && i + 1 < argc) {
@@ -398,6 +436,8 @@ int main(int argc, char *argv[]) {
             extra_frames = std::atoi(argv[++i]);
         } else if (arg == "--stop-opcode" && i + 1 < argc) {
             stop_opcode = static_cast<int>(std::strtoul(argv[++i], nullptr, 16));
+        } else if (arg == "--report-audio") {
+            report_audio = true;
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -523,6 +563,7 @@ int main(int argc, char *argv[]) {
     int frames = 0;
     bool stopped_early = false;
     int remaining_extra = -1;  // -1 = not triggered yet
+    std::size_t last_audio_samples = 0;
     while (frames < max_frames) {
         std::size_t samples = SAMPLES_PER_FRAME;
         std::ptrdiff_t result = gb.runFor(
@@ -530,13 +571,14 @@ int main(int argc, char *argv[]) {
             audio_buf.data(), samples);
         if (result >= 0) {
             frames++;
+            last_audio_samples = samples;
             if (g_has_pix || has_reference) {
                 capture_frame_pixels();
             }
             gbtrace_writer_mark_frame(g_writer);
 
             // Check reference match (always immediate stop — the frame we want is captured)
-            if (has_reference && g_pending_pix == g_reference_pix) {
+            if (has_reference && frame_matches_reference()) {
                 std::fprintf(stderr, "Reference match at frame %d\n", frames);
                 std::size_t s2 = SAMPLES_PER_FRAME;
                 gb.runFor(video_buf.data(), 160, audio_buf.data(), s2);
@@ -591,6 +633,11 @@ int main(int argc, char *argv[]) {
 
     gbtrace_writer_close(g_writer);
     g_writer = nullptr;
+
+    if (report_audio) {
+        bool has_audio = last_frame_has_audio(audio_buf.data(), last_audio_samples);
+        std::fprintf(stderr, "AUDIO=%d\n", has_audio ? 1 : 0);
+    }
 
     if (stopped_early) {
         std::fprintf(stderr, "Stop condition met at frame %d, output written.\n", frames);

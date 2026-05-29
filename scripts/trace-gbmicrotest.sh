@@ -9,19 +9,21 @@ PROFILE="$3"
 OUT_DIR="$4"
 CLI="${CLI:-target/release/gbtrace}"
 
-NAME="$(basename "$ROM" .gb)"
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//')"
+NAME="$(basename "$ROM")"; NAME="${NAME%.gbc}"; NAME="${NAME%.gb}"
+ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
+MODEL="${MODEL:-dmg}"
+source "$(dirname "$0")/ref-lib.sh"
 FRAMES=30
 
 TMP="/tmp/gbtrace_micro_${NAME}_${ADAPTER}_$$"
 TRACE="${TMP}.gbtrace"
 stderr_file="${TMP}.stderr"
 
-cleanup() { rm -f "$TRACE" "$stderr_file" "${ROM%.gb}.sav"; }
+cleanup() { rm -f "$TRACE" "$stderr_file" "${ROM%.gb}.sav" "${ROM%.gbc}.sav"; }
 trap cleanup EXIT
 
 # Capture — adapter stops when test_pass is set
-if ! "$BIN" --rom "$ROM" --profile "$PROFILE" --output "$TRACE" \
+if ! "$BIN" --rom "$ROM" --profile "$PROFILE" --model "$MODEL" --output "$TRACE" \
     --frames "$FRAMES" \
     --stop-when FF82=01 --stop-when FF82=FF >/dev/null 2>"$stderr_file" </dev/null; then
     printf "%-40s %-10s ERROR\n" "$NAME" "$ADAPTER"
@@ -42,7 +44,7 @@ fi
 
 # Move to output
 mkdir -p "$OUT_DIR"
-out="${OUT_DIR}/${NAME}_${ADAPTER}_${status}.gbtrace"
+out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"
 mv "$TRACE" "$out"
 
 entries=$("$CLI" info "$out" 2>/dev/null | grep Entries | awk '{print $2}')

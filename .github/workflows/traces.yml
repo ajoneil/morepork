@@ -11,12 +11,12 @@ on:
         description: "Test suite"
         default: "all"
         type: choice
-        options: [all, gbmicrotest, blargg, mooneye, gambatte-tests, mealybug-tearoom, dmg-acid2, age, mooneye-wilbertpol, samesuite, scribbltests, bully, mbc3-tester, strikethrough, turtle-tests]
+        options: [all, gbmicrotest, blargg, mooneye, gambatte-tests, mealybug-tearoom, dmg-acid2, age, mooneye-wilbertpol, samesuite, scribbltests, bully, mbc3-tester, strikethrough, turtle-tests, cgb-acid2, cgb-acid-hell, rtc3test]
       emulator:
-        description: "Emulator (all, gambatte, sameboy, gateboy, missingno, docboy)"
+        description: "Emulator (all, gambatte, sameboy, missingno, docboy)"
         default: "all"
         type: choice
-        options: [all, gambatte, sameboy, gateboy, missingno, docboy]
+        options: [all, gambatte, sameboy, missingno, docboy]
 
 concurrency:
   group: traces
@@ -32,8 +32,8 @@ jobs:
     steps:
       - id: set
         run: |
-          SUITES='["gbmicrotest","blargg","mooneye","gambatte-tests","mealybug-tearoom","dmg-acid2","age","mooneye-wilbertpol","samesuite","scribbltests","bully","mbc3-tester","strikethrough","turtle-tests"]'
-          EMUS='["gambatte","sameboy","gateboy","missingno","docboy"]'
+          SUITES='["gbmicrotest","blargg","mooneye","gambatte-tests","mealybug-tearoom","dmg-acid2","age","mooneye-wilbertpol","samesuite","scribbltests","bully","mbc3-tester","strikethrough","turtle-tests","cgb-acid2","cgb-acid-hell","rtc3test"]'
+          EMUS='["gambatte","sameboy","missingno","docboy"]'
 
           if [ "${{ inputs.suite }}" != "" ] && [ "${{ inputs.suite }}" != "all" ]; then
             SUITES='["${{ inputs.suite }}"]'
@@ -50,13 +50,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.matrix-setup.outputs.matrix) }}
+    env:
+      # DigitalOcean Spaces (S3-compatible) hosts the trace blobs — the full
+      # set far exceeds the 1 GB GitHub Pages limit. Set these repo
+      # secrets/vars to enable the upload (see the README / handoff notes).
+      SPACES_KEY: ${{ secrets.SPACES_KEY }}
+      SPACES_BUCKET: ${{ vars.SPACES_BUCKET }}
+      SPACES_REGION: ${{ vars.SPACES_REGION }}
     steps:
       - uses: actions/checkout@v6
 
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3 python3-pil
+          sudo apt-get install -y python3 python3-pil awscli
 
       # Download CLI from latest build
       - name: Download CLI
@@ -70,7 +77,7 @@ jobs:
       - name: Make CLI executable
         run: chmod +x target/release/gbtrace
 
-      # Download adapter from latest build
+      # Download adapter from latest build (docboy ships a second CGB binary)
       - name: Download adapter
         uses: dawidd6/action-download-artifact@v6
         with:
@@ -79,145 +86,44 @@ jobs:
           path: adapters/${{ matrix.emulator }}
           branch: main
 
-      - name: Make adapter executable
-        run: chmod +x adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}
-
-      # Generate pix references if needed
-      - name: Generate pix references
-        run: make pix-refs
-
-      # Generate traces by running scripts directly (no make, no adapter rebuild)
-      - name: Generate traces
+      - name: Make adapter(s) executable
         run: |
-          SUITE="${{ matrix.suite }}"
-          EMU="${{ matrix.emulator }}"
-          BIN="adapters/${EMU}/gbtrace-${EMU}"
-          TRACE_DIR="build/traces/${SUITE}"
-          # ROM_DIR: some suites have a different ROM directory
-          if [ "$SUITE" = "gambatte-tests" ]; then
-            ROM_DIR="test-suites/gambatte"
-          else
-            ROM_DIR="test-suites/${SUITE}"
-          fi
-          mkdir -p "$TRACE_DIR"
+          chmod +x "adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}" || true
+          chmod +x "adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}-cgb" 2>/dev/null || true
 
-          MAX_JOBS=$(nproc)
-
-          # Run a command in the background, limiting parallelism
-          run_parallel() {
-            while [ "$(jobs -r | wc -l)" -ge "$MAX_JOBS" ]; do wait -n 2>/dev/null || true; done
-            "$@" || true &
-          }
-
-          case "$SUITE" in
-            gbmicrotest)
-              PROFILE="test-suites/gbmicrotest/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-gbmicrotest.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR"
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            blargg)
-              PROFILE="test-suites/blargg/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-blargg.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR"
-              done < <(find "$ROM_DIR" -name '*.gb' -not -path '*/dmg_sound/*' -print0 | sort -z)
-              # dmg_sound tests use their own profile (skip gateboy — no APU)
-              if [ "$EMU" != "gateboy" ]; then
-                DMG_SOUND_PROFILE="test-suites/blargg/dmg_sound/profile.toml"
-                while IFS= read -r -d '' rom; do
-                  run_parallel bash scripts/trace-dmg-sound.sh "$BIN" "$rom" "$DMG_SOUND_PROFILE" "$TRACE_DIR" "$ROM_DIR"
-                done < <(find "test-suites/blargg/dmg_sound" -name '*.gb' -print0 | sort -z)
-              fi
-              ;;
-            mooneye)
-              PROFILE="test-suites/mooneye/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-mooneye.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR"
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            gambatte-tests)
-              PROFILE="test-suites/gambatte/profile.toml"
-              # Generate pix references from PNGs
-              make pix-refs 2>/dev/null || true
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-gambatte-tests.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR"
-              done < <(find "$ROM_DIR" -name '*.gb' ! -name '*.gbc' -print0 | sort -z)
-              ;;
-            mealybug-tearoom)
-              PROFILE="test-suites/mealybug-tearoom/profile.toml"
-              make pix-refs 2>/dev/null || true
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-mealybug-tearoom.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR"
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            dmg-acid2)
-              PROFILE="test-suites/dmg-acid2/profile.toml"
-              REF="test-suites/dmg-acid2/reference.pix"
-              bash scripts/trace-screenshot.sh "$BIN" \
-                "test-suites/dmg-acid2/dmg-acid2.gb" "$PROFILE" "$REF" "$TRACE_DIR" 30 || true
-              ;;
-            age)
-              PROFILE="test-suites/age/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-age.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR"
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            mooneye-wilbertpol)
-              PROFILE="test-suites/mooneye-wilbertpol/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-mooneye-wilbertpol.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR"
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            samesuite)
-              PROFILE="test-suites/samesuite/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-samesuite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR"
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            scribbltests)
-              PROFILE="test-suites/scribbltests/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 300
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            bully)
-              PROFILE="test-suites/bully/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 30
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            mbc3-tester)
-              PROFILE="test-suites/mbc3-tester/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 120
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            strikethrough)
-              PROFILE="test-suites/strikethrough/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 30
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-            turtle-tests)
-              PROFILE="test-suites/turtle-tests/profile.toml"
-              while IFS= read -r -d '' rom; do
-                run_parallel bash scripts/trace-screenshot-suite.sh "$BIN" "$rom" "$PROFILE" "$TRACE_DIR" "$ROM_DIR" 30
-              done < <(find "$ROM_DIR" -name '*.gb' -print0 | sort -z)
-              ;;
-          esac
-
-          # Wait for all background jobs, don't fail if some tests failed
-          wait 2>/dev/null || true
-
-          python3 scripts/manifest.py "$TRACE_DIR" "$ROM_DIR"
+      # Generate traces via the make target, which encodes the full model
+      # policy (DMG/CGB), the gambatte hex/blank/audio checks, the model-aware
+      # screenshot references, and the docboy-cgb binary selection.
+      - name: Generate traces
+        run: make pix-refs traces-${{ matrix.suite }} EMUS=${{ matrix.emulator }} -j"$(nproc)"
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/adapters/sameboy/SameBoy/build/lib
           CLI: ${{ github.workspace }}/target/release/gbtrace
-        timeout-minutes: 120
+        timeout-minutes: 320
 
-      - name: Upload traces
+      # Upload the trace blobs to DigitalOcean Spaces (s3://bucket/tests/<suite>/...).
+      # The web viewer fetches them from the Spaces CDN base URL.
+      - name: Upload trace blobs to Spaces
+        if: env.SPACES_KEY != ''
+        run: |
+          aws s3 sync "build/traces" "s3://${SPACES_BUCKET}/tests" \
+            --endpoint-url "https://${SPACES_REGION}.digitaloceanspaces.com" \
+            --exclude '*' --include '*.gbtrace' --acl public-read --no-progress
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET }}
+
+      # The deploy job rebuilds manifests from filenames alone (pass/fail is
+      # encoded in the name), so we only need to ship the list, not the blobs.
+      - name: Collect trace filenames
+        run: |
+          mkdir -p _tracelists
+          find build/traces -name '*.gbtrace' -printf '%P\n' | sort \
+            > "_tracelists/${{ matrix.suite }}-${{ matrix.emulator }}.txt"
+
+      - name: Upload trace list
         uses: actions/upload-artifact@v6
         with:
-          name: traces-${{ matrix.suite }}-${{ matrix.emulator }}
-          path: build/traces/${{ matrix.suite }}
+          name: tracelist-${{ matrix.suite }}-${{ matrix.emulator }}
+          path: _tracelists/${{ matrix.suite }}-${{ matrix.emulator }}.txt
           retention-days: 90

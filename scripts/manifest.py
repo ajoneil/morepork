@@ -3,57 +3,73 @@
 
 Usage: manifest.py <trace-dir> <rom-dir>
 
-Scans trace-dir for .gbtrace files and rom-dir for .gb files,
-then writes manifest.json to trace-dir.
+Scans trace-dir for `<test>_<emu>_<model>_<status>.gbtrace` files and rom-dir
+for `*.gb`/`*.gbc` ROMs, then writes manifest.json. Each test entry carries a
+per-model coverage map:
+
+    { "name": ..., "rom": ..., "models": { "dmg": {emu: status}, "cgb": {...} } }
+
+ROMs under a suite's `cgb/` subdir are CGB-only sets; their test name is taken
+relative to `cgb/` (matching gen-rules) so it isn't prefixed with `cgb__`.
 """
 import json
 import os
 import sys
 
-EMULATORS = ['gateboy', 'missingno', 'docboy', 'gambatte', 'sameboy']
+EMULATORS = ['missingno', 'docboy', 'gambatte', 'sameboy']
+MODELS = ['dmg', 'cgb']
+STATUSES = ['pass', 'fail']
+
+
+def rom_test_name(path, rom_dir):
+    """Test name for a ROM: path relative to rom_dir (or to rom_dir/cgb for
+    CGB-only ROMs), with subdirs flattened by `__` and the extension dropped."""
+    cgb_dir = os.path.join(rom_dir, 'cgb')
+    base = cgb_dir if path.startswith(cgb_dir + os.sep) else rom_dir
+    rel = os.path.relpath(path, base)
+    stem = rel[:-4] if rel.endswith('.gbc') else rel[:-3]
+    return stem.replace(os.sep, '__')
+
 
 def generate_manifest(trace_dir, rom_dir):
-    # Find all ROMs — use relative path with / replaced by __ as the key
-    # to avoid collisions when different subdirs have the same basename
+    # ROMs → test name + relative path (for the viewer to fetch).
     roms = {}
     for dirpath, _, filenames in sorted(os.walk(rom_dir)):
         for fname in sorted(filenames):
-            if fname.endswith('.gb'):
-                rel = os.path.relpath(os.path.join(dirpath, fname), rom_dir)
-                name = rel[:-3].replace(os.sep, '__')
-                roms[name] = rel
+            if not (fname.endswith('.gb') or fname.endswith('.gbc')):
+                continue
+            path = os.path.join(dirpath, fname)
+            roms.setdefault(rom_test_name(path, rom_dir), os.path.relpath(path, rom_dir))
 
-    # Find all traces
+    # Traces → per-test, per-model, per-emulator status.
     traces = {}
     for dirpath, _, filenames in sorted(os.walk(trace_dir)):
         for fname in sorted(filenames):
             if not fname.endswith('.gbtrace'):
                 continue
-            base = fname.replace('.gbtrace', '')
-            for emu in EMULATORS:
-                for status in ['pass', 'fail']:
-                    suffix = f'_{emu}_{status}'
-                    if base.endswith(suffix):
-                        test_name = base[:-len(suffix)]
-                        traces.setdefault(test_name, {})[emu] = status
-                        break
+            base = fname[:-len('.gbtrace')]
+            parts = base.rsplit('_', 3)  # test, emu, model, status
+            if len(parts) != 4:
+                continue
+            test_name, emu, model, status = parts
+            if emu not in EMULATORS or model not in MODELS or status not in STATUSES:
+                continue
+            traces.setdefault(test_name, {}).setdefault(model, {})[emu] = status
 
-    # Build manifest
-    manifest = []
-    for name, rom_rel in sorted(roms.items()):
-        entry = {
-            'name': name,
-            'rom': rom_rel,
-            'emulators': traces.get(name, {}),
-        }
-        manifest.append(entry)
+    # Build manifest (union of ROMs and any trace-only test names).
+    names = sorted(set(roms) | set(traces))
+    manifest = [
+        {'name': name, 'rom': roms.get(name), 'models': traces.get(name, {})}
+        for name in names
+    ]
 
     out_path = os.path.join(trace_dir, 'manifest.json')
     with open(out_path, 'w') as f:
         json.dump(manifest, f)
 
-    total_traces = sum(len(e['emulators']) for e in manifest)
-    print(f'  {len(manifest)} tests, {total_traces} traces -> {out_path}')
+    total = sum(len(m) for e in manifest for m in e['models'].values())
+    print(f'  {len(manifest)} tests, {total} traces -> {out_path}')
+
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:

@@ -7,7 +7,7 @@ const TEST_SUITES = [
     base: 'tests/gbmicrotest',
     profile: 'tests/gbmicrotest/profile.toml',
     manifest: 'tests/gbmicrotest/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [
       { name: 'poweron', filter: 'poweron_' },
@@ -29,7 +29,7 @@ const TEST_SUITES = [
     base: 'tests/blargg',
     profile: 'tests/blargg/profile.toml',
     manifest: 'tests/blargg/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [
       { name: 'cpu instrs', filter: 'cpu_instrs__' },
@@ -42,7 +42,7 @@ const TEST_SUITES = [
     base: 'tests/mooneye',
     profile: 'tests/mooneye/profile.toml',
     manifest: 'tests/mooneye/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [
       { name: 'timer', filter: 'timer' },
@@ -59,7 +59,7 @@ const TEST_SUITES = [
     base: 'tests/gambatte-tests',
     profile: 'tests/gambatte-tests/profile.toml',
     manifest: 'tests/gambatte-tests/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [
       { name: 'sprites', filter: 'sprites__' },
@@ -75,7 +75,7 @@ const TEST_SUITES = [
     base: 'tests/mealybug-tearoom',
     profile: 'tests/mealybug-tearoom/profile.toml',
     manifest: 'tests/mealybug-tearoom/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [],
   },
@@ -84,7 +84,7 @@ const TEST_SUITES = [
     base: 'tests/dmg-acid2',
     profile: 'tests/dmg-acid2/profile.toml',
     manifest: 'tests/dmg-acid2/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [],
   },
@@ -93,7 +93,7 @@ const TEST_SUITES = [
     base: 'tests/age',
     profile: 'tests/age/profile.toml',
     manifest: 'tests/age/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [
       { name: 'halt', filter: 'halt' },
@@ -108,7 +108,7 @@ const TEST_SUITES = [
     base: 'tests/mooneye-wilbertpol',
     profile: 'tests/mooneye-wilbertpol/profile.toml',
     manifest: 'tests/mooneye-wilbertpol/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [
       { name: 'gpu', filter: 'acceptance__gpu' },
@@ -121,7 +121,7 @@ const TEST_SUITES = [
     base: 'tests/samesuite',
     profile: 'tests/samesuite/profile.toml',
     manifest: 'tests/samesuite/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [
       { name: 'apu', filter: 'apu' },
@@ -133,7 +133,7 @@ const TEST_SUITES = [
     base: 'tests/scribbltests',
     profile: 'tests/scribbltests/profile.toml',
     manifest: 'tests/scribbltests/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [],
   },
@@ -142,7 +142,7 @@ const TEST_SUITES = [
     base: 'tests/bully',
     profile: 'tests/bully/profile.toml',
     manifest: 'tests/bully/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [],
   },
@@ -151,7 +151,7 @@ const TEST_SUITES = [
     base: 'tests/mbc3-tester',
     profile: 'tests/mbc3-tester/profile.toml',
     manifest: 'tests/mbc3-tester/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [],
   },
@@ -160,7 +160,7 @@ const TEST_SUITES = [
     base: 'tests/strikethrough',
     profile: 'tests/strikethrough/profile.toml',
     manifest: 'tests/strikethrough/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [],
   },
@@ -169,15 +169,50 @@ const TEST_SUITES = [
     base: 'tests/turtle-tests',
     profile: 'tests/turtle-tests/profile.toml',
     manifest: 'tests/turtle-tests/manifest.json',
-    preferredEmu: 'gateboy',
+    preferredEmu: 'missingno',
+    tests: null,
+    categories: [],
+  },
+  {
+    name: 'cgb-acid2',
+    base: 'tests/cgb-acid2',
+    profile: 'tests/cgb-acid2/profile.toml',
+    manifest: 'tests/cgb-acid2/manifest.json',
+    preferredEmu: 'missingno',
+    tests: null,
+    categories: [],
+  },
+  {
+    name: 'cgb-acid-hell',
+    base: 'tests/cgb-acid-hell',
+    profile: 'tests/cgb-acid-hell/profile.toml',
+    manifest: 'tests/cgb-acid-hell/manifest.json',
+    preferredEmu: 'missingno',
+    tests: null,
+    categories: [],
+  },
+  {
+    name: 'rtc3test',
+    base: 'tests/rtc3test',
+    profile: 'tests/rtc3test/profile.toml',
+    manifest: 'tests/rtc3test/manifest.json',
+    preferredEmu: 'missingno',
     tests: null,
     categories: [],
   },
 ];
 
-const EMULATORS = ['gateboy', 'missingno', 'docboy', 'gambatte', 'sameboy'];
+const EMULATORS = ['missingno', 'docboy', 'gambatte', 'sameboy'];
 
-const EMU_SHORT = { gateboy: 'GB', missingno: 'MN', docboy: 'DB', gambatte: 'Ga', sameboy: 'SB' };
+const EMU_SHORT = { missingno: 'MN', docboy: 'DB', gambatte: 'Ga', sameboy: 'SB' };
+
+const MODELS = ['dmg', 'cgb'];
+const MODEL_LABEL = { dmg: 'DMG', cgb: 'CGB' };
+
+// Trace blobs are hosted off-Pages (DigitalOcean Spaces) because the full set
+// far exceeds the 1 GB Pages limit. Production sets `window.GBTRACE_TRACE_BASE`
+// to the bucket URL; empty means same-origin (local `make serve`).
+const TRACE_BASE = ((typeof window !== 'undefined' && window.GBTRACE_TRACE_BASE) || '').replace(/\/$/, '');
 
 /** Known uppercase abbreviations in test names. */
 const ABBREVIATIONS = new Set([
@@ -210,8 +245,9 @@ function humanizeTestName(name) {
 
 export { humanizeTestName };
 
-function traceUrl(suite, test, emulator, status = 'pass') {
-  return `${suite.base}/${test.name}_${emulator}_${status}.gbtrace`;
+function traceUrl(suite, test, emulator, model, status = 'pass') {
+  const path = `${suite.base}/${test.name}_${emulator}_${model}_${status}.gbtrace`;
+  return TRACE_BASE ? `${TRACE_BASE}/${path}` : path;
 }
 
 function romUrl(suite, rom) {
@@ -280,6 +316,17 @@ export class TestPicker extends LitElement {
     .cat-chip:hover { border-color: var(--accent); color: var(--accent); }
     .cat-chip.active { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
 
+    .model-toggle {
+      display: inline-flex; gap: 0; margin-left: auto; border: 1px solid var(--border);
+      border-radius: 6px; overflow: hidden;
+    }
+    .model-chip {
+      padding: 3px 10px; background: var(--bg); color: var(--text-muted); cursor: pointer;
+      font-size: 0.72rem; font-family: var(--mono); font-weight: 600;
+    }
+    .model-chip:hover { color: var(--accent); }
+    .model-chip.active { background: var(--accent); color: var(--bg); }
+
     .search {
       width: 100%; padding: 5px 10px; background: var(--bg);
       border: 1px solid var(--border); border-radius: 6px; color: var(--text);
@@ -324,6 +371,7 @@ export class TestPicker extends LitElement {
     _selectedTest: { state: true },
     _category: { state: true },
     _search: { state: true },
+    _model: { state: true },
     _loading: { state: true },
     _error: { state: true },
   };
@@ -334,9 +382,18 @@ export class TestPicker extends LitElement {
     this._selectedTest = -1;
     this._category = '';
     this._search = '';
+    this._model = 'dmg';
     this._loading = null;
     this._error = null;
     this._loadManifests();
+  }
+
+  /** Models (dmg/cgb) for which this suite has any traces. */
+  _modelsFor(suite) {
+    if (!suite.tests) return ['dmg'];
+    const present = MODELS.filter(m =>
+      suite.tests.some(t => t.models && t.models[m] && Object.keys(t.models[m]).length));
+    return present.length ? present : ['dmg'];
   }
 
   async _loadManifests() {
@@ -359,7 +416,7 @@ export class TestPicker extends LitElement {
     for (const emu of EMULATORS) {
       let pass = 0, fail = 0;
       for (const test of suite.tests) {
-        const s = test.emulators?.[emu];
+        const s = test.models?.[this._model]?.[emu];
         if (s === 'pass') pass++;
         else if (s === 'fail') fail++;
       }
@@ -392,6 +449,7 @@ export class TestPicker extends LitElement {
     const suite = TEST_SUITES[this._selectedSuite];
     const tests = this._getTests(suite);
     const stats = this._getSuiteStats(suite);
+    const models = this._modelsFor(suite);
 
     return html`
       <div class="picker">
@@ -413,6 +471,15 @@ export class TestPicker extends LitElement {
                 @click=${() => this._selectCategory(c.filter)}>${c.name}</span>
             `)}
           ` : ''}
+
+          ${models.length > 1 ? html`
+            <span class="model-toggle">
+              ${models.map(m => html`
+                <span class="model-chip ${this._model === m ? 'active' : ''}"
+                  @click=${() => this._selectModel(m)}>${MODEL_LABEL[m]}</span>
+              `)}
+            </span>
+          ` : ''}
         </div>
 
         ${tests.length > 11 ? html`
@@ -425,7 +492,7 @@ export class TestPicker extends LitElement {
 
         <div class="test-list">
           ${tests.map((t, i) => {
-            const emus = t.emulators || {};
+            const emus = t.models?.[this._model] || {};
             return html`
               <div class="test-row ${i === this._selectedTest ? 'selected' : ''}"
                 @click=${() => this._selectTest(suite, tests, i)}>
@@ -436,8 +503,8 @@ export class TestPicker extends LitElement {
                     const cls = s === 'pass' ? 'pass' : s === 'fail' ? 'fail' : 'none';
                     return html`
                       <span class="dot ${cls}"
-                        title="${emu}: ${s || 'no trace'}"
-                        @click=${e => { e.stopPropagation(); if (s) this._load(suite, t, emu, s); }}
+                        title="${emu} (${MODEL_LABEL[this._model]}): ${s || 'no trace'}"
+                        @click=${e => { e.stopPropagation(); if (s) this._load(suite, t, emu, this._model, s); }}
                       >${EMU_SHORT[emu] || emu[0].toUpperCase()}</span>
                     `;
                   })}
@@ -485,6 +552,14 @@ export class TestPicker extends LitElement {
     this._category = '';
     this._search = '';
     this._error = null;
+    // Keep the current model if the new suite has it; otherwise switch.
+    const models = this._modelsFor(TEST_SUITES[i]);
+    if (!models.includes(this._model)) this._model = models[0];
+  }
+
+  _selectModel(model) {
+    this._model = model;
+    this._selectedTest = -1;
   }
 
   _selectCategory(filter) {
@@ -498,12 +573,12 @@ export class TestPicker extends LitElement {
     const test = tests[index];
     if (!test) return;
 
-    const emus = test.emulators || {};
+    const emus = test.models?.[this._model] || {};
     const preferred = (suite.preferredEmu && emus[suite.preferredEmu])
       ? suite.preferredEmu
       : EMULATORS.find(e => emus[e]);
     if (preferred) {
-      this._load(suite, test, preferred, emus[preferred] || 'pass');
+      this._load(suite, test, preferred, this._model, emus[preferred] || 'pass');
     }
   }
 
@@ -525,17 +600,19 @@ export class TestPicker extends LitElement {
     this._selectedSuite = TEST_SUITES.indexOf(suite);
     this._category = '';
     this._selectedTest = suite.tests.indexOf(test);
+    const models = this._modelsFor(suite);
+    if (!models.includes(this._model)) this._model = models[0];
     this.requestUpdate();
 
-    const emus = test.emulators || {};
+    const emus = test.models?.[this._model] || {};
     const emu = (suite.preferredEmu && emus[suite.preferredEmu])
       ? suite.preferredEmu
       : EMULATORS.find(e => emus[e]);
-    if (emu) this._load(suite, test, emu, emus[emu] || 'pass');
+    if (emu) this._load(suite, test, emu, this._model, emus[emu] || 'pass');
   }
 
-  async _load(suite, test, emulator, status = 'pass') {
-    const url = traceUrl(suite, test, emulator, status);
+  async _load(suite, test, emulator, model, status = 'pass') {
+    const url = traceUrl(suite, test, emulator, model, status);
     const filename = url.split('/').pop();
     this._loading = filename;
     this._error = null;
@@ -552,7 +629,7 @@ export class TestPicker extends LitElement {
       } catch (_) {}
 
       this.dispatchEvent(new CustomEvent('trace-loaded', {
-        detail: { store, filename, suite, testRom: test.rom, emulator, testInfo: test },
+        detail: { store, filename, suite, testRom: test.rom, emulator, model, testInfo: test },
         bubbles: true, composed: true,
       }));
     } catch (err) {

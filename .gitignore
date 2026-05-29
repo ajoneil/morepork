@@ -6,6 +6,7 @@ build/
 *.gbtrace.jsonl
 *.sav
 *.pix
+*.rgb555
 adapters/gambatte/gambatte-speedrun/
 adapters/gambatte/gbtrace-gambatte
 adapters/gateboy/metroboy/
@@ -19,3 +20,5 @@ adapters/mgba/gbtrace-mgba
 adapters/mgba/gbtrace-mgba-dbg
 adapters/docboy/docboy/
 adapters/docboy/gbtrace-docboy
+adapters/docboy/gbtrace-docboy-cgb
+adapters/missingno/gbtrace-missingno

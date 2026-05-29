@@ -13,11 +13,14 @@
 // Include C++ headers first to avoid conflicts with SameBoy's `internal` macro
 // (defs.h redefines `internal` as a visibility attribute, which clashes with
 // std::ios_base::internal). Also, debugger.h uses `new` as a parameter name.
+#include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <unistd.h>
+#include <utility>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -157,17 +160,31 @@ static void capture_sameboy_frame() {
 }
 
 // --- Reference matching ---
-static std::string g_reference_pix;
+// References are raw RGB555 (160*144*3 bytes, each channel 0-31). Comparing
+// at the CGB's native 5-bit precision is expansion-neutral.
+static std::string g_reference;  // raw RGB555 bytes
 
 static bool load_reference(const std::string &path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return false;
-    g_reference_pix.assign(std::istreambuf_iterator<char>(f),
-                           std::istreambuf_iterator<char>());
-    while (!g_reference_pix.empty() &&
-           (g_reference_pix.back() == '\n' || g_reference_pix.back() == '\r'))
-        g_reference_pix.pop_back();
-    return (int)g_reference_pix.size() == 160 * 144;
+    g_reference.assign(std::istreambuf_iterator<char>(f),
+                       std::istreambuf_iterator<char>());
+    return g_reference.size() == (size_t)(160 * 144 * 3);
+}
+
+static bool frame_matches_reference() {
+    if (g_reference.size() != (size_t)(160 * 144 * 3)) return false;
+    const unsigned char *ref = reinterpret_cast<const unsigned char *>(g_reference.data());
+    for (int i = 0; i < 160 * 144; i++) {
+        uint32_t px = g_pixel_buf[i];  // bytes: r, g, b, 0xFF
+        int r = (int)((px >> 0) & 0xFF) >> 3;
+        int g = (int)((px >> 8) & 0xFF) >> 3;
+        int b = (int)((px >> 16) & 0xFF) >> 3;
+        if (std::abs(r - ref[i * 3]) > 1 || std::abs(g - ref[i * 3 + 1]) > 1 ||
+            std::abs(b - ref[i * 3 + 2]) > 1)
+            return false;
+    }
+    return true;
 }
 
 static void build_emitters(const Profile &prof) {
@@ -344,6 +361,28 @@ static StopCondition parse_stop_when(const std::string &spec) {
 
 // --- Main ---
 
+// --- Audio capture (gambatte _outaudio tests) ---
+// SameBoy emits stereo int16 samples via the APU sample callback. A
+// frame is "silent" when every sample matches the first; tolerance
+// ~0.005 of full-scale (matching missingno) absorbs APU DC drift.
+static std::vector<std::pair<int16_t, int16_t>> g_audio;
+static void audio_callback(GB_gameboy_t *, GB_sample_t *s) {
+    g_audio.emplace_back(s->left, s->right);
+}
+static bool last_frame_has_audio(int frames) {
+    if (g_audio.empty() || frames <= 0) return false;
+    size_t per_frame = g_audio.size() / static_cast<size_t>(frames);
+    if (per_frame == 0) per_frame = g_audio.size();
+    size_t start = g_audio.size() - per_frame;
+    int16_t l0 = g_audio[start].first, r0 = g_audio[start].second;
+    for (size_t i = start; i < g_audio.size(); i++) {
+        if (std::abs(g_audio[i].first - l0) > 163 ||
+            std::abs(g_audio[i].second - r0) > 163)
+            return true;
+    }
+    return false;
+}
+
 static void print_usage(const char *argv0) {
     std::fprintf(stderr,
         "Usage: %s --rom <file.gb> --profile <profile.toml> [options]\n"
@@ -357,6 +396,7 @@ static void print_usage(const char *argv0) {
         "  --stop-on-serial <HH>  Stop when serial byte HH is sent (hex)\n"
         "  --stop-serial-count <n> Require n serial matches before stopping (default: 1)\n"
         "  --model <model>      dmg or cgb (default: dmg)\n"
+        "  --report-audio       print AUDIO=0/1 (last-frame activity) for _outaudio tests\n"
         "  --boot-rom <path>    Boot ROM file (default: boot_roms/<model>_boot.bin)\n",
         argv0);
 }
@@ -370,6 +410,7 @@ int main(int argc, char *argv[]) {
     std::string model = "DMG-B";
     std::string reference_path;
     int extra_frames = 0;
+    bool report_audio = false;
     GB_model_t gb_model = GB_MODEL_DMG_B;
     std::vector<StopCondition> stop_conditions;
 
@@ -395,16 +436,27 @@ int main(int argc, char *argv[]) {
             boot_rom_path = argv[++i];
         } else if (arg == "--model" && i + 1 < argc) {
             std::string m = argv[++i];
-            if (m == "cgb" || m == "CGB") {
-                model = "CGB-E";
-                gb_model = GB_MODEL_CGB_E;
-            }
+            for (auto &c : m) c = std::tolower(c);
+            // CGB SoC revision is selectable. Plain "cgb" defaults to CGB-C
+            // (Gambatte's cgb04c) so cross-emulator CGB diffs line up with
+            // gambatte/missingno; specific revisions can be requested too.
+            if (m == "dmg") { model = "DMG-B"; gb_model = GB_MODEL_DMG_B; }
+            else if (m == "cgb" || m == "cgb-c" || m == "cgb04c") { model = "CGB-C"; gb_model = GB_MODEL_CGB_C; }
+            else if (m == "cgb-0" || m == "cgb0") { model = "CGB-0"; gb_model = GB_MODEL_CGB_0; }
+            else if (m == "cgb-a") { model = "CGB-A"; gb_model = GB_MODEL_CGB_A; }
+            else if (m == "cgb-b") { model = "CGB-B"; gb_model = GB_MODEL_CGB_B; }
+            else if (m == "cgb-d") { model = "CGB-D"; gb_model = GB_MODEL_CGB_D; }
+            else if (m == "cgb-e") { model = "CGB-E"; gb_model = GB_MODEL_CGB_E; }
+            else if (m == "agb") { model = "AGB-A"; gb_model = GB_MODEL_AGB; }
+            else { std::fprintf(stderr, "Warning: unknown --model '%s', using DMG-B\n", m.c_str()); }
         } else if (arg == "--reference" && i + 1 < argc) {
             reference_path = argv[++i];
         } else if (arg == "--extra-frames" && i + 1 < argc) {
             extra_frames = std::atoi(argv[++i]);
         } else if (arg == "--stop-opcode" && i + 1 < argc) {
             g_stop_opcode = static_cast<int>(std::strtoul(argv[++i], nullptr, 16));
+        } else if (arg == "--report-audio") {
+            report_audio = true;
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -432,7 +484,8 @@ int main(int argc, char *argv[]) {
             exe_dir = ".";
         }
 
-        std::string boot_name = (gb_model == GB_MODEL_CGB_E) ? "cgb_boot.bin" : "dmg_boot.bin";
+        bool is_cgb = (gb_model & GB_MODEL_FAMILY_MASK) == GB_MODEL_CGB_FAMILY;
+        std::string boot_name = is_cgb ? "cgb_boot.bin" : "dmg_boot.bin";
         boot_rom_path = exe_dir + "/boot_roms/" + boot_name;
     }
 
@@ -471,6 +524,13 @@ int main(int argc, char *argv[]) {
     } else {
         GB_set_pixels_output(g_gb, g_pixel_buf);
         GB_set_color_correction_mode(g_gb, GB_COLOR_CORRECTION_DISABLED);
+        // DMG only: use the greyscale palette (SameBoy defaults to a green
+        // tint) so DMG screenshots match the greyscale reference images.
+        // Must NOT be set for CGB — it overrides the ROM's colour palettes
+        // and would turn colour CGB output greyscale.
+        if ((gb_model & GB_MODEL_FAMILY_MASK) != GB_MODEL_CGB_FAMILY) {
+            GB_set_palette(g_gb, &GB_PALETTE_GREY);
+        }
         // Set RGB encode callback so pixel buffer gets standard 0xRRGGBB values
         GB_set_rgb_encode_callback(g_gb, [](GB_gameboy_t *, uint8_t r, uint8_t g, uint8_t b) -> uint32_t {
             return (uint32_t)r | ((uint32_t)g << 8) | ((uint32_t)b << 16) | 0xFF000000u;
@@ -528,6 +588,14 @@ int main(int argc, char *argv[]) {
 
     GB_set_execution_callback(g_gb, exec_callback);
 
+    // Capture audio only when asked (gambatte _outaudio tests). Set up
+    // after boot so boot-time audio isn't measured.
+    if (report_audio) {
+        GB_set_sample_rate(g_gb, 44100);
+        GB_apu_set_sample_callback(g_gb, audio_callback);
+        g_audio.clear();
+    }
+
     // Run: GB_run executes one CPU step and returns 8MHz ticks consumed.
     for (const auto &cond : stop_conditions) {
         std::fprintf(stderr, "Stop condition: [0x%04X] == 0x%02X\n",
@@ -565,7 +633,7 @@ int main(int argc, char *argv[]) {
             gbtrace_writer_mark_frame(g_writer);
 
             // Check reference match (immediate stop)
-            if (has_reference && g_pending_pix == g_reference_pix) {
+            if (has_reference && frame_matches_reference()) {
                 std::fprintf(stderr, "Reference match at frame %d\n", frames);
                 while (true) {
                     GB_run(g_gb);
@@ -618,6 +686,10 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+    }
+
+    if (report_audio) {
+        std::fprintf(stderr, "AUDIO=%d\n", last_frame_has_audio(frames) ? 1 : 0);
     }
 
     gbtrace_writer_close(g_writer);

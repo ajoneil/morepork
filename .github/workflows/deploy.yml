@@ -25,10 +25,16 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      # Public DigitalOcean Spaces CDN base for trace blobs, e.g.
+      # https://<bucket>.<region>.cdn.digitaloceanspaces.com
+      TRACE_BASE: ${{ vars.TRACE_BASE }}
     steps:
       - uses: actions/checkout@v6
 
-      # Download WASM from latest build
+      - name: Install python
+        run: sudo apt-get update && sudo apt-get install -y python3
+
       - name: Download WASM
         uses: dawidd6/action-download-artifact@v6
         with:
@@ -37,76 +43,56 @@ jobs:
           path: web/pkg
           branch: main
 
-      # Download the latest trace artifact for each suite-emulator pair,
-      # searching across all workflow runs so partial rebuilds don't lose
-      # results from older runs.
-      - name: Download all trace artifacts
+      # Trace blobs live on DigitalOcean Spaces. We only need the per-(suite,emu)
+      # filename lists to rebuild the coverage manifests — pass/fail is encoded
+      # in each filename, so no blob content is required here.
+      - name: Download trace lists
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          SUITES=(gbmicrotest blargg mooneye gambatte-tests mealybug-tearoom dmg-acid2 age mooneye-wilbertpol samesuite scribbltests bully mbc3-tester strikethrough turtle-tests)
-          EMUS=(gambatte sameboy gateboy missingno docboy)
-
-          mkdir -p _trace_artifacts
-
-          # Fetch all non-expired trace artifacts, newest first.
+          mkdir -p _tracelists
           gh api --paginate \
             "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
-            --jq '.artifacts[] | select(.expired == false and (.name | startswith("traces-"))) | {name, id}' \
-            > /tmp/all_artifacts.json
+            --jq '.artifacts[] | select(.expired == false and (.name | startswith("tracelist-"))) | "\(.name) \(.id)"' \
+            > /tmp/artifacts.txt
+          seen=""
+          while read -r name id; do
+            [ -n "$name" ] || continue
+            case " $seen " in *" $name "*) continue ;; esac   # newest wins (API is reverse-chron)
+            seen="$seen $name"
+            gh api "repos/${{ github.repository }}/actions/artifacts/${id}/zip" > "/tmp/${name}.zip"
+            unzip -qo "/tmp/${name}.zip" -d _tracelists || true
+          done < /tmp/artifacts.txt
+          echo "Downloaded $(ls _tracelists/*.txt 2>/dev/null | wc -l) trace lists"
 
-          for suite in "${SUITES[@]}"; do
-            for emu in "${EMUS[@]}"; do
-              name="traces-${suite}-${emu}"
-              # First match is the newest since the API returns reverse-chronological
-              artifact_id=$(jq -r "select(.name == \"${name}\") | .id" /tmp/all_artifacts.json | head -1)
-              if [ -z "$artifact_id" ]; then
-                echo "Warning: no artifact found for ${name}"
-                continue
-              fi
-              echo "Downloading ${name} (artifact ${artifact_id})"
-              gh api "repos/${{ github.repository }}/actions/artifacts/${artifact_id}/zip" \
-                > "/tmp/${name}.zip"
-              mkdir -p "_trace_artifacts/${name}"
-              unzip -qo "/tmp/${name}.zip" -d "_trace_artifacts/${name}"
-              rm "/tmp/${name}.zip"
-            done
-          done
-
-      # Merge trace artifacts into build/traces/
-      # Artifacts are in _trace_artifacts/traces-{suite}-{emulator}/...
-      # We need to merge them by suite into build/traces/{suite}/
-      - name: Merge traces
+      # Recreate build/traces/<suite>/<name>.gbtrace as empty files (manifest.py
+      # only reads filenames), then regenerate each suite's manifest.json.
+      - name: Rebuild manifests
         run: |
           mkdir -p build/traces
-          for dir in _trace_artifacts/traces-*/; do
-            [ -d "$dir" ] || continue
-            # Extract suite name: traces-{suite}-{emulator} -> {suite}
-            basename=$(basename "$dir")
-            suite=$(echo "$basename" | sed 's/^traces-//; s/-[^-]*$//')
-            mkdir -p "build/traces/$suite"
-            cp -rn "$dir"* "build/traces/$suite/" 2>/dev/null || true
+          for f in _tracelists/*.txt; do
+            [ -f "$f" ] || continue
+            while IFS= read -r rel; do
+              [ -n "$rel" ] || continue
+              mkdir -p "build/traces/$(dirname "$rel")"
+              : > "build/traces/$rel"
+            done < "$f"
           done
-          # Regenerate manifests with merged data
-          # Map suite trace dirs to ROM dirs (some differ)
           declare -A ROM_DIRS
           ROM_DIRS[gambatte-tests]="test-suites/gambatte"
-
           for suite_dir in build/traces/*/; do
             [ -d "$suite_dir" ] || continue
             suite=$(basename "$suite_dir")
             rom_dir="${ROM_DIRS[$suite]:-test-suites/$suite}"
-            if [ -d "$rom_dir" ]; then
-              python3 scripts/manifest.py "$suite_dir" "$rom_dir"
-            fi
+            [ -d "$rom_dir" ] && python3 scripts/manifest.py "$suite_dir" "$rom_dir"
           done
-          echo "Trace summary:"
+          echo "Manifest summary:"
           for suite_dir in build/traces/*/; do
-            count=$(find "$suite_dir" -name '*.gbtrace' 2>/dev/null | wc -l)
-            echo "  $(basename "$suite_dir"): $count traces"
+            echo "  $(basename "$suite_dir")"
           done
 
-      # Assemble site
+      # Assemble the Pages site: app + per-suite manifest + ROMs + profiles.
+      # The .gbtrace blobs are NOT copied here — they're served from Spaces.
       - name: Assemble site
         run: |
           mkdir -p build/site/pkg build/site/tests
@@ -114,33 +100,26 @@ jobs:
           cp -r web/src build/site/
           cp web/pkg/gbtrace_wasm.js web/pkg/gbtrace_wasm_bg.wasm build/site/pkg/
 
-          # Copy traces
+          # Tell the viewer where the trace blobs live (DigitalOcean Spaces CDN).
+          if [ -n "$TRACE_BASE" ]; then
+            sed -i "s|<script type=\"importmap\">|<script>window.GBTRACE_TRACE_BASE=\"${TRACE_BASE}\";</script>\n  <script type=\"importmap\">|" build/site/index.html
+          fi
+
+          declare -A ROM_DIRS
+          ROM_DIRS[gambatte-tests]="test-suites/gambatte"
           for suite_dir in build/traces/*/; do
             [ -d "$suite_dir" ] || continue
             suite=$(basename "$suite_dir")
-            cp -r "$suite_dir" "build/site/tests/$suite"
-          done
-
-          # Copy ROMs and profiles — use ROM_DIRS mapping for suites with different paths
-          declare -A ROM_DIRS
-          ROM_DIRS[gambatte-tests]="test-suites/gambatte"
-
-          for suite_dir in build/site/tests/*/; do
-            [ -d "$suite_dir" ] || continue
-            suite=$(basename "$suite_dir")
+            dst="$(pwd)/build/site/tests/$suite"
+            mkdir -p "$dst"
+            [ -f "$suite_dir/manifest.json" ] && cp "$suite_dir/manifest.json" "$dst/"
             rom_dir="${ROM_DIRS[$suite]:-test-suites/$suite}"
             [ -d "$rom_dir" ] || continue
-            # Copy ROMs
-            cd "$rom_dir"
-            find . -name '*.gb' -exec sh -c 'mkdir -p "../../build/site/tests/'"$suite"'/$(dirname "{}")" && cp "{}" "../../build/site/tests/'"$suite"'/{}"' \;
-            cd ../..
-            # Copy profile
-            if [ -f "$rom_dir/profile.toml" ]; then
-              cp "$rom_dir/profile.toml" "$suite_dir/"
-            fi
+            ( cd "$rom_dir" && find . \( -name '*.gb' -o -name '*.gbc' \) \
+                -exec cp --parents {} "$dst/" \; )
+            [ -f "$rom_dir/profile.toml" ] && cp "$rom_dir/profile.toml" "$dst/"
           done
-
-          echo "Site assembled in build/site/"
+          echo "Site assembled (manifests + ROMs; trace blobs served from Spaces)."
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4

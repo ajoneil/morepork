@@ -14,8 +14,10 @@ REFERENCE="$4"
 OUT_DIR="$5"
 MAX_FRAMES="${6:-200}"
 
-NAME="$(basename "$ROM" .gb)"
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//')"
+NAME="$(basename "$ROM")"; NAME="${NAME%.gbc}"; NAME="${NAME%.gb}"
+ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
+MODEL="${MODEL:-dmg}"
+source "$(dirname "$0")/ref-lib.sh"
 
 TMP="/tmp/gbtrace_screenshot_${NAME}_${ADAPTER}_$$"
 stderr_file="${TMP}.stderr"
@@ -25,7 +27,7 @@ cleanup() { rm -f "$stderr_file" "$tmp_trace"; }
 trap cleanup EXIT
 
 # Capture — adapter stops when framebuffer matches reference
-"$BIN" --rom "$ROM" --profile "$PROFILE" --output "$tmp_trace" \
+"$BIN" --rom "$ROM" --profile "$PROFILE" --model "$MODEL" --output "$tmp_trace" \
     --reference "$REFERENCE" \
     --frames "$MAX_FRAMES" \
     >/dev/null 2>"$stderr_file" </dev/null || true
@@ -45,4 +47,4 @@ else
 fi
 
 mkdir -p "$OUT_DIR"
-mv "$tmp_trace" "${OUT_DIR}/${NAME}_${ADAPTER}_${status}.gbtrace"
+mv "$tmp_trace" "${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"

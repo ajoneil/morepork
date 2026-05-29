@@ -2,12 +2,21 @@
 # Generate a single Gambatte test trace: adapter + ROM → .gbtrace
 #
 # All Gambatte tests run for exactly 15 LCD frames (1,053,360 T-cycles).
-# Pass/fail is determined by:
-#   1. _out<hex> in filename → render frame 15, check screen matches hex pattern
-#   2. .png reference next to ROM → screenshot comparison
-#   3. _xout in filename → expected failure, skip
+# Pass/fail is determined by the test type, encoded in the filename:
+#   1. screenshot  — a {stem}_<model>.pix reference exists → adapter reference match
+#   2. _blank      — final frame must be entirely background
+#   3. _outaudio0/1 — last-frame audio activity (adapter prints AUDIO=0/1)
+#   4. _out<HEX>   — final frame's top tile-row decodes to <HEX>
+#   5. _xout       — expected failure, skipped
 #
-# Usage: trace-gambatte-tests.sh <adapter-binary> <rom> <profile> <output-dir> <rom-dir>
+# The expected value is read for the active model ($MODEL, default dmg):
+#   shared `_dmg08_cgb04c_out<H>` applies to both; dual
+#   `_dmg08_out<H1>_cgb04c_out<H2>` gives H1 for dmg, H2 for cgb.
+#
+# Model is passed via the MODEL env var (dmg|cgb). The adapter binary is
+# passed by the caller (gen-rules resolves docboy+cgb → gbtrace-docboy-cgb).
+#
+# Usage: MODEL=dmg trace-gambatte-tests.sh <adapter-binary> <rom> <profile> <output-dir> <rom-dir>
 set -euo pipefail
 
 BIN="$1"
@@ -15,80 +24,111 @@ ROM="$2"
 PROFILE="$3"
 OUT_DIR="$4"
 ROM_DIR="${5:-$(dirname "$ROM")}"
+MODEL="${MODEL:-dmg}"
+source "$(dirname "$0")/ref-lib.sh"
 CLI="${CLI:-target/release/gbtrace}"
 
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//')"
+# Emulator name: strip gbtrace- prefix and any -cgb build suffix.
+ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
 
-# Hard time limit per test (capture + verify)
 TEST_TIMEOUT=120
+MAX_FRAMES=15
 
-# Use relative path from ROM_DIR as the test name, flattening subdirs with __
-# e.g. sprites/late_disable_1_dmg08_out0.gb → sprites__late_disable_1_dmg08_out0
+# Test name = path relative to ROM_DIR, subdirs flattened with __
 ROM_REL="$(realpath --relative-to="$ROM_DIR" "$ROM")"
-ROM_REL="${ROM_REL%.gb}"
+ROM_REL="${ROM_REL%.gbc}"; ROM_REL="${ROM_REL%.gb}"
 NAME="${ROM_REL//\//__}"
+STEM="$(basename "$ROM")"; STEM="${STEM%.gbc}"; STEM="${STEM%.gb}"
 
 # Skip expected-failure tests
-if echo "$NAME" | grep -q "_xout"; then
-    printf "%-50s %-10s SKIP (xout)\n" "$NAME" "$ADAPTER"
+if [[ "$NAME" == *_xout* ]]; then
+    printf "%-50s %-10s %-4s SKIP (xout)\n" "$NAME" "$ADAPTER" "$MODEL"
     exit 0
 fi
 
-MAX_FRAMES=15
-TMP="/tmp/gbtrace_gambatte_${NAME}_${ADAPTER}_$$"
+# Extract the model-appropriate expected hex / audio outcome from the stem.
+#   shared `_dmg08_cgb04c_out<X>` wins; otherwise the model-specific marker.
+extract_marker() {  # $1=marker suffix (out|outaudio)
+    local m="$1" h
+    h=$(grep -oP "(?<=_dmg08_cgb04c_${m})[0-9A-Fa-f]+" <<<"$STEM" | head -1) || true
+    if [[ -z "$h" ]]; then
+        if [[ "$MODEL" == cgb ]]; then
+            h=$(grep -oP "(?<=_cgb04c_${m})[0-9A-Fa-f]+" <<<"$STEM" | head -1) || true
+        else
+            h=$(grep -oP "(?<=_dmg08_${m})[0-9A-Fa-f]+" <<<"$STEM" | head -1) || true
+        fi
+    fi
+    echo "$h"
+}
+
+# Model-aware screenshot reference (gambatte uses {stem}_dmg08 / _cgb04c).
+PIX_REF="$(find_ref "$ROM" "$MODEL")"
+
+TMP="/tmp/gbtrace_gambatte_${NAME}_${ADAPTER}_${MODEL}_$$"
 stderr_file="${TMP}.stderr"
 tmp_trace="${TMP}.gbtrace"
-
-cleanup() { rm -f "$stderr_file" "$tmp_trace" "${ROM%.gb}.sav"; rm -rf "${TMP}_render"; }
+cleanup() { rm -f "$stderr_file" "$tmp_trace" "${ROM%.gb}.sav" "${ROM%.gbc}.sav"; rm -rf "${TMP}_render"; }
 trap cleanup EXIT
 
-# Check for .pix reference — Gambatte names DMG refs as {test}_dmg08.pix
-BASENAME="$(basename "$ROM" .gb)"
-PIX_REF="$(dirname "$ROM")/${BASENAME}_dmg08.pix"
-EXTRA_ARGS=()
+# Classify the test type.
 if [[ -f "$PIX_REF" ]]; then
-    EXTRA_ARGS+=(--reference "$PIX_REF")
+    TYPE="screenshot"
+elif [[ "$STEM" == *blank* ]]; then
+    TYPE="blank"
+elif [[ "$STEM" == *outaudio* ]]; then
+    TYPE="audio"
+else
+    TYPE="hex"
 fi
 
-# Capture — run for exactly 15 frames, with timeout
+# --- Capture ---
+EXTRA_ARGS=(--model "$MODEL")
+[[ "$TYPE" == "screenshot" ]] && EXTRA_ARGS+=(--reference "$PIX_REF")
+[[ "$TYPE" == "audio" ]] && EXTRA_ARGS+=(--report-audio)
+
 (
     set +eo pipefail
     timeout "$TEST_TIMEOUT" "$BIN" --rom "$ROM" --profile "$PROFILE" \
-        --frames "$MAX_FRAMES" \
-        "${EXTRA_ARGS[@]}" \
+        --frames "$MAX_FRAMES" "${EXTRA_ARGS[@]}" \
         --output "$tmp_trace" >/dev/null 2>"$stderr_file" </dev/null
 ) || true
 
 if [[ ! -s "$tmp_trace" ]]; then
     err_msg=$(head -1 "$stderr_file" 2>/dev/null || echo "unknown")
-    printf "%-50s %-10s ERROR (%s)\n" "$NAME" "$ADAPTER" "$err_msg"
+    printf "%-50s %-10s %-4s ERROR (%s)\n" "$NAME" "$ADAPTER" "$MODEL" "$err_msg"
     exit 1
 fi
 
 # --- Determine pass/fail ---
 status="fail"
-
-# Method 1: Reference match (adapter stopped early on screenshot match)
-if grep -q "Reference match" "$stderr_file" 2>/dev/null; then
-    status="pass"
-# Method 2: Hex output check (_out<hex> in filename)
-elif echo "$NAME" | grep -qP '_out[0-9A-Fa-f]+$'; then
-    expected_hex=$(echo "$NAME" | grep -oP '(?<=_out)[0-9A-Fa-f]+$')
-    tmp_render="${TMP}_render"
-    mkdir -p "$tmp_render"
-    # Render frame 15 with timeout to prevent hangs
-    timeout 30 "$CLI" render "$tmp_trace" --frames 15 --output "$tmp_render" >/dev/null 2>&1 || true
-    png=$(ls "$tmp_render"/*.png 2>/dev/null | head -1)
-    if [[ -n "$png" ]] && python3 "$(dirname "$0")/check-gambatte-hex.py" "$expected_hex" "$png" 2>/dev/null; then
-        status="pass"
-    fi
-    rm -rf "$tmp_render"
-fi
+case "$TYPE" in
+    screenshot)
+        grep -q "Reference match" "$stderr_file" 2>/dev/null && status="pass"
+        ;;
+    audio)
+        expected=$(extract_marker outaudio)
+        got=$(grep -oP '(?<=AUDIO=)[01]' "$stderr_file" 2>/dev/null | tail -1) || true
+        [[ -n "$expected" && "$got" == "$expected" ]] && status="pass"
+        ;;
+    blank|hex)
+        tmp_render="${TMP}_render"; mkdir -p "$tmp_render"
+        timeout 30 "$CLI" render "$tmp_trace" --frames 15 --output "$tmp_render" >/dev/null 2>&1 || true
+        png=$(ls "$tmp_render"/*.png 2>/dev/null | tail -1)
+        if [[ -n "$png" ]]; then
+            if [[ "$TYPE" == "blank" ]]; then
+                python3 "$(dirname "$0")/check-gambatte-hex.py" --blank "$png" 2>/dev/null && status="pass"
+            else
+                expected=$(extract_marker out)
+                [[ -n "$expected" ]] && python3 "$(dirname "$0")/check-gambatte-hex.py" "$expected" "$png" 2>/dev/null && status="pass"
+            fi
+        fi
+        ;;
+esac
 
 # --- Output ---
 mkdir -p "$OUT_DIR"
-out="${OUT_DIR}/${NAME}_${ADAPTER}_${status}.gbtrace"
+out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"
 mv "$tmp_trace" "$out"
 
 entries=$("$CLI" info "$out" 2>/dev/null | grep Entries | awk '{print $2}')
-printf "%-50s %-10s %-4s %6s entries\n" "$NAME" "$ADAPTER" "${status^^}" "${entries:-?}"
+printf "%-50s %-10s %-4s %-4s %6s entries\n" "$NAME" "$ADAPTER" "$MODEL" "${status^^}" "${entries:-?}"

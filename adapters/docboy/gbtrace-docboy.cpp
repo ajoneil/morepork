@@ -136,7 +136,6 @@ static DebuggerBackend *g_debugger = nullptr;
 
 // Pixel capture
 static std::string g_pending_pix;
-static std::string g_reference_pix;
 
 static inline char rgb565_to_shade(uint16_t pixel) {
     // Extract red channel (bits 15:11), scale to 8-bit
@@ -272,15 +271,31 @@ static StopCondition parse_stop_when(const std::string &spec) {
 
 // --- Reference matching ---
 
+// References are raw RGB555 (160*144*3 bytes, each channel 0-31). Comparing
+// at the CGB's native 5-bit precision is expansion-neutral.
+static std::string g_reference;  // raw RGB555 bytes
+
 static bool load_reference(const std::string &path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return false;
-    g_reference_pix.assign(std::istreambuf_iterator<char>(f),
-                           std::istreambuf_iterator<char>());
-    while (!g_reference_pix.empty() &&
-           (g_reference_pix.back() == '\n' || g_reference_pix.back() == '\r'))
-        g_reference_pix.pop_back();
-    return (int)g_reference_pix.size() == 160 * 144;
+    g_reference.assign(std::istreambuf_iterator<char>(f),
+                       std::istreambuf_iterator<char>());
+    return g_reference.size() == (size_t)(160 * 144 * 3);
+}
+
+static bool frame_matches_reference(const PixelRgb565 *pixels) {
+    if (g_reference.size() != (size_t)(160 * 144 * 3)) return false;
+    const unsigned char *ref = reinterpret_cast<const unsigned char *>(g_reference.data());
+    for (int i = 0; i < 160 * 144; i++) {
+        uint16_t px = static_cast<uint16_t>(pixels[i]);
+        int r = (px >> 11) & 0x1F;
+        int g = ((px >> 5) & 0x3F) >> 1;  // 6-bit (565) green -> 5-bit (555)
+        int b = px & 0x1F;
+        if (std::abs(r - ref[i * 3]) > 1 || std::abs(g - ref[i * 3 + 1]) > 1 ||
+            std::abs(b - ref[i * 3 + 2]) > 1)
+            return false;
+    }
+    return true;
 }
 
 // --- Main ---
@@ -314,7 +329,7 @@ int main(int argc, char *argv[]) {
         } else if (arg == "--extra-frames" && i + 1 < argc) {
             extra_frames = std::atoi(argv[++i]);
         } else if (arg == "--model" && i + 1 < argc) {
-            ++i; // ignore — DocBoy is DMG-only for now
+            ++i; // model is selected at compile time (ENABLE_CGB); flag accepted for uniformity
         } else if (arg == "--boot-rom" && i + 1 < argc) {
             ++i; // ignore — no boot ROM support
         } else if (arg == "--stop-on-serial" && i + 1 < argc) {
@@ -339,12 +354,15 @@ int main(int argc, char *argv[]) {
     // Init DocBoy (heap-allocated — GameBoy struct is too large for the stack)
     auto gb = std::make_unique<GameBoy>();
 
+#ifndef ENABLE_CGB
     // Set DMG greyscale palette — DocBoy's default Appearance is zero-initialized
-    // (all black), which breaks screenshot comparison.
+    // (all black), which breaks screenshot comparison. On CGB builds the LCD
+    // uses the ROM's colour palettes, so this DMG-only setup is skipped.
     Appearance grey_palette;
     grey_palette.default_color = 0xFFFF;
     grey_palette.palette = {0xFFFF, 0xAD55, 0x52AA, 0x0000};
     gb->lcd.set_appearance(grey_palette);
+#endif
 
     Core core(*gb);
     core.load_rom(rom_path);
@@ -356,9 +374,14 @@ int main(int argc, char *argv[]) {
 
     // Init FFI writer
     std::string rom_hash = sha256_file(rom_path);
+#ifdef ENABLE_CGB
+    const char *model = "CGB-C";  // DocBoy built with ENABLE_CGB
+#else
+    const char *model = "DMG-B";
+#endif
     std::string header_json = "{\"_header\":true,\"format_version\":\"0.1.0\","
         "\"emulator\":\"docboy\",\"emulator_version\":\"git\","
-        "\"rom_sha256\":\"" + rom_hash + "\",\"model\":\"DMG-B\","
+        "\"rom_sha256\":\"" + rom_hash + "\",\"model\":\"" + model + "\","
         "\"boot_rom\":\"skip\",\"profile\":\"" + profile.name + "\","
         "\"fields\":[";
     for (size_t i = 0; i < g_emitters.size(); i++) {
@@ -452,8 +475,8 @@ int main(int argc, char *argv[]) {
             }
             gbtrace_writer_mark_frame(g_writer);
 
-            // Check reference match
-            if (has_reference && g_pending_pix == g_reference_pix) {
+            // Check reference match (RGB555, at the CGB's native precision)
+            if (has_reference && frame_matches_reference(gb->lcd.get_pixels())) {
                 std::fprintf(stderr, "Reference match at frame %d\n", frames);
                 // Run one more frame to capture final state
                 while (gb->ppu.stat.mode == Specs::Ppu::Modes::VBLANK) core.cycle();

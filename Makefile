@@ -26,11 +26,11 @@ BUILD_DIR := $(PROJECT_DIR)/build
 PAGES_URL ?= https://ajoneil.github.io/gbtrace
 
 # Adapters
-ADAPTERS := gambatte sameboy gateboy missingno docboy
+ADAPTERS := gambatte sameboy missingno docboy
 ADAPTER_BINS := $(foreach a,$(ADAPTERS),adapters/$(a)/gbtrace-$(a))
 
-# Emulators to run (comma-separated, override with EMUS=gambatte,mgba)
-EMUS ?= gambatte,sameboy,gateboy,missingno,docboy
+# Emulators to run (comma-separated, override with EMUS=gambatte,missingno)
+EMUS ?= gambatte,sameboy,missingno,docboy
 
 # Trace output dirs
 GBMICROTEST_TRACE_DIR := $(BUILD_DIR)/traces/gbmicrotest
@@ -46,6 +46,10 @@ BULLY_TRACE_DIR := $(BUILD_DIR)/traces/bully
 MBC3_TESTER_TRACE_DIR := $(BUILD_DIR)/traces/mbc3-tester
 STRIKETHROUGH_TRACE_DIR := $(BUILD_DIR)/traces/strikethrough
 TURTLE_TESTS_TRACE_DIR := $(BUILD_DIR)/traces/turtle-tests
+DMG_ACID2_TRACE_DIR := $(BUILD_DIR)/traces/dmg-acid2
+CGB_ACID2_TRACE_DIR := $(BUILD_DIR)/traces/cgb-acid2
+CGB_ACID_HELL_TRACE_DIR := $(BUILD_DIR)/traces/cgb-acid-hell
+RTC3TEST_TRACE_DIR := $(BUILD_DIR)/traces/rtc3test
 
 export LD_LIBRARY_PATH := $(PROJECT_DIR)/adapters/sameboy/SameBoy/build/lib:$(LD_LIBRARY_PATH)
 export CLI
@@ -69,19 +73,20 @@ $(RULES_MK): scripts/gen-rules.py
 .PHONY: pix-refs
 pix-refs: scripts/png-to-pix.py
 	@find test-suites -name '*.png' -print0 | while IFS= read -r -d '' png; do \
-		pix="$${png%.png}.pix"; \
-		if [ ! -f "$$pix" ] || [ "$$png" -nt "$$pix" ]; then \
-			python3 scripts/png-to-pix.py "$$png" "$$pix"; \
+		ref="$${png%.png}.rgb555"; \
+		if [ ! -f "$$ref" ] || [ "$$png" -nt "$$ref" ]; then \
+			python3 scripts/png-to-pix.py "$$png" "$$ref"; \
 		fi; \
 	done
 
-DMG_ACID2_REF := test-suites/dmg-acid2/reference.pix
+DMG_ACID2_REF := test-suites/dmg-acid2/reference.rgb555
 
 .PHONY: all adapters cli wasm traces traces-gbmicrotest traces-blargg \
         traces-mooneye traces-gambatte-tests traces-mealybug-tearoom traces-dmg-acid2 \
         traces-age traces-mooneye-wilbertpol traces-samesuite traces-scribbltests \
         traces-bully traces-mbc3-tester traces-strikethrough \
-        traces-turtle-tests manifests site serve clean
+        traces-turtle-tests traces-cgb-acid2 traces-cgb-acid-hell traces-rtc3test \
+        manifests site serve clean
 
 all: site
 
@@ -92,7 +97,7 @@ cli: $(CLI)
 traces: traces-gbmicrotest traces-blargg traces-mooneye traces-gambatte-tests traces-mealybug-tearoom traces-dmg-acid2 \
         traces-age traces-mooneye-wilbertpol traces-samesuite traces-scribbltests \
         traces-bully traces-mbc3-tester traces-strikethrough \
-        traces-turtle-tests
+        traces-turtle-tests traces-cgb-acid2 traces-cgb-acid-hell traces-rtc3test
 
 traces-gbmicrotest: $(RULES_MK) $(GBMICROTEST_STAMPS)
 	@echo "Generating gbmicrotest manifest..."
@@ -119,24 +124,9 @@ traces-mealybug-tearoom: $(RULES_MK) pix-refs $(MEALYBUG_TEAROOM_STAMPS)
 	@python3 scripts/manifest.py "$(MEALYBUG_TEAROOM_TRACE_DIR)" "test-suites/mealybug-tearoom"
 	@echo "=== mealybug-tearoom complete ==="
 
-DMG_ACID2_TRACE_DIR := $(BUILD_DIR)/traces/dmg-acid2
-DMG_ACID2_ROM := test-suites/dmg-acid2/dmg-acid2.gb
-DMG_ACID2_PROFILE := test-suites/dmg-acid2/profile.toml
 
-traces-dmg-acid2: pix-refs | $(CLI)
-	@echo "=== dmg-acid2 ==="
-	@mkdir -p $(DMG_ACID2_TRACE_DIR)
-	@for emu in $(subst $(comma), ,$(EMUS)); do \
-		if [ -x "adapters/$$emu/gbtrace-$$emu" ]; then \
-			bash scripts/trace-screenshot.sh \
-				"adapters/$$emu/gbtrace-$$emu" \
-				"$(DMG_ACID2_ROM)" \
-				"$(DMG_ACID2_PROFILE)" \
-				"$(DMG_ACID2_REF)" \
-				"$(DMG_ACID2_TRACE_DIR)" \
-				30 || true; \
-		fi; \
-	done
+traces-dmg-acid2: $(RULES_MK) pix-refs $(DMG_ACID2_STAMPS)
+	@echo "Generating dmg-acid2 manifest..."
 	@python3 scripts/manifest.py "$(DMG_ACID2_TRACE_DIR)" "test-suites/dmg-acid2"
 	@echo "=== dmg-acid2 complete ==="
 
@@ -180,6 +170,21 @@ traces-turtle-tests: $(RULES_MK) pix-refs $(TURTLE_TESTS_STAMPS)
 	@python3 scripts/manifest.py "$(TURTLE_TESTS_TRACE_DIR)" "test-suites/turtle-tests"
 	@echo "=== turtle-tests complete ==="
 
+traces-cgb-acid2: $(RULES_MK) pix-refs $(CGB_ACID2_STAMPS)
+	@echo "Generating cgb-acid2 manifest..."
+	@python3 scripts/manifest.py "$(CGB_ACID2_TRACE_DIR)" "test-suites/cgb-acid2"
+	@echo "=== cgb-acid2 complete ==="
+
+traces-cgb-acid-hell: $(RULES_MK) pix-refs $(CGB_ACID_HELL_STAMPS)
+	@echo "Generating cgb-acid-hell manifest..."
+	@python3 scripts/manifest.py "$(CGB_ACID_HELL_TRACE_DIR)" "test-suites/cgb-acid-hell"
+	@echo "=== cgb-acid-hell complete ==="
+
+traces-rtc3test: $(RULES_MK) pix-refs $(RTC3TEST_STAMPS)
+	@echo "Generating rtc3test manifest..."
+	@python3 scripts/manifest.py "$(RTC3TEST_TRACE_DIR)" "test-suites/rtc3test"
+	@echo "=== rtc3test complete ==="
+
 comma := ,
 
 site: wasm traces
@@ -197,7 +202,7 @@ site: wasm traces
 		rom_dir="test-suites/$$suite"; \
 		if [ "$$suite" = "gambatte-tests" ]; then rom_dir="test-suites/gambatte"; fi; \
 		if [ -d "$$rom_dir" ]; then \
-			cd "$$rom_dir" && find . -name '*.gb' -exec sh -c \
+			cd "$$rom_dir" && find . \( -name '*.gb' -o -name '*.gbc' \) -exec sh -c \
 				'mkdir -p "$(BUILD_DIR)/site/tests/'"$$suite"'/$$(dirname "{}")" && cp "{}" "$(BUILD_DIR)/site/tests/'"$$suite"'/{}"' \; && cd $(PROJECT_DIR); \
 			if [ -f "$$rom_dir/profile.toml" ]; then \
 				cp "$$rom_dir/profile.toml" "$(BUILD_DIR)/site/tests/$$suite/"; \
@@ -226,16 +231,12 @@ adapters/mgba/gbtrace-mgba:
 	@echo "Building mgba adapter..."
 	@$(MAKE) -C adapters/mgba -j$$(nproc)
 
-adapters/gateboy/gbtrace-gateboy:
-	@echo "Building gateboy adapter..."
-	@$(MAKE) -C adapters/gateboy -j$$(nproc)
-
 adapters/missingno/gbtrace-missingno:
 	@echo "Building missingno adapter..."
 	@cd adapters/missingno && cargo build --release && cp target/release/gbtrace-missingno .
 
-adapters/docboy/gbtrace-docboy:
-	@echo "Building docboy adapter..."
+adapters/docboy/gbtrace-docboy adapters/docboy/gbtrace-docboy-cgb:
+	@echo "Building docboy adapters (DMG + CGB)..."
 	@$(MAKE) -C adapters/docboy
 
 

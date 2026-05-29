@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        emulator: [gambatte, sameboy, gateboy, missingno, docboy]
+        emulator: [gambatte, sameboy, missingno, docboy]
     steps:
       - uses: actions/checkout@v6
 
@@ -135,17 +135,6 @@ jobs:
           fi
           make -j$(nproc)
 
-      - name: Clone and build gateboy
-        if: matrix.emulator == 'gateboy'
-        run: |
-          cd adapters/gateboy
-          [ -d metroboy ] || git clone --depth 1 https://github.com/aappleby/metroboy.git
-          [ -d metrolib ] || git clone --depth 1 https://github.com/aappleby/metrolib.git
-          mkdir -p metroboy/symlinks
-          rm -rf metroboy/symlinks/metrolib
-          ln -sf "$(pwd)/metrolib" metroboy/symlinks/metrolib
-          make -j$(nproc)
-
       - name: Install Rust (missingno)
         if: matrix.emulator == 'missingno'
         uses: dtolnay/rust-toolchain@stable
@@ -160,7 +149,8 @@ jobs:
         if: matrix.emulator == 'missingno'
         run: |
           cd adapters/missingno
-          cargo update -p missingno-gb
+          # missingno-gb + missingno-gbc come from the same git dep (CGB tracer).
+          cargo update -p missingno-gb -p missingno-gbc 2>/dev/null || cargo update
           cargo build --release
           cp target/release/gbtrace-missingno .
 
@@ -174,6 +164,8 @@ jobs:
           name: adapter-${{ matrix.emulator }}
           path: |
             adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}
+            adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}-cgb
             adapters/${{ matrix.emulator }}/SameBoy/build/lib/libsameboy.so
             adapters/${{ matrix.emulator }}/boot_roms/
+          if-no-files-found: ignore
           retention-days: 90
