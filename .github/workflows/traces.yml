@@ -40,8 +40,9 @@ jobs:
           # job. The per-suite system map mirrors the gen-rules SUITES policy —
           # keep them in sync.
           declare -A SYS=(
-            [gbmicrotest]="dmg" [mooneye]="dmg" [scribbltests]="dmg" [bully]="dmg"
+            [gbmicrotest]="dmg" [scribbltests]="dmg" [bully]="dmg"
             [mbc3-tester]="dmg" [strikethrough]="dmg" [turtle-tests]="dmg"
+            [mooneye]="dmg cgb"
             [gambatte-tests]="dmg cgb" [blargg]="dmg cgb" [mealybug-tearoom]="dmg cgb"
             [dmg-acid2]="dmg cgb" [age]="dmg cgb" [mooneye-wilbertpol]="dmg cgb"
             [samesuite]="dmg cgb"

@@ -120,6 +120,27 @@ def gambatte_models(rom):
     return models or ['dmg']  # untagged (screenshot) ROMs default to dmg
 
 
+# mooneye encodes each ROM's target hardware in its filename suffix, so a test
+# runs only under the model(s) it applies to. `-GS` (Game boy / Super game boy)
+# and the `-dmg*`/`-mgb`/`-sgb*`/`-S` boot variants are DMG-family only; `-C`
+# and `-cgb*` variants are CGB-only; an unsuffixed (model-agnostic) test runs
+# under both. This reproduces missingno's per-model selection exactly — its CGB
+# set is precisely the unsuffixed + emulator-only + manual tests (verified: same
+# 82 ROMs), a strict subset of the DMG set.
+MOONEYE_DMG_ONLY = ('-GS', '-dmgABCmgb', '-dmgABC', '-dmg0', '-mgb', '-sgb', '-sgb2', '-S')
+
+
+def mooneye_models(rom):
+    """Models a mooneye ROM runs under, from its filename suffix."""
+    stem = os.path.basename(rom)
+    stem = stem[:-4] if stem.endswith('.gbc') else stem[:-3]
+    if stem.endswith(MOONEYE_DMG_ONLY):
+        return ['dmg']
+    if stem.endswith('-C') or '-cgb' in stem:
+        return ['cgb']
+    return ['dmg', 'cgb']
+
+
 def gen_suite(stamps, rom_dir, profile, trace_dir, emus, script, policy,
               name_base=None, exclude_dirs=None, systems=None):
     # `systems` selects which systems (dmg/cgb) to emit — used to shard CI by
@@ -137,6 +158,8 @@ def gen_suite(stamps, rom_dir, profile, trace_dir, emus, script, policy,
     for rom in find_roms(rom_dir, exclude | {cgb_dir}):
         if policy.get('gambatte'):
             models = gambatte_models(rom)
+        elif policy.get('mooneye'):
+            models = mooneye_models(rom)
         elif ref_driven:
             # Screenshot suite: run a model only when its reference exists.
             models = [m for m in policy['root_models'] if model_has_ref(rom, m, cgb_only)]
@@ -169,8 +192,11 @@ SUITES = [
      '$(BLARGG_TRACE_DIR)', 'scripts/trace-blargg.sh',
      {'root_models': ['dmg'], 'cgb_subdir': True, 'ref_driven': True},
      {'exclude_dirs': {'test-suites/blargg/dmg_sound', 'test-suites/blargg/cgb_sound'}}),
+    # mooneye runs on BOTH systems: each ROM's models come from its filename
+    # suffix (see mooneye_models) — model-agnostic tests on DMG+CGB, the
+    # `-GS`/`-dmg*` variants DMG-only. Mirrors missingno's per-model selection.
     ('MOONEYE_STAMPS', 'test-suites/mooneye', 'test-suites/mooneye/profile.toml',
-     '$(MOONEYE_TRACE_DIR)', 'scripts/trace-mooneye.sh', {'root_models': ['dmg']}, {}),
+     '$(MOONEYE_TRACE_DIR)', 'scripts/trace-mooneye.sh', {'mooneye': True}, {}),
     ('GAMBATTE_TESTS_STAMPS', 'test-suites/gambatte', 'test-suites/gambatte/profile.toml',
      '$(GAMBATTE_TESTS_TRACE_DIR)', 'scripts/trace-gambatte-tests.sh',
      {'gambatte': True, 'cgb_subdir': True}, {}),
