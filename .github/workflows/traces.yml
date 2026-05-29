@@ -63,7 +63,10 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3 python3-pil awscli
+          sudo apt-get install -y python3 python3-pil
+          # AWS CLI v2 is pre-installed on GitHub-hosted runners (used for the
+          # Spaces upload); apt no longer ships an `awscli` package on 24.04.
+          aws --version
 
       # Download CLI from latest build
       - name: Download CLI
