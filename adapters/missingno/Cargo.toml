@@ -8,7 +8,7 @@ name = "gbtrace-missingno"
 path = "src/main.rs"
 
 [dependencies]
-# Pinned at the commit that adds the generic gbtrace Tracer + GameBoyColor support.
-missingno-gb = { git = "https://github.com/ajoneil/missingno", rev = "ddf19f16eec067cb3049e0f1bfafe4e8bfd79ac2", features = ["gbtrace"] }
-missingno-gbc = { git = "https://github.com/ajoneil/missingno", rev = "ddf19f16eec067cb3049e0f1bfafe4e8bfd79ac2", features = ["gbtrace"] }
+# Track the latest missingno (no rev pin) — CI resolves it fresh on each build.
+missingno-gb = { git = "https://github.com/ajoneil/missingno", features = ["gbtrace"] }
+missingno-gbc = { git = "https://github.com/ajoneil/missingno", features = ["gbtrace"] }
 clap = { version = "4", features = ["derive"] }

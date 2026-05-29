@@ -246,6 +246,9 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
 
     let reference_pix = args.reference.as_ref().map(load_reference);
     let is_tcycle = tracer.trigger() == Trigger::Tcycle;
+    // CGB/AGB output is colour → push RGB555 pixels (matching the header's
+    // pix_format set by Tracer::create); DMG pushes 2-bit shades.
+    let cgb = model.starts_with("CGB") || model.starts_with("AGB");
 
     let mut frame_count: u32 = 0;
     let mut stop_triggered = false;
@@ -291,7 +294,7 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
         }
 
         let (new_screen, tcycles) = if is_tcycle {
-            step_tcycle(&mut gb, &mut tracer)
+            step_tcycle(&mut gb, &mut tracer, cgb)
         } else {
             step_instruction(&mut gb, &mut tracer)
         };
@@ -370,7 +373,11 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
         tracer.mark_frame().unwrap();
         for y in 0..144 {
             for x in 0..160 {
-                tracer.push_pixel(gb.shade_at(x, y));
+                if cgb {
+                    tracer.push_pixel_rgb555(rgb555_u16(&gb, x as u8, y as u8));
+                } else {
+                    tracer.push_pixel(gb.shade_at(x, y));
+                }
             }
         }
         tracer.capture(&gb).unwrap();
@@ -390,9 +397,16 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
     eprintln!("Trace written: {frame_count} frames");
 }
 
+/// RGB555 (15-bit) value of the screen pixel at (x, y), packed for the pix field.
+fn rgb555_u16<C: Console>(gb: &C, x: u8, y: u8) -> u16 {
+    let [r, g, b] = gb.rgb555_at(x as usize, y as usize); // each channel 0-31
+    ((r as u16) << 10) | ((g as u16) << 5) | (b as u16)
+}
+
 /// Step one instruction via T-cycle phases, capturing at each dot.
-/// Returns `(new_screen, tcycles_captured)`.
-fn step_tcycle<C: Console>(gb: &mut C, tracer: &mut Tracer) -> (bool, u64) {
+/// Returns `(new_screen, tcycles_captured)`. `cgb` selects the pix encoding:
+/// RGB555 colour (CGB) vs 2-bit shade (DMG).
+fn step_tcycle<C: Console>(gb: &mut C, tracer: &mut Tracer, cgb: bool) -> (bool, u64) {
     let mut new_screen = false;
     let mut tcycles: u64 = 0;
 
@@ -402,13 +416,21 @@ fn step_tcycle<C: Console>(gb: &mut C, tracer: &mut Tracer) -> (bool, u64) {
         let rise = gb.step_phase();
         new_screen |= rise.new_screen;
         if let Some(pixel) = rise.pixel {
-            tracer.push_pixel(pixel.shade);
+            if cgb {
+                tracer.push_pixel_rgb555(rgb555_u16(&*gb, pixel.x, pixel.y));
+            } else {
+                tracer.push_pixel(pixel.shade);
+            }
         }
 
         let fall = gb.step_phase();
         new_screen |= fall.new_screen;
         if let Some(pixel) = fall.pixel {
-            tracer.push_pixel(pixel.shade);
+            if cgb {
+                tracer.push_pixel_rgb555(rgb555_u16(&*gb, pixel.x, pixel.y));
+            } else {
+                tracer.push_pixel(pixel.shade);
+            }
         }
 
         if rise.new_screen || fall.new_screen {
