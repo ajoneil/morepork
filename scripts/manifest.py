@@ -56,12 +56,15 @@ def generate_manifest(trace_dir, rom_dir):
                 continue
             traces.setdefault(test_name, {}).setdefault(system, {})[emu] = status
 
-    # Build manifest (union of ROMs and any trace-only test names).
-    names = sorted(set(roms) | set(traces))
+    # The suite's ROM set is the single source of truth for which tests exist.
+    # A trace whose ROM has been removed is ignored rather than surfaced as a
+    # phantom `rom: null` row — so deleting a ROM drops it from the manifest on
+    # the next deploy, with no need to prune stale trace blobs/lists first.
     manifest = [
-        {'name': name, 'rom': roms.get(name), 'systems': traces.get(name, {})}
-        for name in names
+        {'name': name, 'rom': roms[name], 'systems': traces.get(name, {})}
+        for name in sorted(roms)
     ]
+    orphans = sorted(set(traces) - set(roms))
 
     os.makedirs(trace_dir, exist_ok=True)  # robust to a suite with no traces yet
     out_path = os.path.join(trace_dir, 'manifest.json')
@@ -70,6 +73,11 @@ def generate_manifest(trace_dir, rom_dir):
 
     total = sum(len(s) for e in manifest for s in e['systems'].values())
     print(f'  {len(manifest)} tests, {total} traces -> {out_path}')
+    if orphans:
+        # Not fatal — but flag it: usually a stale ROM deletion, occasionally a
+        # trace/ROM name-mapping mismatch worth fixing.
+        preview = ', '.join(orphans[:5]) + ('…' if len(orphans) > 5 else '')
+        print(f'  ignored {len(orphans)} trace(s) with no matching ROM: {preview}')
 
 
 if __name__ == '__main__':
