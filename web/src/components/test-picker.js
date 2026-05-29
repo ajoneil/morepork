@@ -191,15 +191,6 @@ const TEST_SUITES = [
     tests: null,
     categories: [],
   },
-  {
-    name: 'rtc3test',
-    base: 'tests/rtc3test',
-    profile: 'tests/rtc3test/profile.toml',
-    manifest: 'tests/rtc3test/manifest.json',
-    preferredEmu: 'missingno',
-    tests: null,
-    categories: [],
-  },
 ];
 
 const EMULATORS = ['missingno', 'docboy', 'gambatte', 'sameboy'];

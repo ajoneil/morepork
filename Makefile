@@ -53,7 +53,6 @@ TURTLE_TESTS_TRACE_DIR := $(BUILD_DIR)/traces/turtle-tests
 DMG_ACID2_TRACE_DIR := $(BUILD_DIR)/traces/dmg-acid2
 CGB_ACID2_TRACE_DIR := $(BUILD_DIR)/traces/cgb-acid2
 CGB_ACID_HELL_TRACE_DIR := $(BUILD_DIR)/traces/cgb-acid-hell
-RTC3TEST_TRACE_DIR := $(BUILD_DIR)/traces/rtc3test
 
 export LD_LIBRARY_PATH := $(PROJECT_DIR)/adapters/sameboy/SameBoy/build/lib:$(LD_LIBRARY_PATH)
 export CLI
@@ -89,7 +88,7 @@ DMG_ACID2_REF := test-suites/dmg-acid2/reference.rgb555
         traces-mooneye traces-gambatte-tests traces-mealybug-tearoom traces-dmg-acid2 \
         traces-age traces-mooneye-wilbertpol traces-samesuite traces-scribbltests \
         traces-bully traces-mbc3-tester traces-strikethrough \
-        traces-turtle-tests traces-cgb-acid2 traces-cgb-acid-hell traces-rtc3test \
+        traces-turtle-tests traces-cgb-acid2 traces-cgb-acid-hell \
         manifests site serve clean
 
 all: site
@@ -101,7 +100,7 @@ cli: $(CLI)
 traces: traces-gbmicrotest traces-blargg traces-mooneye traces-gambatte-tests traces-mealybug-tearoom traces-dmg-acid2 \
         traces-age traces-mooneye-wilbertpol traces-samesuite traces-scribbltests \
         traces-bully traces-mbc3-tester traces-strikethrough \
-        traces-turtle-tests traces-cgb-acid2 traces-cgb-acid-hell traces-rtc3test
+        traces-turtle-tests traces-cgb-acid2 traces-cgb-acid-hell
 
 traces-gbmicrotest: $(RULES_MK) $(GBMICROTEST_STAMPS)
 	@echo "Generating gbmicrotest manifest..."
@@ -183,11 +182,6 @@ traces-cgb-acid-hell: $(RULES_MK) pix-refs $(CGB_ACID_HELL_STAMPS)
 	@echo "Generating cgb-acid-hell manifest..."
 	@python3 scripts/manifest.py "$(CGB_ACID_HELL_TRACE_DIR)" "test-suites/cgb-acid-hell"
 	@echo "=== cgb-acid-hell complete ==="
-
-traces-rtc3test: $(RULES_MK) pix-refs $(RTC3TEST_STAMPS)
-	@echo "Generating rtc3test manifest..."
-	@python3 scripts/manifest.py "$(RTC3TEST_TRACE_DIR)" "test-suites/rtc3test"
-	@echo "=== rtc3test complete ==="
 
 comma := ,
 

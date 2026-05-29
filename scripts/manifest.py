@@ -63,6 +63,7 @@ def generate_manifest(trace_dir, rom_dir):
         for name in names
     ]
 
+    os.makedirs(trace_dir, exist_ok=True)  # robust to a suite with no traces yet
     out_path = os.path.join(trace_dir, 'manifest.json')
     with open(out_path, 'w') as f:
         json.dump(manifest, f)

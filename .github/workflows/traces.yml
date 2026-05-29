@@ -9,7 +9,7 @@ on:
         description: "Test suite"
         default: "all"
         type: choice
-        options: [all, gbmicrotest, blargg, mooneye, gambatte-tests, mealybug-tearoom, dmg-acid2, age, mooneye-wilbertpol, samesuite, scribbltests, bully, mbc3-tester, strikethrough, turtle-tests, cgb-acid2, cgb-acid-hell, rtc3test]
+        options: [all, gbmicrotest, blargg, mooneye, gambatte-tests, mealybug-tearoom, dmg-acid2, age, mooneye-wilbertpol, samesuite, scribbltests, bully, mbc3-tester, strikethrough, turtle-tests, cgb-acid2, cgb-acid-hell]
       emulator:
         description: "Emulator"
         default: "all"
@@ -45,7 +45,7 @@ jobs:
             [gambatte-tests]="dmg cgb" [blargg]="dmg cgb" [mealybug-tearoom]="dmg cgb"
             [dmg-acid2]="dmg cgb" [age]="dmg cgb" [mooneye-wilbertpol]="dmg cgb"
             [samesuite]="dmg cgb"
-            [cgb-acid2]="cgb" [cgb-acid-hell]="cgb" [rtc3test]="cgb"
+            [cgb-acid2]="cgb" [cgb-acid-hell]="cgb"
           )
           EMUS="gambatte sameboy missingno docboy"
           SF="${{ inputs.suite }}"; EF="${{ inputs.emulator }}"; YF="${{ inputs.system }}"

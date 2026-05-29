@@ -192,8 +192,10 @@ SUITES = [
      '$(CGB_ACID2_TRACE_DIR)', 'scripts/trace-screenshot-suite.sh', {'root_models': ['cgb'], 'max_frames': 300, 'ref_driven': True}, {}),
     ('CGB_ACID_HELL_STAMPS', 'test-suites/cgb-acid-hell', 'test-suites/cgb-acid-hell/profile.toml',
      '$(CGB_ACID_HELL_TRACE_DIR)', 'scripts/trace-screenshot-suite.sh', {'root_models': ['cgb'], 'max_frames': 300, 'ref_driven': True}, {}),
-    ('RTC3TEST_STAMPS', 'test-suites/rtc3test', 'test-suites/rtc3test/profile.toml',
-     '$(RTC3TEST_TRACE_DIR)', 'scripts/trace-screenshot-suite.sh', {'root_models': ['cgb'], 'max_frames': 60, 'ref_driven': True}, {}),
+    # NOTE: rtc3test is intentionally excluded — it's an interactive RTC test
+    # navigated by button presses (multi-stage `*-{basic,range,...}-cgb` refs),
+    # which the screenshot pipeline can't drive without input injection. The
+    # ROM + references stay under test-suites/rtc3test/ for when that lands.
 ]
 
 
