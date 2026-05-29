@@ -181,9 +181,9 @@ impl TraceStore {
         Ok(js_sys::Uint8ClampedArray::from(&frame.to_rgba()[..]).into())
     }
 
-    /// Render a complete frame as raw palette indices (160×144 = 23040 bytes).
-    /// Values 0-3 are palette indices, 0xFF is unrendered.
-    /// Used for pixel-level diffing without palette conversion.
+    /// Render a complete frame as raw pixel values (160×144 = 23040 u16s).
+    /// Values are 2-bit shades (0-3) for DMG or RGB555 (0x0000-0x7FFF) for CGB;
+    /// 0xFFFF marks unrendered pixels. See `pixFormat()` for the interpretation.
     #[wasm_bindgen(js_name = renderFrameRaw)]
     pub fn render_frame_raw(&self, frame_index: usize) -> Result<JsValue, JsError> {
         let (start, end) = match self.frame_entry_range(frame_index) {
@@ -196,7 +196,17 @@ impl TraceStore {
         } else {
             framebuffer::reconstruct_partial_frame(&*self.store, start, end)
         };
-        Ok(js_sys::Uint8Array::from(&frame.pixels[..]).into())
+        Ok(js_sys::Uint16Array::from(&frame.pixels[..]).into())
+    }
+
+    /// The `pix` encoding for this trace: "rgb555" (CGB colour) or "shade2"
+    /// (DMG 2-bit greyscale). Lets the UI interpret raw pixel values.
+    #[wasm_bindgen(js_name = pixFormat)]
+    pub fn pix_format(&self) -> String {
+        match self.store.header().pix_format {
+            gbtrace::PixFormat::Rgb555 => "rgb555".to_string(),
+            gbtrace::PixFormat::Shade2 => "shade2".to_string(),
+        }
     }
 
     /// Render a partial frame up to `stop_entry` as RGBA pixel data.
@@ -217,23 +227,46 @@ impl TraceStore {
         Ok(js_sys::Uint8ClampedArray::from(&frame.to_rgba()[..]).into())
     }
 
-    /// Get pixel values for a range of entries as a Uint8Array.
-    /// Each byte is 0-3 (pixel shade) or 255 (no pixel at this entry).
+    /// Per-entry output pixel as packed RGB for a range of entries (Uint32Array).
+    /// 0 means "no pixel at this entry"; otherwise `0xFF_RRGGBB` — the high byte
+    /// marks presence (RGB 0x000000 is a valid black pixel). The colour is
+    /// resolved per `pixFormat()`, so the UI renders it directly without
+    /// knowing whether the trace is DMG (shade) or CGB (RGB555).
     #[wasm_bindgen(js_name = pixRange)]
     pub fn pix_range(&self, start: usize, count: usize) -> Result<JsValue, JsError> {
         if !self.store.has_field("pix") { return Ok(JsValue::NULL); }
-        let mut result = vec![255u8; count];
+        let format = self.store.header().pix_format;
+        let mut result = vec![0u32; count];
         let end = (start + count).min(self.entry_count());
         for i in start..end {
             let pix_val = self.store.get_str_named("pix", i).unwrap_or_default();
-            if pix_val.len() == 1 {
-                let ch = pix_val.as_bytes()[0];
-                if ch >= b'0' && ch <= b'3' {
-                    result[i - start] = ch - b'0';
+            // A per-entry output is one pixel token: 1 char (shade) or 4 hex (RGB555).
+            let value = match format {
+                gbtrace::PixFormat::Shade2 => {
+                    let b = pix_val.as_bytes();
+                    if b.len() == 1 && (b'0'..=b'3').contains(&b[0]) {
+                        Some((b[0] - b'0') as u16)
+                    } else {
+                        None
+                    }
                 }
+                gbtrace::PixFormat::Rgb555 => {
+                    if pix_val.len() == 4 {
+                        u16::from_str_radix(&pix_val, 16).ok().map(|v| v & 0x7FFF)
+                    } else {
+                        None
+                    }
+                }
+            };
+            if let Some(v) = value {
+                let (r, g, b) = gbtrace::framebuffer::pix_to_rgb(v, format);
+                result[i - start] =
+                    0xFF00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
             }
         }
-        Ok(js_sys::Uint8Array::from(&result[..]).into())
+        let arr = js_sys::Uint32Array::new_with_length(result.len() as u32);
+        arr.copy_from(&result);
+        Ok(arr.into())
     }
 
     /// Build a pixel position map for a frame. Returns a Uint32Array

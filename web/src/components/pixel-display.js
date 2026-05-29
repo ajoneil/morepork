@@ -209,8 +209,8 @@ export class PixelDisplay extends LitElement {
       if (this.storeB) {
         const fi = this._frameIndex;
         this._renderToCanvas('canvasB', this.storeB, fi);
-        const pixA = this.store?.renderFrameRaw(fi);
-        const pixB = this.storeB?.renderFrameRaw(fi);
+        const pixA = this.store?.renderFrame(fi);
+        const pixB = this.storeB?.renderFrame(fi);
         if (pixA && pixB) this._renderDiff(pixA, pixB);
       }
     }
@@ -311,30 +311,32 @@ export class PixelDisplay extends LitElement {
     }
   }
 
-  _renderDiff(rawA, rawB) {
+  _renderDiff(rgbaA, rgbaB) {
     const canvas = this.renderRoot?.querySelector('#diff');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    if (!rawA || !rawB) { ctx.clearRect(0, 0, LCD_WIDTH, LCD_HEIGHT); return; }
-    const pixA = new Uint8Array(rawA.buffer || rawA);
-    const pixB = new Uint8Array(rawB.buffer || rawB);
+    if (!rgbaA || !rgbaB) { ctx.clearRect(0, 0, LCD_WIDTH, LCD_HEIGHT); return; }
+    // Compare rendered RGBA pixels — format-agnostic, so it works for both
+    // DMG (greyscale) and CGB (colour) frames.
+    const a = new Uint8ClampedArray(rgbaA.buffer || rgbaA);
+    const b = new Uint8ClampedArray(rgbaB.buffer || rgbaB);
     const diff = new Uint8ClampedArray(LCD_WIDTH * LCD_HEIGHT * 4);
     for (let i = 0; i < LCD_WIDTH * LCD_HEIGHT; i++) {
       const off = i * 4;
-      const a = pixA[i], b = pixB[i];
-      if (a === b) {
-        // Same palette index — show the pixel in normal palette
-        const [r, g, bl] = PALETTE[a & 3] || PALETTE[0];
-        diff[off] = r; diff[off+1] = g; diff[off+2] = bl;
+      const same = a[off] === b[off] && a[off+1] === b[off+1]
+        && a[off+2] === b[off+2] && a[off+3] === b[off+3];
+      if (same) {
+        // Identical — show A's pixel as-is
+        diff[off] = a[off]; diff[off+1] = a[off+1];
+        diff[off+2] = a[off+2]; diff[off+3] = a[off+3];
       } else {
-        // Different — highlight in red
-        const avg = ((a & 3) + (b & 3)) / 2;
-        const brightness = 1 - avg / 3;
+        // Different — highlight in red, modulated by A's luminance
+        const brightness = 1 - (a[off] + a[off+1] + a[off+2]) / (3 * 255);
         diff[off] = Math.round(180 + 75 * brightness);
         diff[off+1] = Math.round(30 + 40 * brightness);
         diff[off+2] = Math.round(30 + 40 * brightness);
+        diff[off+3] = 255;
       }
-      diff[off+3] = 255;
     }
     ctx.putImageData(new ImageData(diff, LCD_WIDTH, LCD_HEIGHT), 0, 0);
   }
@@ -395,9 +397,9 @@ export class PixelDisplay extends LitElement {
         this._renderToCanvas('canvasA', this.store, fi);
       }
       this._renderToCanvas('canvasB', this.storeB, fi);
-      // Diff uses raw palette indices from A vs B
-      const pixA = this.store?.renderFrameRaw(fi);
-      const pixB = this.storeB?.renderFrameRaw(fi);
+      // Diff compares rendered RGBA from A vs B (works for DMG and CGB colour)
+      const pixA = this.store?.renderFrame(fi);
+      const pixB = this.storeB?.renderFrame(fi);
       if (pixA && pixB) this._renderDiff(pixA, pixB);
     } else if (this.currentIndex != null && this.perEntryPixels) {
       this._drawPartialAt(this.currentIndex);

@@ -81,6 +81,17 @@ pub enum Trigger {
     Custom,
 }
 
+/// How the `pix` field encodes each pixel. DMG output is greyscale, so a 2-bit
+/// shade index per pixel suffices; CGB output is colour, so each pixel is a
+/// 15-bit RGB555 value written as 4 hex chars. Absent ⇒ `shade2` (back-compat).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PixFormat {
+    #[default]
+    Shade2,
+    Rgb555,
+}
+
 /// Adapter-defined field with its type metadata, declared in the trace
 /// header. Used for non-standard fields (emulator-internal debug state)
 /// that aren't part of the built-in field catalogue. Readers consult
@@ -152,6 +163,10 @@ pub struct TraceHeader {
     /// When entries are emitted.
     #[serde(default)]
     pub trigger: Trigger,
+
+    /// How the `pix` field encodes pixels (2-bit shade for DMG, RGB555 for CGB).
+    #[serde(default)]
+    pub pix_format: PixFormat,
 
     /// Adapter-defined extension fields. Maps field name → type metadata
     /// for fields that aren't in the built-in catalogue. Adapters declare

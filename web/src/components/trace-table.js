@@ -214,9 +214,12 @@ export class TraceTable extends LitElement {
       parts.push(`<div style="display:flex;height:${ROW_HEIGHT}px;align-items:center;border-bottom:1px solid var(--bg);${bg}" data-idx="${globalIdx}">`);
       parts.push(`<span style="${cs(IDX_WIDTH, 'color:var(--text-muted);')}">${globalIdx}</span>`);
       if (pixArr) {
+        // pixRange packs each entry's output pixel as 0xFF_RRGGBB (0 = none),
+        // resolved per the trace's pix format (DMG shade or CGB colour).
         const pv = pixArr[i];
-        if (pv <= 3) {
-          parts.push(`<span style="${cs(PIX_WIDTH, 'text-align:center;')}"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${PIX_COLORS[pv]};border:1px solid var(--border);"></span></span>`);
+        if (pv !== 0) {
+          const color = '#' + (pv & 0xFFFFFF).toString(16).padStart(6, '0');
+          parts.push(`<span style="${cs(PIX_WIDTH, 'text-align:center;')}"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color};border:1px solid var(--border);"></span></span>`);
         } else {
           parts.push(`<span style="${cs(PIX_WIDTH)}"></span>`);
         }

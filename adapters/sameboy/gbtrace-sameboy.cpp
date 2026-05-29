@@ -151,11 +151,24 @@ static inline char rgba_to_shade(uint32_t rgba) {
     return '3';
 }
 
+// CGB output is colour, so the pix field stores RGB555 (4 hex chars/pixel)
+// rather than a 2-bit greyscale shade. Set once the model is known.
+static bool g_cgb = false;
+
 static void capture_sameboy_frame() {
     g_pending_pix.clear();
-    g_pending_pix.reserve(160 * 144);
+    g_pending_pix.reserve(160 * 144 * (g_cgb ? 4 : 1));
     for (int i = 0; i < 160 * 144; i++) {
-        g_pending_pix += rgba_to_shade(g_pixel_buf[i]);
+        uint32_t px = g_pixel_buf[i];  // byte0=R, byte1=G, byte2=B (see rgb_encode_callback)
+        if (g_cgb) {
+            unsigned r = px & 0xFF, g = (px >> 8) & 0xFF, b = (px >> 16) & 0xFF;
+            unsigned v = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+            char hex[5];
+            std::snprintf(hex, sizeof(hex), "%04X", v);
+            g_pending_pix += hex;
+        } else {
+            g_pending_pix += rgba_to_shade(g_pixel_buf[i]);
+        }
     }
 }
 
@@ -566,15 +579,19 @@ int main(int argc, char *argv[]) {
     // Reset cycle origin so traces start at cy=0 post-boot
     g_total_8mhz_ticks = 0;
 
+    // CGB output is colour → store the pix field as RGB555.
+    g_cgb = (gb_model & GB_MODEL_FAMILY_MASK) == GB_MODEL_CGB_FAMILY;
+
     // Init FFI writer
     std::string rom_hash = sha256_file(rom_path);
 
     // Build header JSON for the FFI writer
+    std::string pix_format = g_cgb ? "\"pix_format\":\"rgb555\"," : "";
     std::string header_json = "{\"_header\":true,\"format_version\":\"0.1.0\","
         "\"emulator\":\"sameboy\",\"emulator_version\":\"0.16.x\","
         "\"rom_sha256\":\"" + rom_hash + "\",\"model\":\"" + model + "\","
         "\"boot_rom\":\"" + boot_rom_info + "\",\"profile\":\"" + g_profile.name + "\","
-        "\"fields\":[";
+        + pix_format + "\"fields\":[";
     for (size_t i = 0; i < g_emitters.size(); i++) {
         if (i > 0) header_json += ",";
         header_json += "\"" + g_emitters[i].name + "\"";

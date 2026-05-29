@@ -123,6 +123,9 @@ static int g_writer_ly_col = -1;
 // it on the next trace entry. Pixels accumulate in g_pending_pix.
 static gambatte::uint_least32_t *g_video_buf_ptr = nullptr;
 static std::string g_pending_pix;
+// CGB output is colour, so the pix field stores RGB555 (4 hex chars/pixel)
+// rather than a 2-bit greyscale shade. Set once the model is known.
+static bool g_cgb = false;
 
 static inline char rgba_to_shade_char(gambatte::uint_least32_t rgba) {
     // Use red channel — gambatte's default greyscale palette
@@ -136,9 +139,18 @@ static inline char rgba_to_shade_char(gambatte::uint_least32_t rgba) {
 static void capture_frame_pixels() {
     if (!g_video_buf_ptr) return;
     g_pending_pix.clear();
-    g_pending_pix.reserve(160 * 144);
+    g_pending_pix.reserve(160 * 144 * (g_cgb ? 4 : 1));
     for (int i = 0; i < 160 * 144; i++) {
-        g_pending_pix += rgba_to_shade_char(g_video_buf_ptr[i]);
+        gambatte::uint_least32_t px = g_video_buf_ptr[i];  // 0x00RRGGBB
+        if (g_cgb) {
+            unsigned r = (px >> 16) & 0xFF, g = (px >> 8) & 0xFF, b = px & 0xFF;
+            unsigned v = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+            char hex[5];
+            std::snprintf(hex, sizeof(hex), "%04X", v);
+            g_pending_pix += hex;
+        } else {
+            g_pending_pix += rgba_to_shade_char(px);
+        }
     }
 }
 
@@ -489,15 +501,19 @@ int main(int argc, char *argv[]) {
                      boot_rom_path.c_str(), boot_rom_info.c_str());
     }
 
+    // CGB output is colour → store the pix field as RGB555.
+    g_cgb = (load_flags & gambatte::GB::LoadFlag::CGB_MODE) != 0;
+
     // Init FFI writer
     std::string rom_hash = sha256_file(rom_path);
 
     // Build header JSON for the FFI writer
+    std::string pix_format = g_cgb ? "\"pix_format\":\"rgb555\"," : "";
     std::string header_json = "{\"_header\":true,\"format_version\":\"0.1.0\","
         "\"emulator\":\"gambatte-speedrun\",\"emulator_version\":\"r730+\","
         "\"rom_sha256\":\"" + rom_hash + "\",\"model\":\"" + model + "\","
         "\"boot_rom\":\"" + boot_rom_info + "\",\"profile\":\"" + g_profile.name + "\","
-        "\"fields\":[";
+        + pix_format + "\"fields\":[";
     for (size_t i = 0; i < g_emitters.size(); i++) {
         if (i > 0) header_json += ",";
         header_json += "\"" + g_emitters[i].name + "\"";

@@ -146,6 +146,30 @@ static inline char rgb565_to_shade(uint16_t pixel) {
     return '3';
 }
 
+// CGB builds (ENABLE_CGB) output colour → store the pix field as RGB555 (4 hex
+// chars/pixel); DMG builds store a 2-bit greyscale shade. Compile-time: DocBoy
+// selects the model at build time.
+#ifdef ENABLE_CGB
+static constexpr bool g_cgb = true;
+#else
+static constexpr bool g_cgb = false;
+#endif
+
+// Append one framebuffer pixel to the pix string in the active format.
+static inline void append_pixel(std::string &out, uint16_t pixel) {
+    if (g_cgb) {
+        unsigned r = (pixel >> 11) & 0x1F;          // RGB565 → RGB555
+        unsigned g = ((pixel >> 5) & 0x3F) >> 1;
+        unsigned b = pixel & 0x1F;
+        unsigned v = (r << 10) | (g << 5) | b;
+        char hex[5];
+        std::snprintf(hex, sizeof(hex), "%04X", v);
+        out += hex;
+    } else {
+        out += rgb565_to_shade(pixel);
+    }
+}
+
 // --- Cached CPU register snapshot ---
 // Read all registers once per entry to avoid repeated calls through the
 // debugger accessor layer (matters at ~70K entries per frame).
@@ -389,11 +413,12 @@ int main(int argc, char *argv[]) {
 #else
     const char *model = "DMG-B";
 #endif
+    std::string pix_format = g_cgb ? "\"pix_format\":\"rgb555\"," : "";
     std::string header_json = "{\"_header\":true,\"format_version\":\"0.1.0\","
         "\"emulator\":\"docboy\",\"emulator_version\":\"git\","
         "\"rom_sha256\":\"" + rom_hash + "\",\"model\":\"" + model + "\","
         "\"boot_rom\":\"skip\",\"profile\":\"" + profile.name + "\","
-        "\"fields\":[";
+        + pix_format + "\"fields\":[";
     for (size_t i = 0; i < g_emitters.size(); i++) {
         if (i > 0) header_json += ",";
         header_json += "\"" + g_emitters[i].name + "\"";
@@ -497,9 +522,9 @@ int main(int argc, char *argv[]) {
             if (g_has_pix || has_reference) {
                 const PixelRgb565 *pixels = gb->lcd.get_pixels();
                 g_pending_pix.clear();
-                g_pending_pix.reserve(160 * 144);
+                g_pending_pix.reserve(160 * 144 * (g_cgb ? 4 : 1));
                 for (int j = 0; j < 160 * 144; j++) {
-                    g_pending_pix += rgb565_to_shade(pixels[j]);
+                    append_pixel(g_pending_pix, pixels[j]);
                 }
             }
             gbtrace_writer_mark_frame(g_writer);
@@ -561,9 +586,9 @@ int main(int argc, char *argv[]) {
     if (cycle_budget) {
         const PixelRgb565 *pixels = gb->lcd.get_pixels();
         g_pending_pix.clear();
-        g_pending_pix.reserve(160 * 144);
+        g_pending_pix.reserve(160 * 144 * (g_cgb ? 4 : 1));
         for (int j = 0; j < 160 * 144; j++) {
-            g_pending_pix += rgb565_to_shade(pixels[j]);
+            append_pixel(g_pending_pix, pixels[j]);
         }
         gbtrace_writer_mark_frame(g_writer);
         emit_entry();

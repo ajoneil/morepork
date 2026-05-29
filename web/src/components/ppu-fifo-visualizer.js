@@ -4,6 +4,21 @@ const SHADES = ['#e0f8d0', '#88c070', '#346856', '#081820'];
 const PIXEL_SIZE = 16;
 const FIFO_LEN = 8;
 
+/// Resolve a `pix` field value to a CSS colour, or null if there's no pixel.
+/// DMG output is a 2-bit shade (0-3); CGB output is a 4-char RGB555 hex string.
+function pixToCss(pix) {
+  if (pix === undefined || pix === null || pix === '') return null;
+  const s = String(pix);
+  if (s.length <= 1) {
+    const v = Number(pix);
+    return v >= 0 && v <= 3 ? SHADES[v] : null;
+  }
+  const v = parseInt(s, 16);
+  if (Number.isNaN(v)) return null;
+  const exp = (c) => (c << 3) | (c >> 2); // 5-bit → 8-bit
+  return `rgb(${exp((v >> 10) & 31)},${exp((v >> 5) & 31)},${exp(v & 31)})`;
+}
+
 /**
  * Visualizes the PPU pixel pipeline as a left-to-right flow:
  *   [Tile Fetcher] → [FIFOs (BG + OBJ merge)] → [Output Pixel]
@@ -286,12 +301,9 @@ export class PpuFifoVisualizer extends LitElement {
     const el = this.shadowRoot?.getElementById('output-px');
     if (!el) return;
 
-    // Use the actual pixel output value (now exposed as a number 0-3)
-    if (e.pix !== undefined && e.pix >= 0 && e.pix <= 3) {
-      el.style.background = SHADES[e.pix];
-    } else {
-      el.style.background = 'var(--bg)';
-    }
+    // The output pixel is a DMG shade (0-3) or, on CGB, a 4-char RGB555 hex.
+    const color = pixToCss(e.pix);
+    el.style.background = color || 'var(--bg)';
   }
 
   _renderMerge(e) {
