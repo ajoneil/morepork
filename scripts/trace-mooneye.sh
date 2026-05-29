@@ -58,10 +58,18 @@ if [[ ! -s "$tmp_trace" ]]; then
 fi
 
 # --- Determine pass/fail ---
-# Check registers from the last entry: Fibonacci sequence = pass
-status=$("$CLI" query "$tmp_trace" --last 1 2>&1 | \
-    grep -qP 'b=03\b.*c=05\b.*d=08\b.*e=0d\b.*h=15\b.*l=22\b' \
-    && echo "pass" || echo "fail")
+# Most mooneye tests use the register protocol: on completion they run LD B,B
+# with the Fibonacci sequence in the registers (pass) or all 0x42 (fail). A few
+# are visual instead (e.g. manual-only/sprite_priority) and ship a screenshot
+# reference next to the ROM — judge those by whether the framebuffer matched,
+# matching how trace-screenshot-suite.sh decides.
+if [[ -f "$PIX_REF" ]]; then
+    grep -q "Reference match" "$stderr_file" 2>/dev/null && status="pass" || status="fail"
+else
+    status=$("$CLI" query "$tmp_trace" --last 1 2>&1 | \
+        grep -qP 'b=03\b.*c=05\b.*d=08\b.*e=0d\b.*h=15\b.*l=22\b' \
+        && echo "pass" || echo "fail")
+fi
 
 # --- Output ---
 mkdir -p "$OUT_DIR"
