@@ -25,7 +25,14 @@ ROM_REL="$(realpath --relative-to="$ROM_DIR" "$ROM")"
 ROM_REL="${ROM_REL%.gbc}"; ROM_REL="${ROM_REL%.gb}"
 NAME="${ROM_REL//\//__}"
 
-MAX_FRAMES=7200
+# Many SameSuite ROMs never enable the LCD, so a frame budget alone can't bound
+# them — the adapters' T-cycle safety net (≈(MAX_FRAMES+1)×70224 cycles) does.
+# Keep this modest: missingno's harness bounds these at ~2M instructions and
+# notes the passing tests finish well within that. 7200 made the cycle cap
+# ≈505M, unreachable before the 120s timeout, so every ROM hung the tcycle
+# adapters (missingno/docboy). 200 frames (~14M-cycle cap) is plenty for the
+# passing tests and keeps failures fast.
+MAX_FRAMES=200
 TMP="/tmp/gbtrace_samesuite_${NAME}_${ADAPTER}_$$"
 stderr_file="${TMP}.stderr"
 tmp_trace="${TMP}.gbtrace"
