@@ -13,10 +13,15 @@ on:
         type: choice
         options: [all, gbmicrotest, blargg, mooneye, gambatte-tests, mealybug-tearoom, dmg-acid2, age, mooneye-wilbertpol, samesuite, scribbltests, bully, mbc3-tester, strikethrough, turtle-tests, cgb-acid2, cgb-acid-hell, rtc3test]
       emulator:
-        description: "Emulator (all, gambatte, sameboy, missingno, docboy)"
+        description: "Emulator"
         default: "all"
         type: choice
         options: [all, gambatte, sameboy, missingno, docboy]
+      system:
+        description: "System (DMG / CGB are separate systems)"
+        default: "all"
+        type: choice
+        options: [all, dmg, cgb]
 
 concurrency:
   group: traces
@@ -32,17 +37,32 @@ jobs:
     steps:
       - id: set
         run: |
-          SUITES='["gbmicrotest","blargg","mooneye","gambatte-tests","mealybug-tearoom","dmg-acid2","age","mooneye-wilbertpol","samesuite","scribbltests","bully","mbc3-tester","strikethrough","turtle-tests","cgb-acid2","cgb-acid-hell","rtc3test"]'
-          EMUS='["gambatte","sameboy","missingno","docboy"]'
-
-          if [ "${{ inputs.suite }}" != "" ] && [ "${{ inputs.suite }}" != "all" ]; then
-            SUITES='["${{ inputs.suite }}"]'
-          fi
-          if [ "${{ inputs.emulator }}" != "" ] && [ "${{ inputs.emulator }}" != "all" ]; then
-            EMUS='["${{ inputs.emulator }}"]'
-          fi
-
-          echo "matrix={\"suite\":${SUITES},\"emulator\":${EMUS}}" >> "$GITHUB_OUTPUT"
+          # Jobs are sharded per (suite × emulator × system). DMG and CGB are
+          # modelled as separate but related systems, so each runs in its own
+          # job. The per-suite system map mirrors the gen-rules SUITES policy —
+          # keep them in sync.
+          declare -A SYS=(
+            [gbmicrotest]="dmg" [mooneye]="dmg" [scribbltests]="dmg" [bully]="dmg"
+            [mbc3-tester]="dmg" [strikethrough]="dmg" [turtle-tests]="dmg"
+            [gambatte-tests]="dmg cgb" [blargg]="dmg cgb" [mealybug-tearoom]="dmg cgb"
+            [dmg-acid2]="dmg cgb" [age]="dmg cgb" [mooneye-wilbertpol]="dmg cgb"
+            [samesuite]="dmg cgb"
+            [cgb-acid2]="cgb" [cgb-acid-hell]="cgb" [rtc3test]="cgb"
+          )
+          EMUS="gambatte sameboy missingno docboy"
+          SF="${{ inputs.suite }}"; EF="${{ inputs.emulator }}"; YF="${{ inputs.system }}"
+          inc=""
+          for suite in "${!SYS[@]}"; do
+            { [ -z "$SF" ] || [ "$SF" = all ] || [ "$SF" = "$suite" ]; } || continue
+            for sysv in ${SYS[$suite]}; do
+              { [ -z "$YF" ] || [ "$YF" = all ] || [ "$YF" = "$sysv" ]; } || continue
+              for emu in $EMUS; do
+                { [ -z "$EF" ] || [ "$EF" = all ] || [ "$EF" = "$emu" ]; } || continue
+                inc="${inc}{\"suite\":\"$suite\",\"emulator\":\"$emu\",\"system\":\"$sysv\"},"
+              done
+            done
+          done
+          echo "matrix={\"include\":[${inc%,}]}" >> "$GITHUB_OUTPUT"
 
   trace:
     needs: matrix-setup
@@ -53,7 +73,7 @@ jobs:
     env:
       # DigitalOcean Spaces (S3-compatible) hosts the trace blobs — the full
       # set far exceeds the 1 GB GitHub Pages limit. Set these repo
-      # secrets/vars to enable the upload (see the README / handoff notes).
+      # secrets/vars to enable the upload (see AGENTS.md).
       SPACES_KEY: ${{ secrets.SPACES_KEY }}
       SPACES_BUCKET: ${{ vars.SPACES_BUCKET }}
       SPACES_REGION: ${{ vars.SPACES_REGION }}
@@ -94,18 +114,17 @@ jobs:
           chmod +x "adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}" || true
           chmod +x "adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}-cgb" 2>/dev/null || true
 
-      # Generate traces via the make target, which encodes the full model
-      # policy (DMG/CGB), the gambatte hex/blank/audio checks, the model-aware
-      # screenshot references, and the docboy-cgb binary selection.
+      # Generate this (suite × emulator × system) shard. The make target +
+      # gen-rules encode the model policy, gambatte hex/blank/audio checks, the
+      # model-aware screenshot references, and docboy-cgb binary selection.
       - name: Generate traces
-        run: make pix-refs traces-${{ matrix.suite }} EMUS=${{ matrix.emulator }} -j"$(nproc)"
+        run: make pix-refs traces-${{ matrix.suite }} EMUS=${{ matrix.emulator }} SYSTEMS=${{ matrix.system }} -j"$(nproc)"
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/adapters/sameboy/SameBoy/build/lib
           CLI: ${{ github.workspace }}/target/release/gbtrace
         timeout-minutes: 320
 
       # Upload the trace blobs to DigitalOcean Spaces (s3://bucket/tests/<suite>/...).
-      # The web viewer fetches them from the Spaces CDN base URL.
       - name: Upload trace blobs to Spaces
         if: env.SPACES_KEY != ''
         run: |
@@ -117,16 +136,16 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET }}
 
       # The deploy job rebuilds manifests from filenames alone (pass/fail is
-      # encoded in the name), so we only need to ship the list, not the blobs.
+      # encoded in the name), so we only ship the list, not the blobs.
       - name: Collect trace filenames
         run: |
           mkdir -p _tracelists
           find build/traces -name '*.gbtrace' -printf '%P\n' | sort \
-            > "_tracelists/${{ matrix.suite }}-${{ matrix.emulator }}.txt"
+            > "_tracelists/${{ matrix.suite }}-${{ matrix.emulator }}-${{ matrix.system }}.txt"
 
       - name: Upload trace list
         uses: actions/upload-artifact@v6
         with:
-          name: tracelist-${{ matrix.suite }}-${{ matrix.emulator }}
-          path: _tracelists/${{ matrix.suite }}-${{ matrix.emulator }}.txt
+          name: tracelist-${{ matrix.suite }}-${{ matrix.emulator }}-${{ matrix.system }}
+          path: _tracelists/${{ matrix.suite }}-${{ matrix.emulator }}-${{ matrix.system }}.txt
           retention-days: 90

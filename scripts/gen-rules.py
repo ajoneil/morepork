@@ -110,7 +110,10 @@ def gambatte_models(rom):
 
 
 def gen_suite(stamps, rom_dir, profile, trace_dir, emus, script, policy,
-              name_base=None, exclude_dirs=None):
+              name_base=None, exclude_dirs=None, systems=None):
+    # `systems` selects which systems (dmg/cgb) to emit — used to shard CI by
+    # system. None means all. (The `model` value here IS the system id; the
+    # trace header's "model" field is the hardware revision, e.g. CGB-C.)
     name_base = name_base or rom_dir
     exclude = set(exclude_dirs or [])
     cgb_dir = os.path.join(rom_dir, 'cgb')
@@ -129,11 +132,13 @@ def gen_suite(stamps, rom_dir, profile, trace_dir, emus, script, policy,
         else:
             models = policy['root_models']
         for model in models:
+            if systems and model not in systems:
+                continue
             for emu in emus:
                 emit(stamps, rom, name_base, model, emu, profile, trace_dir, script, max_frames)
 
     # CGB-only ROM set (curated, from missingno-gbc) — names relative to cgb/.
-    if policy.get('cgb_subdir') and os.path.isdir(cgb_dir):
+    if policy.get('cgb_subdir') and os.path.isdir(cgb_dir) and (not systems or 'cgb' in systems):
         for rom in find_roms(cgb_dir, set()):
             if ref_driven and not model_has_ref(rom, 'cgb', cgb_only=True):
                 continue
@@ -194,18 +199,21 @@ SUITES = [
 
 def main():
     emus = sys.argv[1].split(',') if len(sys.argv) > 1 else ['gambatte', 'sameboy', 'missingno', 'docboy']
+    # Optional system filter (argv[2], e.g. "dmg" or "cgb") to shard CI by
+    # system; absent/empty means all systems.
+    systems = sys.argv[2].split(',') if len(sys.argv) > 2 and sys.argv[2] else None
 
     var_stamps = {}
     for var, rom_dir, profile, trace_dir, script, policy, kwargs in SUITES:
         stamps = []
-        gen_suite(stamps, rom_dir, profile, trace_dir, emus, script, policy, **kwargs)
+        gen_suite(stamps, rom_dir, profile, trace_dir, emus, script, policy, systems=systems, **kwargs)
         var_stamps.setdefault(var, []).extend(stamps)
 
     # dmg_sound: blargg sub-suite, DMG-only, separate profile/script. Appends to BLARGG_STAMPS.
     dmg_sound = []
     gen_suite(dmg_sound, 'test-suites/blargg/dmg_sound', 'test-suites/blargg/dmg_sound/profile.toml',
               '$(BLARGG_TRACE_DIR)', emus, 'scripts/trace-dmg-sound.sh',
-              {'root_models': ['dmg']}, name_base='test-suites/blargg')
+              {'root_models': ['dmg']}, name_base='test-suites/blargg', systems=systems)
     var_stamps['BLARGG_STAMPS'].extend(dmg_sound)
 
     for var, _, _, _, _, _, _ in SUITES:

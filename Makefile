@@ -32,6 +32,10 @@ ADAPTER_BINS := $(foreach a,$(ADAPTERS),adapters/$(a)/gbtrace-$(a))
 # Emulators to run (comma-separated, override with EMUS=gambatte,missingno)
 EMUS ?= gambatte,sameboy,missingno,docboy
 
+# Systems to trace (DMG / CGB are modelled as separate but related systems).
+# Override to shard, e.g. SYSTEMS=cgb to generate only Game Boy Color traces.
+SYSTEMS ?= dmg,cgb
+
 # Trace output dirs
 GBMICROTEST_TRACE_DIR := $(BUILD_DIR)/traces/gbmicrotest
 BLARGG_TRACE_DIR := $(BUILD_DIR)/traces/blargg
@@ -62,7 +66,7 @@ RULES_MK := $(BUILD_DIR)/rules.mk
 
 $(RULES_MK): scripts/gen-rules.py
 	@mkdir -p $(BUILD_DIR)
-	@python3 scripts/gen-rules.py $(EMUS) > $@
+	@python3 scripts/gen-rules.py $(EMUS) $(SYSTEMS) > $@
 
 -include $(RULES_MK)
 

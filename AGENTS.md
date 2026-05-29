@@ -121,16 +121,19 @@ but the directory still builds.
 Each suite directory contains the ROMs (`*.gb`/`*.gbc`) plus a `profile.toml`. Trace
 generation goes through one of the per-suite shell scripts (`scripts/trace-<suite>.sh`)
 which invoke the adapter, then use the CLI to determine pass/fail (typically by querying a
-"magic" memory address) and rename the output to `<rom>_<emu>_<model>_<status>.gbtrace`.
+"magic" memory address) and rename the output to `<rom>_<emu>_<system>_<status>.gbtrace`.
 
-**Model dimension (DMG/CGB).** Each suite runs under one or both models. Which models a
-ROM runs under is decided in `scripts/gen-rules.py` by a per-suite policy:
-`root_models` (`dmg`/`cgb`/both), an optional `cgb/` subdir holding a curated CGB-only ROM
-set (from `missingno-gbc`), `gambatte` mode (model read from filename tags `_dmg08`/
-`_cgb04c`/`_blank`), and `ref_driven` (screenshot suites run a model only when a matching
-reference exists). The model is passed to the trace scripts via the `MODEL` env var, and
-docboy — which selects DMG/CGB at compile time — resolves `(docboy, cgb)` to the separate
-`gbtrace-docboy-cgb` binary.
+**System dimension (DMG / CGB).** DMG and CGB are modelled as *separate but related
+systems* (not two configs of one system) — the intended direction as gbtrace grows toward
+more systems. Which systems a ROM runs under is decided in `scripts/gen-rules.py` by a
+per-suite policy: `root_models` (`dmg`/`cgb`/both), an optional `cgb/` subdir holding a
+curated CGB-only ROM set (from `missingno-gbc`), `gambatte` mode (system from filename tags
+`_dmg08`/`_cgb04c`/`_blank`), and `ref_driven` (screenshot suites run a system only when a
+matching reference exists). A build can be sharded to one system with `SYSTEMS=dmg|cgb`
+(gen-rules' 2nd arg / the Makefile var); CI runs one job per `(suite × emulator × system)`.
+The system is passed to the trace scripts via the `MODEL` env var (→ the adapter `--model`,
+which selects the hardware revision: dmg→DMG-B, cgb→CGB-C). docboy selects DMG/CGB at
+compile time, so `(docboy, cgb)` resolves to the separate `gbtrace-docboy-cgb` binary.
 
 **Screenshot references** are raw **RGB555** (`.rgb555`, 160×144×3 bytes, 5-bit/channel),
 generated from a checked-in `.png` by `make pix-refs` (`scripts/png-to-pix.py`). Comparing
@@ -141,8 +144,9 @@ reference image — the expected value is decoded from the filename (`check-gamb
 adapter `--report-audio`).
 
 `scripts/manifest.py` writes a `manifest.json` per suite trace dir, keyed per test with a
-`models: { dmg: {emu: status}, cgb: {emu: status} }` map. The emulator list is hard-coded
-near the top — keep it in sync with the `EMUS`/`ADAPTERS` Makefile vars.
+`systems: { dmg: {emu: status}, cgb: {emu: status} }` map. The emulator list is hard-coded
+near the top — keep it in sync with the `EMUS`/`ADAPTERS` Makefile vars. The per-suite
+system map in `traces.yml`'s matrix-setup also mirrors the gen-rules policy.
 
 ### Web viewer (`web/`)
 

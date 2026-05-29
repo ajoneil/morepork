@@ -3,11 +3,11 @@
 
 Usage: manifest.py <trace-dir> <rom-dir>
 
-Scans trace-dir for `<test>_<emu>_<model>_<status>.gbtrace` files and rom-dir
-for `*.gb`/`*.gbc` ROMs, then writes manifest.json. Each test entry carries a
-per-model coverage map:
+Scans trace-dir for `<test>_<emu>_<system>_<status>.gbtrace` files and rom-dir
+for `*.gb`/`*.gbc` ROMs, then writes manifest.json. DMG and CGB are modelled as
+separate but related systems; each test entry carries a per-system coverage map:
 
-    { "name": ..., "rom": ..., "models": { "dmg": {emu: status}, "cgb": {...} } }
+    { "name": ..., "rom": ..., "systems": { "dmg": {emu: status}, "cgb": {...} } }
 
 ROMs under a suite's `cgb/` subdir are CGB-only sets; their test name is taken
 relative to `cgb/` (matching gen-rules) so it isn't prefixed with `cgb__`.
@@ -17,7 +17,7 @@ import os
 import sys
 
 EMULATORS = ['missingno', 'docboy', 'gambatte', 'sameboy']
-MODELS = ['dmg', 'cgb']
+SYSTEMS = ['dmg', 'cgb']
 STATUSES = ['pass', 'fail']
 
 
@@ -41,25 +41,25 @@ def generate_manifest(trace_dir, rom_dir):
             path = os.path.join(dirpath, fname)
             roms.setdefault(rom_test_name(path, rom_dir), os.path.relpath(path, rom_dir))
 
-    # Traces → per-test, per-model, per-emulator status.
+    # Traces → per-test, per-system, per-emulator status.
     traces = {}
     for dirpath, _, filenames in sorted(os.walk(trace_dir)):
         for fname in sorted(filenames):
             if not fname.endswith('.gbtrace'):
                 continue
             base = fname[:-len('.gbtrace')]
-            parts = base.rsplit('_', 3)  # test, emu, model, status
+            parts = base.rsplit('_', 3)  # test, emu, system, status
             if len(parts) != 4:
                 continue
-            test_name, emu, model, status = parts
-            if emu not in EMULATORS or model not in MODELS or status not in STATUSES:
+            test_name, emu, system, status = parts
+            if emu not in EMULATORS or system not in SYSTEMS or status not in STATUSES:
                 continue
-            traces.setdefault(test_name, {}).setdefault(model, {})[emu] = status
+            traces.setdefault(test_name, {}).setdefault(system, {})[emu] = status
 
     # Build manifest (union of ROMs and any trace-only test names).
     names = sorted(set(roms) | set(traces))
     manifest = [
-        {'name': name, 'rom': roms.get(name), 'models': traces.get(name, {})}
+        {'name': name, 'rom': roms.get(name), 'systems': traces.get(name, {})}
         for name in names
     ]
 
@@ -67,7 +67,7 @@ def generate_manifest(trace_dir, rom_dir):
     with open(out_path, 'w') as f:
         json.dump(manifest, f)
 
-    total = sum(len(m) for e in manifest for m in e['models'].values())
+    total = sum(len(s) for e in manifest for s in e['systems'].values())
     print(f'  {len(manifest)} tests, {total} traces -> {out_path}')
 
 

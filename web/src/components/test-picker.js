@@ -206,8 +206,8 @@ const EMULATORS = ['missingno', 'docboy', 'gambatte', 'sameboy'];
 
 const EMU_SHORT = { missingno: 'MN', docboy: 'DB', gambatte: 'Ga', sameboy: 'SB' };
 
-const MODELS = ['dmg', 'cgb'];
-const MODEL_LABEL = { dmg: 'DMG', cgb: 'CGB' };
+const SYSTEMS = ['dmg', 'cgb'];
+const SYSTEM_LABEL = { dmg: 'DMG', cgb: 'CGB' };
 
 // Trace blobs are hosted off-Pages (DigitalOcean Spaces) because the full set
 // far exceeds the 1 GB Pages limit. Production sets `window.GBTRACE_TRACE_BASE`
@@ -245,8 +245,8 @@ function humanizeTestName(name) {
 
 export { humanizeTestName };
 
-function traceUrl(suite, test, emulator, model, status = 'pass') {
-  const path = `${suite.base}/${test.name}_${emulator}_${model}_${status}.gbtrace`;
+function traceUrl(suite, test, emulator, system, status = 'pass') {
+  const path = `${suite.base}/${test.name}_${emulator}_${system}_${status}.gbtrace`;
   return TRACE_BASE ? `${TRACE_BASE}/${path}` : path;
 }
 
@@ -316,16 +316,16 @@ export class TestPicker extends LitElement {
     .cat-chip:hover { border-color: var(--accent); color: var(--accent); }
     .cat-chip.active { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
 
-    .model-toggle {
+    .system-toggle {
       display: inline-flex; gap: 0; margin-left: auto; border: 1px solid var(--border);
       border-radius: 6px; overflow: hidden;
     }
-    .model-chip {
+    .system-chip {
       padding: 3px 10px; background: var(--bg); color: var(--text-muted); cursor: pointer;
       font-size: 0.72rem; font-family: var(--mono); font-weight: 600;
     }
-    .model-chip:hover { color: var(--accent); }
-    .model-chip.active { background: var(--accent); color: var(--bg); }
+    .system-chip:hover { color: var(--accent); }
+    .system-chip.active { background: var(--accent); color: var(--bg); }
 
     .search {
       width: 100%; padding: 5px 10px; background: var(--bg);
@@ -371,7 +371,7 @@ export class TestPicker extends LitElement {
     _selectedTest: { state: true },
     _category: { state: true },
     _search: { state: true },
-    _model: { state: true },
+    _system: { state: true },
     _loading: { state: true },
     _error: { state: true },
   };
@@ -382,17 +382,17 @@ export class TestPicker extends LitElement {
     this._selectedTest = -1;
     this._category = '';
     this._search = '';
-    this._model = 'dmg';
+    this._system = 'dmg';
     this._loading = null;
     this._error = null;
     this._loadManifests();
   }
 
-  /** Models (dmg/cgb) for which this suite has any traces. */
-  _modelsFor(suite) {
+  /** Systems (dmg/cgb) for which this suite has any traces. */
+  _systemsFor(suite) {
     if (!suite.tests) return ['dmg'];
-    const present = MODELS.filter(m =>
-      suite.tests.some(t => t.models && t.models[m] && Object.keys(t.models[m]).length));
+    const present = SYSTEMS.filter(m =>
+      suite.tests.some(t => t.systems && t.systems[m] && Object.keys(t.systems[m]).length));
     return present.length ? present : ['dmg'];
   }
 
@@ -416,7 +416,7 @@ export class TestPicker extends LitElement {
     for (const emu of EMULATORS) {
       let pass = 0, fail = 0;
       for (const test of suite.tests) {
-        const s = test.models?.[this._model]?.[emu];
+        const s = test.systems?.[this._system]?.[emu];
         if (s === 'pass') pass++;
         else if (s === 'fail') fail++;
       }
@@ -449,7 +449,7 @@ export class TestPicker extends LitElement {
     const suite = TEST_SUITES[this._selectedSuite];
     const tests = this._getTests(suite);
     const stats = this._getSuiteStats(suite);
-    const models = this._modelsFor(suite);
+    const systems = this._systemsFor(suite);
 
     return html`
       <div class="picker">
@@ -472,11 +472,11 @@ export class TestPicker extends LitElement {
             `)}
           ` : ''}
 
-          ${models.length > 1 ? html`
-            <span class="model-toggle">
-              ${models.map(m => html`
-                <span class="model-chip ${this._model === m ? 'active' : ''}"
-                  @click=${() => this._selectModel(m)}>${MODEL_LABEL[m]}</span>
+          ${systems.length > 1 ? html`
+            <span class="system-toggle">
+              ${systems.map(m => html`
+                <span class="system-chip ${this._system === m ? 'active' : ''}"
+                  @click=${() => this._selectSystem(m)}>${SYSTEM_LABEL[m]}</span>
               `)}
             </span>
           ` : ''}
@@ -492,7 +492,7 @@ export class TestPicker extends LitElement {
 
         <div class="test-list">
           ${tests.map((t, i) => {
-            const emus = t.models?.[this._model] || {};
+            const emus = t.systems?.[this._system] || {};
             return html`
               <div class="test-row ${i === this._selectedTest ? 'selected' : ''}"
                 @click=${() => this._selectTest(suite, tests, i)}>
@@ -503,8 +503,8 @@ export class TestPicker extends LitElement {
                     const cls = s === 'pass' ? 'pass' : s === 'fail' ? 'fail' : 'none';
                     return html`
                       <span class="dot ${cls}"
-                        title="${emu} (${MODEL_LABEL[this._model]}): ${s || 'no trace'}"
-                        @click=${e => { e.stopPropagation(); if (s) this._load(suite, t, emu, this._model, s); }}
+                        title="${emu} (${SYSTEM_LABEL[this._system]}): ${s || 'no trace'}"
+                        @click=${e => { e.stopPropagation(); if (s) this._load(suite, t, emu, this._system, s); }}
                       >${EMU_SHORT[emu] || emu[0].toUpperCase()}</span>
                     `;
                   })}
@@ -552,13 +552,13 @@ export class TestPicker extends LitElement {
     this._category = '';
     this._search = '';
     this._error = null;
-    // Keep the current model if the new suite has it; otherwise switch.
-    const models = this._modelsFor(TEST_SUITES[i]);
-    if (!models.includes(this._model)) this._model = models[0];
+    // Keep the current system if the new suite has it; otherwise switch.
+    const systems = this._systemsFor(TEST_SUITES[i]);
+    if (!systems.includes(this._system)) this._system = systems[0];
   }
 
-  _selectModel(model) {
-    this._model = model;
+  _selectSystem(system) {
+    this._system = system;
     this._selectedTest = -1;
   }
 
@@ -573,12 +573,12 @@ export class TestPicker extends LitElement {
     const test = tests[index];
     if (!test) return;
 
-    const emus = test.models?.[this._model] || {};
+    const emus = test.systems?.[this._system] || {};
     const preferred = (suite.preferredEmu && emus[suite.preferredEmu])
       ? suite.preferredEmu
       : EMULATORS.find(e => emus[e]);
     if (preferred) {
-      this._load(suite, test, preferred, this._model, emus[preferred] || 'pass');
+      this._load(suite, test, preferred, this._system, emus[preferred] || 'pass');
     }
   }
 
@@ -600,19 +600,19 @@ export class TestPicker extends LitElement {
     this._selectedSuite = TEST_SUITES.indexOf(suite);
     this._category = '';
     this._selectedTest = suite.tests.indexOf(test);
-    const models = this._modelsFor(suite);
-    if (!models.includes(this._model)) this._model = models[0];
+    const systems = this._systemsFor(suite);
+    if (!systems.includes(this._system)) this._system = systems[0];
     this.requestUpdate();
 
-    const emus = test.models?.[this._model] || {};
+    const emus = test.systems?.[this._system] || {};
     const emu = (suite.preferredEmu && emus[suite.preferredEmu])
       ? suite.preferredEmu
       : EMULATORS.find(e => emus[e]);
-    if (emu) this._load(suite, test, emu, this._model, emus[emu] || 'pass');
+    if (emu) this._load(suite, test, emu, this._system, emus[emu] || 'pass');
   }
 
-  async _load(suite, test, emulator, model, status = 'pass') {
-    const url = traceUrl(suite, test, emulator, model, status);
+  async _load(suite, test, emulator, system, status = 'pass') {
+    const url = traceUrl(suite, test, emulator, system, status);
     const filename = url.split('/').pop();
     this._loading = filename;
     this._error = null;
@@ -629,7 +629,7 @@ export class TestPicker extends LitElement {
       } catch (_) {}
 
       this.dispatchEvent(new CustomEvent('trace-loaded', {
-        detail: { store, filename, suite, testRom: test.rom, emulator, model, testInfo: test },
+        detail: { store, filename, suite, testRom: test.rom, emulator, system, testInfo: test },
         bubbles: true, composed: true,
       }));
     } catch (err) {
