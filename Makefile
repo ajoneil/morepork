@@ -36,6 +36,11 @@ EMUS ?= gambatte,sameboy,missingno,docboy
 # Override to shard, e.g. SYSTEMS=cgb to generate only Game Boy Color traces.
 SYSTEMS ?= dmg,cgb
 
+# Whether trace stamps may build a missing adapter binary. On (default) for
+# local one-shot `make traces`; set BUILD_ADAPTERS=0 in CI, where adapters are
+# downloaded artifacts and a missing one should fail fast, not silently recompile.
+BUILD_ADAPTERS ?= 1
+
 # Trace output dirs
 GBMICROTEST_TRACE_DIR := $(BUILD_DIR)/traces/gbmicrotest
 BLARGG_TRACE_DIR := $(BUILD_DIR)/traces/blargg
@@ -65,7 +70,7 @@ RULES_MK := $(BUILD_DIR)/rules.mk
 
 $(RULES_MK): scripts/gen-rules.py
 	@mkdir -p $(BUILD_DIR)
-	@python3 scripts/gen-rules.py $(EMUS) $(SYSTEMS) > $@
+	@GBTRACE_BUILD_ADAPTERS=$(BUILD_ADAPTERS) python3 scripts/gen-rules.py $(EMUS) $(SYSTEMS) > $@
 
 -include $(RULES_MK)
 

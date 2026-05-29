@@ -107,16 +107,39 @@ jobs:
           path: adapters/${{ matrix.emulator }}
           branch: main
 
-      - name: Make adapter(s) executable
+      # Place the downloaded binaries at the paths make expects, then verify.
+      # upload-artifact's least-common-ancestor path logic can nest a flat
+      # artifact (e.g. adapters/missingno/adapters/missingno/gbtrace-missingno);
+      # relocate any such stray into place so the trace stamps find it. With
+      # BUILD_ADAPTERS=0 a genuinely absent binary fails fast here rather than
+      # silently recompiling the adapter on every job.
+      - name: Locate, arm and verify adapter(s)
         run: |
-          chmod +x "adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}" || true
-          chmod +x "adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}-cgb" 2>/dev/null || true
+          emu='${{ matrix.emulator }}'
+          dir="adapters/$emu"
+          for bin in "gbtrace-$emu" "gbtrace-$emu-cgb"; do
+            if [ ! -f "$dir/$bin" ]; then
+              found="$(find "$dir" -type f -name "$bin" -print -quit 2>/dev/null || true)"
+              [ -n "$found" ] && mv "$found" "$dir/$bin"
+            fi
+            [ -f "$dir/$bin" ] && chmod +x "$dir/$bin"
+          done
+          need="$dir/gbtrace-$emu"
+          [ "$emu" = docboy ] && [ '${{ matrix.system }}' = cgb ] && need="$dir/gbtrace-docboy-cgb"
+          if [ ! -f "$need" ]; then
+            echo "::error::Adapter binary '$need' was not downloaded — is the '$emu' build.yml job green?"
+            find "$dir" -type f -name 'gbtrace-*' || true
+            exit 1
+          fi
 
       # Generate this (suite × emulator × system) shard. The make target +
       # gen-rules encode the model policy, gambatte hex/blank/audio checks, the
       # model-aware screenshot references, and docboy-cgb binary selection.
+      # BUILD_ADAPTERS=0: the adapter binary is the artifact downloaded above,
+      # so trace stamps must use it as-is and never recompile it (a missing
+      # artifact should fail fast, not trigger a from-scratch cargo/cmake build).
       - name: Generate traces
-        run: make pix-refs traces-${{ matrix.suite }} EMUS=${{ matrix.emulator }} SYSTEMS=${{ matrix.system }} -j"$(nproc)"
+        run: make pix-refs traces-${{ matrix.suite }} EMUS=${{ matrix.emulator }} SYSTEMS=${{ matrix.system }} BUILD_ADAPTERS=0 -j"$(nproc)"
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/adapters/sameboy/SameBoy/build/lib
           CLI: ${{ github.workspace }}/target/release/gbtrace

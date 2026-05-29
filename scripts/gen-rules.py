@@ -21,6 +21,11 @@ binary; all other adapters take `--model` at runtime.
 import os
 import sys
 
+# When false (CI, where adapter binaries are downloaded artifacts), the adapter
+# binary is NOT a stamp prerequisite — trace generation must never recompile a
+# heavy adapter. When true (local default), a missing binary is built on demand.
+BUILD_ADAPTERS = os.environ.get('GBTRACE_BUILD_ADAPTERS', '1') != '0'
+
 
 def sanitize(name):
     """Replace non-alphanumeric chars with underscores for Make target names."""
@@ -61,7 +66,11 @@ def emit(stamps, rom, name_base, model, emu, profile, trace_dir, script, max_fra
     # max_frames is the 6th positional arg, honoured by the screenshot-suite
     # script and harmlessly ignored by the others.
     extra = f' {max_frames}' if max_frames else ''
-    print(f"{stamp}: {binary} {profile} | $(CLI)")
+    # The adapter binary is a prerequisite only when we're allowed to build it.
+    # In CI the binary is a downloaded artifact, so listing it would make a
+    # missing/failed download silently recompile the adapter on every job.
+    bin_dep = f"{binary} " if BUILD_ADAPTERS else ""
+    print(f"{stamp}: {bin_dep}{profile} | $(CLI)")
     print(f"\t@mkdir -p {trace_dir}")
     print(f"\t@MODEL={model} bash {script} {binary} '{rom}' {profile} {trace_dir} {name_base}{extra} || true")
     print(f"\t@touch $@")
