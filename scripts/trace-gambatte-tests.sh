@@ -33,6 +33,12 @@ ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
 
 TEST_TIMEOUT=120
 MAX_FRAMES=15
+# gambatte's testrunner reads the screen after a fixed T-cycle budget (15 frames
+# × 70224), not after N vblank events. Hex/blank tests use this budget so the
+# screen is sampled at the right instant even when the display toggles or the
+# CPU stalls — vblank counting samples the wrong frame and fails tests every
+# emulator (gambatte included) actually passes.
+CYCLE_BUDGET=$((MAX_FRAMES * 70224))
 
 # Test name = path relative to ROM_DIR, subdirs flattened with __
 ROM_REL="$(realpath --relative-to="$ROM_DIR" "$ROM")"
@@ -70,10 +76,12 @@ tmp_trace="${TMP}.gbtrace"
 cleanup() { rm -f "$stderr_file" "$tmp_trace" "${ROM%.gb}.sav" "${ROM%.gbc}.sav"; rm -rf "${TMP}_render"; }
 trap cleanup EXIT
 
-# Classify the test type.
+# Classify the test type. The blank marker is the output tag `_blank` (e.g.
+# `_dmg08_cgb_blank`) — match that exactly, NOT a bare "blank", which also occurs
+# mid-name in "vblank"/"afterVblank" tests (those are hex tests, not blank ones).
 if [[ -f "$PIX_REF" ]]; then
     TYPE="screenshot"
-elif [[ "$STEM" == *blank* ]]; then
+elif [[ "$STEM" == *_blank* ]]; then
     TYPE="blank"
 elif [[ "$STEM" == *outaudio* ]]; then
     TYPE="audio"
@@ -82,14 +90,20 @@ else
 fi
 
 # --- Capture ---
+# hex/blank: cycle budget (read the screen at a fixed T-cycle, like gambatte's
+# testrunner). screenshot: frame budget + live reference match. audio: frame
+# budget + last-frame audio report.
 EXTRA_ARGS=(--model "$MODEL")
-[[ "$TYPE" == "screenshot" ]] && EXTRA_ARGS+=(--reference "$PIX_REF")
-[[ "$TYPE" == "audio" ]] && EXTRA_ARGS+=(--report-audio)
+case "$TYPE" in
+    screenshot) EXTRA_ARGS+=(--reference "$PIX_REF" --frames "$MAX_FRAMES") ;;
+    audio)      EXTRA_ARGS+=(--report-audio --frames "$MAX_FRAMES") ;;
+    blank|hex)  EXTRA_ARGS+=(--until-tcycle "$CYCLE_BUDGET") ;;
+esac
 
 (
     set +eo pipefail
     timeout "$TEST_TIMEOUT" "$BIN" --rom "$ROM" --profile "$PROFILE" \
-        --frames "$MAX_FRAMES" "${EXTRA_ARGS[@]}" \
+        "${EXTRA_ARGS[@]}" \
         --output "$tmp_trace" >/dev/null 2>"$stderr_file" </dev/null
 ) || true
 
@@ -112,8 +126,10 @@ case "$TYPE" in
         ;;
     blank|hex)
         tmp_render="${TMP}_render"; mkdir -p "$tmp_render"
-        timeout 30 "$CLI" render "$tmp_trace" --frames 15 --output "$tmp_render" >/dev/null 2>&1 || true
-        png=$(ls "$tmp_render"/*.png 2>/dev/null | tail -1)
+        # The cycle-budget run emits the screen-at-budget as the trace's last
+        # frame, so render all frames and take the final one.
+        timeout 30 "$CLI" render "$tmp_trace" --output "$tmp_render" >/dev/null 2>&1 || true
+        png=$(ls "$tmp_render"/*.png 2>/dev/null | sort -V | tail -1)
         if [[ -n "$png" ]]; then
             if [[ "$TYPE" == "blank" ]]; then
                 python3 "$(dirname "$0")/check-gambatte-hex.py" --blank "$png" 2>/dev/null && status="pass"

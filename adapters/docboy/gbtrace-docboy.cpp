@@ -313,6 +313,7 @@ int main(int argc, char *argv[]) {
     std::string output_path;
     std::string reference_path;
     int max_frames = 3000;
+    long until_tcycle = -1;  // >=0: run N T-cycles, capture final screen
     int extra_frames = 0;
     int stop_opcode = -1;
     std::vector<StopCondition> stop_conditions;
@@ -327,6 +328,8 @@ int main(int argc, char *argv[]) {
             output_path = argv[++i];
         } else if (arg == "--frames" && i + 1 < argc) {
             max_frames = std::atoi(argv[++i]);
+        } else if (arg == "--until-tcycle" && i + 1 < argc) {
+            until_tcycle = std::atol(argv[++i]);
         } else if (arg == "--stop-when" && i + 1 < argc) {
             stop_conditions.push_back(parse_stop_when(argv[++i]));
         } else if (arg == "--stop-opcode" && i + 1 < argc) {
@@ -451,8 +454,14 @@ int main(int argc, char *argv[]) {
     const uint64_t max_entries =
         static_cast<uint64_t>(max_frames + 1) * CYCLES_PER_FRAME;
 
-    while (frames < max_frames) {
-        if (g_entry_count >= max_entries) {
+    // Cycle-budget mode (gambatte tests): stop after exactly N T-cycles, then
+    // snapshot the screen — matching the gambatte testrunner, which reads the
+    // framebuffer after a fixed cycle budget rather than counting vblank events.
+    const bool cycle_budget = until_tcycle >= 0;
+    const uint64_t budget_entries = static_cast<uint64_t>(until_tcycle);
+
+    while (cycle_budget ? (g_entry_count < budget_entries) : (frames < max_frames)) {
+        if (!cycle_budget && g_entry_count >= max_entries) {
             std::fprintf(stderr,
                          "T-cycle limit reached (%llu entries; LCD likely off)\n",
                          static_cast<unsigned long long>(g_entry_count));
@@ -544,6 +553,20 @@ int main(int argc, char *argv[]) {
             }
         }
         prev_ppu_mode = ppu_mode;
+    }
+
+    // Cycle-budget mode: emit the full framebuffer at the budget as the trace's
+    // final frame (mirrors the per-vblank capture above). This is the screen the
+    // gambatte hex/blank check reads, regardless of where we stopped in a frame.
+    if (cycle_budget) {
+        const PixelRgb565 *pixels = gb->lcd.get_pixels();
+        g_pending_pix.clear();
+        g_pending_pix.reserve(160 * 144);
+        for (int j = 0; j < 160 * 144; j++) {
+            g_pending_pix += rgb565_to_shade(pixels[j]);
+        }
+        gbtrace_writer_mark_frame(g_writer);
+        emit_entry();
     }
 
     gbtrace_writer_close(g_writer);

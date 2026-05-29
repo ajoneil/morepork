@@ -407,6 +407,7 @@ int main(int argc, char *argv[]) {
     std::string output_path;
     std::string boot_rom_path;
     int max_frames = 3000;
+    long until_tcycle = -1;  // >=0: run N T-cycles, capture final screen
     std::string model = "DMG-B";
     std::string reference_path;
     int extra_frames = 0;
@@ -424,6 +425,8 @@ int main(int argc, char *argv[]) {
             output_path = argv[++i];
         } else if (arg == "--frames" && i + 1 < argc) {
             max_frames = std::atoi(argv[++i]);
+        } else if (arg == "--until-tcycle" && i + 1 < argc) {
+            until_tcycle = std::atol(argv[++i]);
         } else if (arg == "--stop-when" && i + 1 < argc) {
             stop_conditions.push_back(parse_stop_when(argv[++i]));
         } else if (arg == "--stop-on-serial" && i + 1 < argc) {
@@ -633,7 +636,14 @@ int main(int argc, char *argv[]) {
     int frames = 0;
     bool stopped_early = false;
     int remaining_extra = -1;  // -1 = not triggered yet
-    while (frames < max_frames) {
+    // Cycle-budget mode (gambatte tests): run for exactly N T-cycles, then
+    // snapshot the screen — matching the gambatte testrunner, which reads the
+    // framebuffer after a fixed cycle budget rather than counting vblank events.
+    // g_total_8mhz_ticks counts 8 MHz ticks (== 2 T-cycles); it was reset to 0
+    // after the boot ROM, so the budget is measured from the cartridge entry.
+    const bool cycle_budget = until_tcycle >= 0;
+    const uint64_t budget_ticks = (uint64_t)until_tcycle * 2;
+    while (cycle_budget ? (g_total_8mhz_ticks < budget_ticks) : (frames < max_frames)) {
         unsigned ticks = GB_run(g_gb);
         g_total_8mhz_ticks += ticks;
         if (g_gb->vblank_just_occured) {
@@ -697,6 +707,15 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+    }
+
+    // Cycle-budget mode: emit the full framebuffer at the budget as the trace's
+    // final frame (mirrors the per-vblank capture above). This is the screen the
+    // gambatte hex/blank check reads, regardless of where we stopped in a frame.
+    if (cycle_budget) {
+        if (g_has_pix || has_reference) capture_sameboy_frame();
+        gbtrace_writer_mark_frame(g_writer);
+        emit_entry(g_gb, GB_get_registers(g_gb)->pc);
     }
 
     if (report_audio) {

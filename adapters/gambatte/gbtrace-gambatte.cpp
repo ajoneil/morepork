@@ -394,6 +394,7 @@ int main(int argc, char *argv[]) {
     std::string output_path;
     std::string boot_rom_path;
     int max_frames = 3000;
+    long until_tcycle = -1;  // >=0: run exactly N T-cycles, capture final screen
     std::string model = "DMG-B";
     std::string reference_path;
     int extra_frames = 0;
@@ -412,6 +413,8 @@ int main(int argc, char *argv[]) {
             output_path = argv[++i];
         } else if (arg == "--frames" && i + 1 < argc) {
             max_frames = std::atoi(argv[++i]);
+        } else if (arg == "--until-tcycle" && i + 1 < argc) {
+            until_tcycle = std::atol(argv[++i]);
         } else if (arg == "--stop-when" && i + 1 < argc) {
             stop_conditions.push_back(parse_stop_when(argv[++i]));
         } else if (arg == "--stop-on-serial" && i + 1 < argc) {
@@ -564,6 +567,49 @@ int main(int argc, char *argv[]) {
     bool stopped_early = false;
     int remaining_extra = -1;  // -1 = not triggered yet
     std::size_t last_audio_samples = 0;
+
+    // Cycle-budget mode (gambatte tests): run for exactly N T-cycles and capture
+    // the screen at that instant, matching gambatte's own testrunner / missingno
+    // (which read the screen after a fixed cycle budget rather than counting
+    // vblank events). Frame-event counting samples the wrong screen for tests
+    // that disable the display or stall the CPU, where vblanks and cycles
+    // diverge. gambatte samples audio at 2097152 Hz (half the 4194304 Hz CPU
+    // clock), so one sample == two T-cycles — 35112 samples == one 70224-T-cycle
+    // frame.
+    if (until_tcycle >= 0) {
+        // Replicate gambatte's own testrunner loop exactly (test/testrunner.cpp):
+        // run samples_per_frame (35112) chunks while samplesLeft >= 0, then read
+        // the framebuffer. One 35112-sample chunk == one 70224-T-cycle frame.
+        // This is what produced the `_out<hex>` reference values, so gambatte
+        // matches them by construction; matching the chunked loop (not an exact
+        // cycle count) is what gets the right completed frame for display-toggling
+        // tests, where vblank-counting would sample the wrong screen.
+        long samples_left = (long)SAMPLES_PER_FRAME * (until_tcycle / 70224);
+        while (samples_left >= 0) {
+            std::size_t samples = SAMPLES_PER_FRAME;
+            gb.runFor(video_buf.data(), 160, audio_buf.data(), samples);
+            samples_left -= (long)samples;
+            last_audio_samples = samples;
+        }
+        // video_buf holds the final screen. Emit it as the trace's last frame:
+        // capture pixels, mark the boundary, then run a few samples so the
+        // per-instruction trace callback flushes the pending pix into an entry
+        // (render reconstructs a frame from the entries after its marker).
+        if (g_has_pix || has_reference) capture_frame_pixels();
+        gbtrace_writer_mark_frame(g_writer);
+        frames++;
+        // Emit the captured screen as a final trace entry directly, rather than
+        // running more instructions to trigger the per-instruction callback —
+        // halt/blank tests leave the CPU halted, so no further callback fires.
+        // CPU-register columns are zeroed (max cb_index is 10); only the pix
+        // matters for the screenshot/blank check, and IO columns read live state.
+        {
+            int zero_regs[16] = {0};
+            emit_entry(zero_regs);
+        }
+        goto run_done;
+    }
+
     while (frames < max_frames) {
         std::size_t samples = SAMPLES_PER_FRAME;
         std::ptrdiff_t result = gb.runFor(
@@ -631,6 +677,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+run_done:
     gbtrace_writer_close(g_writer);
     g_writer = nullptr;
 

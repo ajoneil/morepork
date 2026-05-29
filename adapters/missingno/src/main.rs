@@ -24,6 +24,11 @@ struct Args {
     #[arg(long, default_value_t = 3000)]
     frames: u32,
 
+    /// Run for exactly N T-cycles, then capture the screen and stop (gambatte
+    /// tests: read the framebuffer after a fixed cycle budget, not N vblanks).
+    #[arg(long)]
+    until_tcycle: Option<u64>,
+
     /// Console model: dmg (original Game Boy) or cgb (Game Boy Color).
     #[arg(long, default_value = "dmg")]
     model: String,
@@ -107,6 +112,9 @@ trait Console: Traceable {
     /// RGB555 (each channel 0-31) at a screen coordinate, for screenshot
     /// reference matching at the CGB's native colour precision.
     fn rgb555_at(&self, x: usize, y: usize) -> [u8; 3];
+    /// 2-bit shade (0=lightest..3=darkest) at a screen coordinate, for snapshotting
+    /// the full framebuffer into the pix field at a fixed cycle budget.
+    fn shade_at(&self, x: usize, y: usize) -> u8;
     fn drain_audio(&mut self) -> Vec<(f32, f32)>;
 }
 
@@ -124,6 +132,9 @@ impl Console for GameBoy {
         // DMG screen stores a 2-bit shade index → greyscale RGB555.
         let v = GREY555[self.screen().front().pixels[y][x].0 as usize];
         [v, v, v]
+    }
+    fn shade_at(&self, x: usize, y: usize) -> u8 {
+        self.screen().front().pixels[y][x].0
     }
     fn drain_audio(&mut self) -> Vec<(f32, f32)> {
         GameBoy::drain_audio_samples(self)
@@ -144,6 +155,18 @@ impl Console for GameBoyColor {
         // CGB screen stores RGB888 → reduce to native 5-bit precision.
         let p = self.screen().pixel(x as u8, y as u8);
         [p.r >> 3, p.g >> 3, p.b >> 3]
+    }
+    fn shade_at(&self, x: usize, y: usize) -> u8 {
+        // CGB has no native 2-bit shade; map displayed luminance to the nearest
+        // greyscale shade (GREY555 sums 93/63/30/0) so dark-on-light text snapshots
+        // faithfully for the gambatte hex check.
+        let [r, g, b] = self.rgb555_at(x, y);
+        match r as u16 + g as u16 + b as u16 {
+            0..=15 => 3,
+            16..=46 => 2,
+            47..=77 => 1,
+            _ => 0,
+        }
     }
     fn drain_audio(&mut self) -> Vec<(f32, f32)> {
         GameBoyColor::drain_audio_samples(self)
@@ -241,6 +264,16 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
     let mut total_tcycles: u64 = 0;
 
     loop {
+        // Cycle-budget mode (gambatte tests): stop after exactly N T-cycles and
+        // capture the screen at that instant, matching the gambatte testrunner /
+        // missingno harness, which read the framebuffer after a fixed cycle
+        // budget rather than counting vblank events.
+        if let Some(limit) = args.until_tcycle {
+            if total_tcycles >= limit {
+                eprintln!("T-cycle budget reached ({total_tcycles} cycles)");
+                break;
+            }
+        }
         if frame_count >= args.frames {
             eprintln!("Frame limit reached ({} frames)", args.frames);
             break;
@@ -327,6 +360,20 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
                 *remaining = remaining.saturating_sub(1);
             }
         }
+    }
+
+    // Cycle-budget mode: emit the full framebuffer at the budget as the trace's
+    // final frame. The per-dot pix only holds the partial in-progress frame, so
+    // we snapshot the whole screen (which still shows the persistent result) as
+    // one frame — this is the screen the gambatte hex/blank check reads.
+    if args.until_tcycle.is_some() {
+        tracer.mark_frame().unwrap();
+        for y in 0..144 {
+            for x in 0..160 {
+                tracer.push_pixel(gb.shade_at(x, y));
+            }
+        }
+        tracer.capture(&gb).unwrap();
     }
 
     if args.report_audio {
