@@ -22,3 +22,6 @@ adapters/docboy/docboy/
 adapters/docboy/gbtrace-docboy
 adapters/docboy/gbtrace-docboy-cgb
 adapters/missingno/gbtrace-missingno
+
+# Local symlink so Claude Code picks up AGENTS.md (it does not read AGENTS.md itself)
+/CLAUDE.md
