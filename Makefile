@@ -76,16 +76,14 @@ $(RULES_MK): scripts/gen-rules.py
 
 # ── Top-level targets ────────────────────────────────────────────────
 
-# Screenshot test reference files: .png (checked in) → .pix (generated)
-# Uses find to handle arbitrarily nested directories and filenames with spaces.
+# Screenshot test reference files: .png (checked in) → .rgb555 (generated).
+# One Python process walks test-suites and (re)generates every stale/missing
+# ref. Doing this in a single interpreter — rather than spawning python per PNG
+# — turns a ~10s, ~240-spawn step into a fraction of a second, which matters
+# because every fresh-checkout CI trace shard runs it (.rgb555 is gitignored).
 .PHONY: pix-refs
 pix-refs: scripts/png-to-pix.py
-	@find test-suites -name '*.png' -print0 | while IFS= read -r -d '' png; do \
-		ref="$${png%.png}.rgb555"; \
-		if [ ! -f "$$ref" ] || [ "$$png" -nt "$$ref" ]; then \
-			python3 scripts/png-to-pix.py "$$png" "$$ref"; \
-		fi; \
-	done
+	@python3 scripts/png-to-pix.py test-suites
 
 DMG_ACID2_REF := test-suites/dmg-acid2/reference.rgb555
 
