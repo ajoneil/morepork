@@ -27,8 +27,12 @@ NAME="${ROM_REL//\//__}"
 BASENAME="$(basename "$ROM")"; BASENAME="${BASENAME%.gbc}"; BASENAME="${BASENAME%.gb}"
 PIX_REF="$(find_ref "$ROM" "$MODEL")"
 
-# Longest test (03-trigger) completes in ~1000 frames at tcycle granularity
-MAX_FRAMES=1200
+# Frame budget: optional 6th positional arg (default 1200). The individual
+# rom_singles match by ~1000 frames, but the combined dmg_sound/cgb_sound run
+# (all 12 sub-tests serially) only reaches its "Passed" screen at ~frame 2134,
+# so gen-rules passes a larger budget for the combined ROM. The adapter
+# early-exits on reference match, so a higher cap never lengthens a passing run.
+MAX_FRAMES="${6:-1200}"
 
 TMP="/tmp/gbtrace_dmg_sound_${NAME}_${ADAPTER}_$$"
 TRACE="${TMP}.gbtrace"

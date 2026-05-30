@@ -94,9 +94,11 @@ def model_has_ref(rom, model, cgb_only):
     stem = os.path.basename(rom)
     stem = stem[:-4] if stem.endswith('.gbc') else stem[:-3]
     if model == 'dmg':
-        cands = [f'{stem}_dmg08', f'{stem}-dmg', stem]
+        # `-dmg-cgb` is c-sp's shared "identical on DMG and CGB" screenshot
+        # (blargg). Kept last so per-test DMG/base refs stay authoritative.
+        cands = [f'{stem}_dmg08', f'{stem}-dmg', stem, f'{stem}-dmg-cgb']
     else:
-        cands = [f'{stem}_cgb04c', f'{stem}_cgb_c', f'{stem}-cgb']
+        cands = [f'{stem}_cgb04c', f'{stem}_cgb_c', f'{stem}-cgb', f'{stem}-dmg-cgb']
         if cgb_only:
             cands.append(stem)
     return any(os.path.exists(os.path.join(dd, f'{c}.png'))
@@ -190,7 +192,8 @@ SUITES = [
     # handled as separate sub-suites below.
     ('BLARGG_STAMPS', 'test-suites/blargg', 'test-suites/blargg/profile.toml',
      '$(BLARGG_TRACE_DIR)', 'scripts/trace-blargg.sh',
-     {'root_models': ['dmg'], 'cgb_subdir': True, 'ref_driven': True},
+     {'root_models': ['dmg', 'cgb'], 'cgb_subdir': True, 'ref_driven': True,
+      'max_frames': 4000},
      {'exclude_dirs': {'test-suites/blargg/dmg_sound', 'test-suites/blargg/cgb_sound'}}),
     # mooneye runs on BOTH systems: each ROM's models come from its filename
     # suffix (see mooneye_models) — model-agnostic tests on DMG+CGB, the
@@ -253,19 +256,27 @@ def main():
         gen_suite(stamps, rom_dir, profile, trace_dir, emus, script, policy, systems=systems, **kwargs)
         var_stamps.setdefault(var, []).extend(stamps)
 
-    # dmg_sound: blargg sub-suite, DMG-only, separate profile/script. Appends to BLARGG_STAMPS.
+    # dmg_sound: blargg sub-suite, DMG-only, separate profile/script. Appends to
+    # BLARGG_STAMPS. The combined dmg_sound ROM only reaches its "Passed" screen
+    # at ~frame 2134 (the 12 sub-tests run serially), past trace-dmg-sound.sh's
+    # 1200-frame default — so it needs the larger budget; the individual
+    # rom_singles match well under it and early-exit unaffected.
     dmg_sound = []
     gen_suite(dmg_sound, 'test-suites/blargg/dmg_sound', 'test-suites/blargg/dmg_sound/profile.toml',
               '$(BLARGG_TRACE_DIR)', emus, 'scripts/trace-dmg-sound.sh',
-              {'root_models': ['dmg'], 'ref_driven': True}, name_base='test-suites/blargg', systems=systems)
+              {'root_models': ['dmg'], 'ref_driven': True, 'max_frames': 3000}, name_base='test-suites/blargg', systems=systems)
     var_stamps['BLARGG_STAMPS'].extend(dmg_sound)
 
     # cgb_sound: blargg sub-suite, CGB-only (tests the CGB APU — must not run on
-    # DMG). Uses the APU-rich dmg_sound profile for richer sound traces.
+    # DMG). Uses the APU-rich dmg_sound profile for richer sound traces. It runs
+    # all 12 sub-tests serially and only reaches its "Passed" screen at ~frame
+    # 2184, past trace-blargg.sh's default 2000-frame cap — so it would fail for
+    # every colour-correct adapter. Pass a 3000-frame budget (the 6th positional
+    # arg) to give the combined run room to finish.
     cgb_sound = []
     gen_suite(cgb_sound, 'test-suites/blargg/cgb_sound', 'test-suites/blargg/dmg_sound/profile.toml',
               '$(BLARGG_TRACE_DIR)', emus, 'scripts/trace-blargg.sh',
-              {'root_models': ['cgb'], 'ref_driven': True}, name_base='test-suites/blargg', systems=systems)
+              {'root_models': ['cgb'], 'ref_driven': True, 'max_frames': 3000}, name_base='test-suites/blargg', systems=systems)
     var_stamps['BLARGG_STAMPS'].extend(cgb_sound)
 
     for var, _, _, _, _, _, _ in SUITES:

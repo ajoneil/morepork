@@ -7,6 +7,11 @@
 # identically on both models ship only a DMG reference, so CGB falls back to
 # it.
 #
+# The `-dmg-cgb` suffix is c-sp's convention (used by blargg) for a screenshot
+# that is byte-identical on DMG and CGB — a single shared reference valid for
+# *both* models. It sits after the model-specific candidates (so a real `-cgb`
+# still wins on CGB) but before the cross-model fallbacks.
+#
 # find_ref <rom> <model> echoes the best matching .rgb555 reference path, or
 # nothing if none exists. References live next to the ROM.
 find_ref() {
@@ -16,11 +21,14 @@ find_ref() {
     stem="$(basename "$rom")"; stem="${stem%.gbc}"; stem="${stem%.gb}"
     local cands
     if [[ "$model" == cgb ]]; then
-        # CGB-specific references first, then fall back to the DMG/base ref.
-        cands=("${stem}_cgb04c" "${stem}_cgb_c" "${stem}-cgb" \
+        # CGB-specific references first, then the shared DMG/CGB ref, then the
+        # DMG/base fallbacks.
+        cands=("${stem}_cgb04c" "${stem}_cgb_c" "${stem}-cgb" "${stem}-dmg-cgb" \
                "${stem}" "${stem}-dmg" "${stem}_dmg08")
     else
-        cands=("${stem}_dmg08" "${stem}-dmg" "${stem}")
+        # DMG/base refs first (keeps existing per-test refs authoritative),
+        # then the shared DMG/CGB ref for ROMs that ship only that.
+        cands=("${stem}_dmg08" "${stem}-dmg" "${stem}" "${stem}-dmg-cgb")
     fi
     # Look next to the ROM and one level up — some suites (e.g. blargg) keep
     # references in the parent dir while ROMs are nested in individual/rom_singles/.

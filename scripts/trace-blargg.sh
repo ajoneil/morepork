@@ -3,7 +3,7 @@
 #
 # Pass/fail: adapter reports "Reference match" when framebuffer matches .pix
 #
-# Usage: trace-blargg.sh <adapter-binary> <rom> <profile> <output-dir> <rom-dir>
+# Usage: trace-blargg.sh <adapter-binary> <rom> <profile> <output-dir> <rom-dir> [max-frames]
 set -euo pipefail
 
 BIN="$1"
@@ -26,7 +26,10 @@ NAME="${ROM_REL//\//__}"
 BASENAME="$(basename "$ROM")"; BASENAME="${BASENAME%.gbc}"; BASENAME="${BASENAME%.gb}"
 PIX_REF="$(find_ref "$ROM" "$MODEL")"
 
-MAX_FRAMES=2000
+# Frame budget: optional 6th positional arg (default 2000), mirroring
+# trace-screenshot-suite.sh. cgb_sound only reaches its "Passed" screen at
+# ~frame 2184, so gen-rules passes a larger budget for that sub-suite.
+MAX_FRAMES="${6:-2000}"
 TMP="/tmp/gbtrace_blargg_${NAME}_${ADAPTER}_$$"
 stderr_file="${TMP}.stderr"
 tmp_trace="${TMP}.gbtrace"
