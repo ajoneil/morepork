@@ -302,7 +302,7 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
 
         if !stop_triggered {
             if let Some(opcode) = args.stop_opcode {
-                let pc = gb.cpu().bus_counter;
+                let pc = gb.cpu().pc;
                 if gb.peek(pc) == opcode {
                     eprintln!("Stop condition met: opcode 0x{opcode:02X} at PC=0x{pc:04X}");
                     stop_triggered = true;
