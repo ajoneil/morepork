@@ -71,7 +71,10 @@ struct RegisterField {
 };
 
 static const std::unordered_map<std::string, RegisterField> REGISTER_FIELDS = {
-    {"pc", {RegisterField::PC, true}},  {"sp", {RegisterField::SP, true}},
+    // SameBoy's execution callback fires per-instruction with the opcode
+    // address, which both pc and op_addr (instruction address) emit.
+    {"pc", {RegisterField::PC, true}},  {"op_addr", {RegisterField::PC, true}},
+    {"sp", {RegisterField::SP, true}},
     {"a",  {RegisterField::A, false}},  {"f",  {RegisterField::F, false}},
     {"b",  {RegisterField::B, false}},  {"c",  {RegisterField::C, false}},
     {"d",  {RegisterField::D, false}},  {"e",  {RegisterField::E, false}},

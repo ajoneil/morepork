@@ -50,7 +50,9 @@ static const std::unordered_map<std::string, unsigned short> IO_FIELD_ADDR = {
 // Maps field name -> (array index, is_16bit).
 struct CallbackField { int index; bool is_16bit; };
 static const std::unordered_map<std::string, CallbackField> CALLBACK_FIELDS = {
-    {"pc", {1, true}},  {"sp", {2, true}},
+    // gambatte traces per-instruction, so op_addr (instruction address)
+    // equals pc — both read callback slot 1.
+    {"pc", {1, true}},  {"op_addr", {1, true}},  {"sp", {2, true}},
     {"a",  {3, false}}, {"b",  {4, false}}, {"c",  {5, false}},
     {"d",  {6, false}}, {"e",  {7, false}}, {"f",  {8, false}},
     {"h",  {9, false}}, {"l",  {10, false}},
