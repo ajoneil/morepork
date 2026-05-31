@@ -503,8 +503,14 @@ impl TraceStore {
         let end = (start + count).min(self.entry_count());
         let mnemonics: Vec<String> = (start..end)
             .map(|i| {
-                let pc = self.store.get_numeric_named("pc", i).unwrap_or(0) as u16;
-                disasm::disassemble(rom, pc).0
+                // op_addr is the instruction address (stable across an
+                // instruction's T-cycles); pc advances mid-instruction.
+                let addr = self
+                    .store
+                    .get_numeric_named("op_addr", i)
+                    .or_else(|| self.store.get_numeric_named("pc", i))
+                    .unwrap_or(0) as u16;
+                disasm::disassemble(rom, addr).0
             })
             .collect();
         Ok(to_js(&mnemonics)?)

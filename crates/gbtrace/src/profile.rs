@@ -122,6 +122,7 @@ pub static CPU: SubsystemDef = SubsystemDef {
     layers: &[
         (Layer::Registers, &[
             field!("pc", u16),
+            field!("op_addr", u16),
             field!("sp", u16),
             field!("a", u8),
             field!("f", u8, dict),
