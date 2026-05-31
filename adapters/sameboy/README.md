@@ -1,31 +1,52 @@
 # SameBoy Adapter
 
-Produces `.gbtrace` files using [SameBoy](https://github.com/LIJI32/SameBoy) as a library, with **zero source modifications** to SameBoy.
+Produces `.gbtrace` files using [SameBoy](https://github.com/LIJI32/SameBoy) as a
+library. SameBoy is used essentially unmodified — a single small patch
+(`sameboy-tcycle.patch`, ~40 lines across `Core/gb.h`, `Core/gb.c`,
+`Core/timing.c`) adds a public `GB_set_tcycle_callback` hook so traces can be
+captured at **T-cycle granularity**, not just per instruction.
 
 ## How it works
 
-Uses SameBoy's public `GB_set_execution_callback` API, which fires before each CPU instruction with the PC and opcode. The adapter calls `GB_get_registers` and `GB_safe_read_memory` to capture the full CPU/IO state. The adapter:
+The adapter captures the full CPU/IO state via `GB_get_registers` and
+`GB_safe_read_memory`, at a granularity chosen by the profile's `trigger`:
+
+- **`trigger = "instruction"`** — uses SameBoy's stock `GB_set_execution_callback`,
+  which fires once per CPU instruction with the opcode address.
+- **`trigger = "tcycle"`** — uses the patched `GB_set_tcycle_callback`, which fires
+  once per emulated T-cycle. This exposes sub-instruction state: the PPU advancing
+  dot-by-dot (LY/STAT/mode), the DIV/timer counters, and the live (mid-instruction)
+  program counter. `pc` then carries the live PC while `op_addr` carries the stable
+  address of the in-flight instruction.
+
+The patch only *splits* SameBoy's existing per-M-cycle `GB_advance_cycles` into
+single-T-cycle steps when the callback is installed — every timing subsystem in
+SameBoy already accumulates a cycle budget and carries its remainder, so stepping
+`1+1+1+1` is identical to stepping `4` at once (verified: DIV increments every 256
+T-cycles, LY every 456). With no callback installed the code path is byte-identical
+to upstream.
+
+The adapter:
 
 1. Loads a ROM via `libsameboy`
-2. Registers an execution callback that writes JSONL to the output
-3. Runs the emulator for N frames (with rendering disabled for speed)
+2. Registers the instruction or T-cycle callback per the profile trigger
+3. Runs the emulator for N frames (rendering disabled unless pixels are needed)
 4. Produces a `.gbtrace` file matching the spec
 
-## Prerequisites
-
-Build SameBoy as a static library:
+## Prerequisites & build
 
 ```bash
 git clone https://github.com/LIJI32/SameBoy.git
-cd SameBoy
-make lib CONF=release
+make lib    # applies sameboy-tcycle.patch + builds libsameboy.a/.so
+make        # builds the adapter
 ```
 
-## Build
-
-```bash
-make
-```
+`make lib` applies the patch once (idempotently, via a stamp file inside
+`SameBoy/`) and builds only the static + shared libraries — it skips SameBoy's
+public-header generation step, which needs the `cppp` tool and is unused here (the
+adapter includes `Core/gb.h` directly with `GB_INTERNAL`). The adapter links
+`libsameboy.so`, so run it with `SameBoy/build/lib` on `LD_LIBRARY_PATH` (the trace
+scripts handle this).
 
 ## Usage
 
@@ -42,9 +63,11 @@ Options:
 
 ## Cycle counting
 
-SameBoy internally counts in 8MHz ticks. The adapter converts using:
-- Normal speed: 8MHz ticks / 2 = T-cycles (4.194MHz)
-- CGB double speed: needs verification (not yet supported)
+SameBoy internally counts in 8MHz ticks (`GB_advance_cycles` receives 4MHz
+T-cycles; one M-cycle = 4 T-cycles). In T-cycle mode the per-T-cycle callback
+fires once per CPU T-cycle regardless of speed: at normal speed one CPU T-cycle is
+one PPU dot, and under CGB double speed the CPU runs two T-cycles per dot — so the
+PPU still advances correctly while the CPU is sampled at its own (doubled) rate.
 
 ## Differences from gambatte adapter
 

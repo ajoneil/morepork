@@ -137,7 +137,7 @@ static int g_writer_ly_col = -1;
 // Pre-computed list of what to emit per entry.
 struct FieldEmitter {
     std::string name;
-    enum Source { REGISTER_8, REGISTER_16, IO_READ, IME, PIX } source;
+    enum Source { REGISTER_8, REGISTER_16, IO_READ, IME, PIX, OP_ADDR } source;
     RegisterField::Reg reg; // for REGISTER_8/16
     unsigned short io_addr; // for IO_READ
 };
@@ -145,6 +145,18 @@ static std::vector<FieldEmitter> g_emitters;
 static bool g_has_pix = false;
 static uint32_t g_pixel_buf[160 * 144];
 static std::string g_pending_pix;
+
+// --- T-cycle (sub-instruction) tracing state ---
+// When the profile's trigger is "tcycle" we emit one entry per emulated
+// T-cycle via SameBoy's per-T-cycle callback (see the patch adding
+// GB_set_tcycle_callback) rather than once per instruction. In that mode `pc`
+// carries the live (mid-instruction) program counter while `op_addr` carries
+// the stable address of the in-flight instruction's opcode.
+static bool g_tcycle_mode = false;
+static uint16_t g_op_addr = 0;     // opcode address of the in-flight instruction
+static int g_frames = 0;           // frame counter (shared with the callback)
+static uint8_t g_prev_stat_mode = 0xFF; // for vblank-edge detection in tcycle mode
+static bool g_has_reference = false;    // a reference image is loaded
 
 static inline char rgba_to_shade(uint32_t rgba) {
     unsigned r = (rgba >> 0) & 0xFF;
@@ -215,6 +227,9 @@ static void build_emitters(const Profile &prof) {
             g_has_pix = true;
             g_emitters.push_back(em);
             continue;
+        } else if (field == "op_addr") {
+            // Instruction address (stable across the instruction's T-cycles).
+            em.source = FieldEmitter::OP_ADDR;
         } else if (field == "ime") {
             em.source = FieldEmitter::IME;
         } else if (auto it = REGISTER_FIELDS.find(field); it != REGISTER_FIELDS.end()) {
@@ -281,9 +296,15 @@ static void emit_entry(GB_gameboy_t *gb, uint16_t address) {
             break;
         case FieldEmitter::REGISTER_16:
             if (em.reg == RegisterField::PC)
-                gbtrace_writer_set_u16(g_writer, col, address);
+                // Instruction mode: pc is the opcode address (== op_addr).
+                // T-cycle mode: pc is the live, mid-instruction program counter.
+                gbtrace_writer_set_u16(g_writer, col,
+                                       g_tcycle_mode ? GB_get_registers(gb)->pc : address);
             else
                 gbtrace_writer_set_u16(g_writer, col, read_reg(gb, em.reg));
+            break;
+        case FieldEmitter::OP_ADDR:
+            gbtrace_writer_set_u16(g_writer, col, address);
             break;
         case FieldEmitter::IO_READ:
             gbtrace_writer_set_u8(g_writer, col, GB_safe_read_memory(gb, em.io_addr));
@@ -305,7 +326,13 @@ static void emit_entry(GB_gameboy_t *gb, uint16_t address) {
 // --- Trace callback ---
 
 static void exec_callback(GB_gameboy_t *gb, uint16_t address, uint8_t opcode) {
-    emit_entry(gb, address);
+    // Record the in-flight instruction's opcode address. In instruction mode we
+    // also emit the entry here; in T-cycle mode emission happens per T-cycle in
+    // tcycle_callback (this only updates op_addr / checks stop conditions).
+    g_op_addr = address;
+    if (!g_tcycle_mode) {
+        emit_entry(gb, address);
+    }
 
     // Check opcode stop condition
     if (g_stop_opcode >= 0 && !g_stop_opcode_triggered) {
@@ -330,6 +357,25 @@ static void exec_callback(GB_gameboy_t *gb, uint16_t address, uint8_t opcode) {
         }
         prev_sc_high = sc_high;
     }
+}
+
+// --- Per-T-cycle trace callback ---
+// Fires once per emulated T-cycle (SameBoy patch: GB_set_tcycle_callback).
+// Detects the vblank edge at T-cycle precision to capture the framebuffer and
+// mark the frame boundary, then emits one entry for this T-cycle. `pc` is the
+// live program counter; `op_addr` is the in-flight instruction address.
+static void tcycle_callback(GB_gameboy_t *gb) {
+    uint8_t mode = GB_safe_read_memory(gb, 0xFF41) & 3;
+    if (mode == 1 && g_prev_stat_mode != 1) {
+        g_frames++;
+        if (g_has_pix || g_has_reference) {
+            capture_sameboy_frame();
+        }
+        gbtrace_writer_mark_frame(g_writer);
+    }
+    g_prev_stat_mode = mode;
+
+    emit_entry(gb, g_op_addr);
 }
 
 // --- SHA-256 ---
@@ -512,6 +558,10 @@ int main(int argc, char *argv[]) {
     g_profile = load_profile(profile_path);
     build_emitters(g_profile);
 
+    // T-cycle granularity is honoured via SameBoy's per-T-cycle callback; any
+    // other trigger falls back to per-instruction emission.
+    g_tcycle_mode = (g_profile.trigger == "tcycle");
+
     std::fprintf(stderr, "Profile: %s (%zu fields)\n",
                  g_profile.name.c_str(), g_profile.fields.size());
 
@@ -599,7 +649,9 @@ int main(int argc, char *argv[]) {
         if (i > 0) header_json += ",";
         header_json += "\"" + g_emitters[i].name + "\"";
     }
-    header_json += "],\"trigger\":\"instruction\"}";
+    header_json += "],\"trigger\":\"";
+    header_json += g_tcycle_mode ? "tcycle" : "instruction";
+    header_json += "\"}";
 
     g_writer = gbtrace_writer_new(
         output_path.c_str(), header_json.c_str(), header_json.size());
@@ -621,6 +673,10 @@ int main(int argc, char *argv[]) {
     gbtrace_writer_mark_frame(g_writer);
 
     GB_set_execution_callback(g_gb, exec_callback);
+    if (g_tcycle_mode) {
+        // Emit one entry per emulated T-cycle rather than per instruction.
+        GB_set_tcycle_callback(g_gb, tcycle_callback);
+    }
 
     // Capture audio only when asked (gambatte _outaudio tests). Set up
     // after boot so boot-time audio isn't measured.
@@ -645,6 +701,7 @@ int main(int argc, char *argv[]) {
     if (!reference_path.empty()) {
         if (load_reference(reference_path)) {
             has_reference = true;
+            g_has_reference = true;
             std::fprintf(stderr, "Reference: %s (%d pixels)\n",
                          reference_path.c_str(), 160 * 144);
         } else {
@@ -653,7 +710,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    int frames = 0;
+    int &frames = g_frames;  // shared with tcycle_callback (incremented there in T-cycle mode)
     bool stopped_early = false;
     int remaining_extra = -1;  // -1 = not triggered yet
     // Cycle-budget mode (gambatte tests): run for exactly N T-cycles, then
@@ -667,11 +724,16 @@ int main(int argc, char *argv[]) {
         unsigned ticks = GB_run(g_gb);
         g_total_8mhz_ticks += ticks;
         if (g_gb->vblank_just_occured) {
-            frames++;
-            if (g_has_pix || has_reference) {
-                capture_sameboy_frame();
+            // In T-cycle mode the callback already counted this frame, captured
+            // the framebuffer and marked the boundary at the exact vblank
+            // T-cycle; only the instruction-mode path does it here.
+            if (!g_tcycle_mode) {
+                frames++;
+                if (g_has_pix || has_reference) {
+                    capture_sameboy_frame();
+                }
+                gbtrace_writer_mark_frame(g_writer);
             }
-            gbtrace_writer_mark_frame(g_writer);
 
             // Check reference match (immediate stop)
             if (has_reference && frame_matches_reference()) {
@@ -735,7 +797,7 @@ int main(int argc, char *argv[]) {
     if (cycle_budget) {
         if (g_has_pix || has_reference) capture_sameboy_frame();
         gbtrace_writer_mark_frame(g_writer);
-        emit_entry(g_gb, GB_get_registers(g_gb)->pc);
+        emit_entry(g_gb, g_tcycle_mode ? g_op_addr : GB_get_registers(g_gb)->pc);
     }
 
     if (report_audio) {

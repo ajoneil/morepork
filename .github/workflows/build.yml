@@ -114,11 +114,11 @@ jobs:
         if: matrix.emulator == 'sameboy'
         run: |
           cd adapters/sameboy
-          if [ ! -d SameBoy ]; then
-            git clone --depth 1 https://github.com/LIJI32/SameBoy.git
-            cd SameBoy && make build/lib/libsameboy.a build/lib/libsameboy.so CONF=release -j$(nproc)
-            cd ..
-          fi
+          [ -d SameBoy ] || git clone --depth 1 https://github.com/LIJI32/SameBoy.git
+          # `make lib` applies sameboy-tcycle.patch (idempotently, via a stamp
+          # file inside SameBoy/) then builds the libs. Run it unconditionally so
+          # a cached, pre-patch SameBoy still gets patched + rebuilt.
+          make lib -j$(nproc)
           make -j$(nproc)
 
       - name: Clone and build mgba

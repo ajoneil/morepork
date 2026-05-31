@@ -112,6 +112,15 @@ C/C++ adapters (`gambatte`, `sameboy`, `mgba`, `gateboy`, `docboy`, `bgb`) link 
 `adapters/<emu>/Makefile` and may invoke nested cmake/scons builds against vendored
 emulator sources (which are gitignored — see `.gitignore`).
 
+Adapters honour the profile's `trigger`: `instruction` emits one entry per opcode;
+`tcycle` emits one entry per T-cycle (`docboy`, `missingno`, and `sameboy` support
+this). The **sameboy** adapter reaches T-cycle granularity via a small checked-in
+patch, `adapters/sameboy/sameboy-tcycle.patch` (adds `GB_set_tcycle_callback`,
+firing once per T-cycle inside `GB_advance_cycles`); `make lib` in that dir applies
+it before building `libsameboy`. With no callback the patch is a no-op, so
+instruction-mode behaviour is unchanged. (Before this, sameboy hardcoded
+`trigger:"instruction"` regardless of the profile — all suite profiles are `tcycle`.)
+
 The **bgb** adapter is experimental and excluded from CI/site (see
 `adapters/bgb/README.md`). The **mgba** adapter has been removed from the trace pipeline
 but the directory still builds.
