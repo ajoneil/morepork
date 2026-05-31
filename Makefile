@@ -85,6 +85,24 @@ $(RULES_MK): scripts/gen-rules.py
 pix-refs: scripts/png-to-pix.py
 	@python3 scripts/png-to-pix.py test-suites
 
+# pix-refs writes the .rgb555 files that the screenshot-suite trace stamps read
+# (via find_ref). They are sibling prerequisites of the traces-<suite> targets,
+# so under `make -j` pix-refs and the stamps run UNORDERED: a stamp can call
+# find_ref before its reference has been generated, in which case the adapter
+# runs with no --reference, never reports "Reference match", and the trace is
+# mislabelled `fail`. (This consistently bit the first ~nproc stamps of each CI
+# shard — e.g. blargg cpu_instrs/01-special/02-interrupts on DMG.) An order-only
+# prerequisite forces pix-refs to finish first, without letting the phony target
+# invalidate the stamps. Guarded with ifneq so the first parse (before rules.mk
+# is generated and the *_STAMPS vars are populated) doesn't see an empty target.
+SCREENSHOT_STAMPS := $(BLARGG_STAMPS) $(GAMBATTE_TESTS_STAMPS) $(MEALYBUG_TEAROOM_STAMPS) \
+	$(DMG_ACID2_STAMPS) $(AGE_STAMPS) $(SCRIBBLTESTS_STAMPS) $(BULLY_STAMPS) \
+	$(MBC3_TESTER_STAMPS) $(STRIKETHROUGH_STAMPS) $(TURTLE_TESTS_STAMPS) \
+	$(CGB_ACID2_STAMPS) $(CGB_ACID_HELL_STAMPS)
+ifneq ($(strip $(SCREENSHOT_STAMPS)),)
+$(SCREENSHOT_STAMPS): | pix-refs
+endif
+
 DMG_ACID2_REF := test-suites/dmg-acid2/reference.rgb555
 
 .PHONY: all adapters cli wasm traces traces-gbmicrotest traces-blargg \
