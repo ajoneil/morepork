@@ -152,9 +152,9 @@ impl Console for GameBoyColor {
         self.cpu_mut().take_instruction_boundary();
     }
     fn rgb555_at(&self, x: usize, y: usize) -> [u8; 3] {
-        // CGB screen stores RGB888 → reduce to native 5-bit precision.
-        let p = self.screen().pixel(x as u8, y as u8);
-        [p.r >> 3, p.g >> 3, p.b >> 3]
+        // CGB screen stores a packed RGB555 value → unpack to one byte per 5-bit channel.
+        let p = self.screen().pixel(x as u8, y as u8).0;
+        [(p & 0x1F) as u8, ((p >> 5) & 0x1F) as u8, ((p >> 10) & 0x1F) as u8]
     }
     fn shade_at(&self, x: usize, y: usize) -> u8 {
         // CGB has no native 2-bit shade; map displayed luminance to the nearest
