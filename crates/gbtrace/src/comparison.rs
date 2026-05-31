@@ -44,15 +44,20 @@ impl FieldDiffStats {
 impl<'a> TraceComparison<'a> {
     /// Create a TraceComparison by aligning two traces.
     ///
+    /// Alignment works on the instruction address (`op_addr`, falling back to
+    /// `pc` for older traces) so T-cycle traces align on instruction
+    /// boundaries rather than mid-instruction `pc` values.
+    ///
     /// Sync modes:
     /// - `None` or `Some("auto")` — pick the best built-in mode for the inputs.
-    ///   If both traces start at PC=0x0100 (cartridge ROM entry), advance both
-    ///   to the first PC=0x0101 to skip the post-boot WriteOp tail and the
-    ///   first NOP (where adapters' clocks land at different sub-phases).
-    ///   Otherwise fall back to first-common-PC alignment.
+    ///   If both traces start at instruction address 0x0100 (cartridge ROM
+    ///   entry), advance both to the first 0x0101 to skip the post-boot
+    ///   WriteOp tail and the first NOP (where adapters' clocks land at
+    ///   different sub-phases). Otherwise fall back to first-common-address
+    ///   alignment.
     /// - `Some("cartridge")` — explicitly require cartridge-entry alignment;
-    ///   errors if either trace's first entry isn't PC=0x0100.
-    /// - `Some("pc")` — first-common-PC alignment (legacy default).
+    ///   errors if either trace's first entry isn't at 0x0100.
+    /// - `Some("pc")` — first-common-address alignment (legacy default).
     /// - `Some("none")` — no alignment, compare from entry 0.
     /// - `Some("field=value")` / `Some("field&mask")` — advance both stores to
     ///   the first entry matching the condition. Values are parsed as hex
@@ -603,45 +608,48 @@ fn collect_diff_indices_typed(
 // Alignment helpers
 // ---------------------------------------------------------------------------
 
-/// Build an index map that collapses T-cycle entries to instruction boundaries.
-/// Picks one entry per PC change.
+/// Build an index map that collapses T-cycle entries to instruction
+/// boundaries. Picks one entry per instruction-address change (`op_addr`,
+/// which ticks exactly once per instruction; falling back to `pc`, which also
+/// advances on operand reads).
 fn collapse_indices(store: &dyn TraceStore) -> Result<Vec<usize>> {
-    let pc_col = store.field_col("pc")
-        .ok_or_else(|| Error::Diff("no pc field for collapse".into()))?;
+    let addr_col = store.addr_col()
+        .ok_or_else(|| Error::Diff("no pc/op_addr field for collapse".into()))?;
     let count = store.entry_count();
     if count == 0 { return Ok(vec![]); }
 
     let mut indices = vec![0]; // always include first entry
-    let mut prev_pc = store.get_numeric(pc_col, 0);
+    let mut prev_addr = store.get_numeric(addr_col, 0);
 
     for i in 1..count {
-        let cur_pc = store.get_numeric(pc_col, i);
-        if cur_pc != prev_pc {
+        let cur_addr = store.get_numeric(addr_col, i);
+        if cur_addr != prev_addr {
             indices.push(i);
         }
-        prev_pc = cur_pc;
+        prev_addr = cur_addr;
     }
 
     Ok(indices)
 }
 
-/// First entry in `map` whose `pc` column equals `target`. Returns the
-/// position within `map` (not the original row index).
-fn find_pc_position(store: &dyn TraceStore, pc_col: usize, map: &[usize], target: u16) -> Option<usize> {
-    map.iter().position(|&i| store.get_numeric(pc_col, i) as u16 == target)
+/// First entry in `map` whose instruction-address column equals `target`.
+/// Returns the position within `map` (not the original row index).
+fn find_pc_position(store: &dyn TraceStore, addr_col: usize, map: &[usize], target: u16) -> Option<usize> {
+    map.iter().position(|&i| store.get_numeric(addr_col, i) as u16 == target)
 }
 
-/// Align index maps by first common PC value.
+/// Align index maps by first common instruction address (`op_addr`, falling
+/// back to `pc`).
 fn align_by_pc(
     store_a: &dyn TraceStore,
     store_b: &dyn TraceStore,
     map_a: &mut Vec<usize>,
     map_b: &mut Vec<usize>,
 ) {
-    let pc_col_a = store_a.field_col("pc");
-    let pc_col_b = store_b.field_col("pc");
+    let addr_col_a = store_a.addr_col();
+    let addr_col_b = store_b.addr_col();
 
-    if let (Some(ca), Some(cb)) = (pc_col_a, pc_col_b) {
+    if let (Some(ca), Some(cb)) = (addr_col_a, addr_col_b) {
         if map_a.is_empty() || map_b.is_empty() { return; }
 
         let pc_a = store_a.get_numeric(ca, map_a[0]) as u16;
@@ -649,7 +657,7 @@ fn align_by_pc(
 
         if pc_a == pc_b { return; } // already aligned
 
-        // Look for the other side's first PC in our first 100 entries.
+        // Look for the other side's first address in our first 100 entries.
         let head_a = &map_a[..map_a.len().min(100)];
         let head_b = &map_b[..map_b.len().min(100)];
         let target = find_pc_position(store_a, ca, head_a, pc_b).map(|_| pc_b)
@@ -731,8 +739,8 @@ fn try_align_cartridge_entry(
     map_a: &mut Vec<usize>,
     map_b: &mut Vec<usize>,
 ) -> bool {
-    let pc_col_a = match store_a.field_col("pc") { Some(c) => c, None => return false };
-    let pc_col_b = match store_b.field_col("pc") { Some(c) => c, None => return false };
+    let pc_col_a = match store_a.addr_col() { Some(c) => c, None => return false };
+    let pc_col_b = match store_b.addr_col() { Some(c) => c, None => return false };
     if map_a.is_empty() || map_b.is_empty() { return false; }
 
     let pc_a0 = store_a.get_numeric(pc_col_a, map_a[0]) as u16;
@@ -755,7 +763,7 @@ fn try_align_cartridge_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::header::{BootRom, TraceHeader, Trigger};
+    use crate::header::{BootRom, PixFormat, TraceHeader, Trigger};
 
     /// Minimal in-memory TraceStore for alignment tests. Holds only a `pc`
     /// column — alignment paths only read that field.
@@ -778,6 +786,7 @@ mod tests {
                     profile: "test".into(),
                     fields: vec!["pc".into()],
                     trigger: Trigger::Tcycle,
+                    pix_format: PixFormat::default(),
                     extension_fields: std::collections::BTreeMap::new(),
                     notes: String::new(),
                 },
@@ -797,6 +806,81 @@ mod tests {
         fn get_numeric(&self, _col: usize, row: usize) -> u64 { self.pcs[row] as u64 }
         fn get_bool(&self, _col: usize, _row: usize) -> bool { false }
         fn is_null(&self, _col: usize, _row: usize) -> bool { false }
+    }
+
+    /// Two-column store carrying both `pc` and `op_addr`, for testing that
+    /// instruction-address sync prefers `op_addr` over the mid-instruction
+    /// `pc`. Column 0 = `pc`, column 1 = `op_addr`.
+    struct RegStore {
+        header: TraceHeader,
+        pcs: Vec<u16>,
+        op_addrs: Vec<u16>,
+    }
+
+    impl RegStore {
+        fn new(pcs: Vec<u16>, op_addrs: Vec<u16>, trigger: Trigger) -> Self {
+            let header = TraceHeader {
+                _header: true,
+                format_version: "0.1.0".into(),
+                emulator: "test".into(),
+                emulator_version: "0".into(),
+                rom_sha256: "0".into(),
+                model: "DMG".into(),
+                boot_rom: BootRom::Skip,
+                profile: "test".into(),
+                fields: vec!["pc".into(), "op_addr".into()],
+                trigger,
+                pix_format: PixFormat::default(),
+                extension_fields: std::collections::BTreeMap::new(),
+                notes: String::new(),
+            };
+            Self { header, pcs, op_addrs }
+        }
+    }
+
+    impl TraceStore for RegStore {
+        fn header(&self) -> &TraceHeader { &self.header }
+        fn entry_count(&self) -> usize { self.pcs.len() }
+        fn field_col(&self, name: &str) -> Option<usize> {
+            match name { "pc" => Some(0), "op_addr" => Some(1), _ => None }
+        }
+        fn frame_boundaries(&self) -> Vec<u32> { vec![0] }
+        fn get_str(&self, col: usize, row: usize) -> String {
+            format!("{:04x}", self.get_numeric(col, row))
+        }
+        fn get_numeric(&self, col: usize, row: usize) -> u64 {
+            (if col == 0 { self.pcs[row] } else { self.op_addrs[row] }) as u64
+        }
+        fn get_bool(&self, _col: usize, _row: usize) -> bool { false }
+        fn is_null(&self, _col: usize, _row: usize) -> bool { false }
+    }
+
+    #[test]
+    fn collapse_and_sync_use_op_addr_not_mid_instruction_pc() {
+        // A is a T-cycle trace where `pc` advances through operand reads while
+        // `op_addr` stays at the instruction's address. Two instructions:
+        // 0x0100 (3 T-cycles, pc walks 0100→0102) then 0x0150 (2 T-cycles).
+        let a = RegStore::new(
+            vec![0x0100, 0x0101, 0x0102, 0x0150, 0x0151],
+            vec![0x0100, 0x0100, 0x0100, 0x0150, 0x0150],
+            Trigger::Tcycle,
+        );
+        // B is an instruction-level trace of the same two instructions.
+        let b = RegStore::new(
+            vec![0x0100, 0x0150],
+            vec![0x0100, 0x0150],
+            Trigger::Instruction,
+        );
+
+        // Differing triggers force A to collapse to instruction boundaries.
+        let cmp = TraceComparison::align(&a, &b, Some("none")).unwrap();
+        // Collapsing by `op_addr` yields exactly two instructions; collapsing
+        // by the mid-instruction `pc` would yield four (one per pc change).
+        assert_eq!(cmp.len(), 2);
+        // Second aligned row maps to A's row 3 (op_addr 0x0150), not row 1
+        // (pc 0x0101) which a pc-based collapse would have picked.
+        assert_eq!(cmp.original_a(1), 3);
+        assert_eq!(a.op_addrs[cmp.original_a(1)], 0x0150);
     }
 
     fn cartridge_like() -> PcStore {

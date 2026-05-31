@@ -51,6 +51,14 @@ pub trait TraceStore {
         self.field_col(name).is_some()
     }
 
+    /// Column index of the instruction address, used for sync/collapse and
+    /// disassembly. Prefers `op_addr` (stable across an instruction's
+    /// T-cycles) and falls back to `pc`, which advances mid-instruction, for
+    /// traces predating the `op_addr` field.
+    fn addr_col(&self) -> Option<usize> {
+        self.field_col("op_addr").or_else(|| self.field_col("pc"))
+    }
+
     /// Get column segments for a field over a contiguous row range.
     /// Each segment is a slice of an Arrow array within one chunk.
     /// Returns None if bulk access is not supported (e.g. downsampled stores).

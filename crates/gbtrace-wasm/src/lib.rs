@@ -47,24 +47,25 @@ impl TraceStore {
         Ok(TraceStore { store, rom: None, original_bytes: Some(data.to_vec()), downsample_map: None, vram_cache: None })
     }
 
-    /// Enable instruction-level downsampling. Picks one entry per PC change.
+    /// Enable instruction-level downsampling. Picks one entry per
+    /// instruction-address change (`op_addr`, falling back to `pc`).
     /// Call this to compare a T-cycle trace against an instruction-level one.
     /// The downsampled view is transparent to all other methods.
     #[wasm_bindgen(js_name = enableDownsampling)]
     pub fn enable_downsampling(&mut self) {
         let store = &*self.store;
-        let pc_col = store.field_col("pc");
+        let addr_col = store.addr_col();
         let mut map = Vec::new();
-        if let Some(pc) = pc_col {
+        if let Some(addr) = addr_col {
             let count = store.entry_count();
             if count > 0 {
                 map.push(0);
-                let mut prev_pc = store.get_numeric(pc, 0);
+                let mut prev_addr = store.get_numeric(addr, 0);
                 for i in 1..count {
-                    let cur_pc = store.get_numeric(pc, i);
-                    if cur_pc != prev_pc {
+                    let cur_addr = store.get_numeric(addr, i);
+                    if cur_addr != prev_addr {
                         map.push(i);
-                        prev_pc = cur_pc;
+                        prev_addr = cur_addr;
                     }
                 }
             }
@@ -505,10 +506,12 @@ impl TraceStore {
             .map(|i| {
                 // op_addr is the instruction address (stable across an
                 // instruction's T-cycles); pc advances mid-instruction.
+                // Map through the downsample view so we read the right entry.
+                let row = self.map_row(i);
                 let addr = self
                     .store
-                    .get_numeric_named("op_addr", i)
-                    .or_else(|| self.store.get_numeric_named("pc", i))
+                    .get_numeric_named("op_addr", row)
+                    .or_else(|| self.store.get_numeric_named("pc", row))
                     .unwrap_or(0) as u16;
                 disasm::disassemble(rom, addr).0
             })

@@ -1,5 +1,5 @@
 /** Known 16-bit fields — always display as 4 hex digits. */
-const FIELDS_16BIT = new Set(['pc', 'sp']);
+const FIELDS_16BIT = new Set(['pc', 'op_addr', 'sp']);
 
 /** Format the F (flags) register: hex value + flag letters. */
 function formatFlags(v) {

@@ -4,7 +4,7 @@ use gbtrace::store::TraceStore;
 use gbtrace::format::read::GbtraceStore;
 use gbtrace::format::write::GbtraceWriter;
 use gbtrace::format::FieldGroup;
-use gbtrace::header::{BootRom, TraceHeader, Trigger};
+use gbtrace::header::{BootRom, PixFormat, TraceHeader, Trigger};
 
 fn test_header() -> TraceHeader {
     TraceHeader {
@@ -25,7 +25,7 @@ fn test_header() -> TraceHeader {
             "vram_addr".into(), "vram_data".into(),
         ],
         trigger: Trigger::Tcycle,
-
+        pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
     }
@@ -195,7 +195,7 @@ fn test_large_chunk_boundary() {
         profile: "test".into(),
         fields: vec!["pc".into(), "a".into()],
         trigger: Trigger::Instruction,
-
+        pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
     };
@@ -251,7 +251,7 @@ fn test_framebuffer() {
         profile: "test".into(),
         fields: vec!["pc".into()],
         trigger: Trigger::Instruction,
-
+        pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
     };
@@ -347,6 +347,7 @@ fn test_extension_fields_roundtrip() {
         profile: "ext_test".into(),
         fields: vec!["pc".into(), "halt_bug".into(), "debug_counter".into()],
         trigger: Trigger::Instruction,
+        pix_format: PixFormat::default(),
         extension_fields,
         notes: String::new(),
     };
@@ -429,7 +430,7 @@ fn test_empty_trace() {
         profile: "test".into(),
         fields: vec!["pc".into()],
         trigger: Trigger::Instruction,
-
+        pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
     };

@@ -1,14 +1,15 @@
 //! Instruction-level downsampling of trace stores.
 //!
 //! `DownsampledStore` presents an instruction-level view of an underlying
-//! T-cycle store by picking one entry per PC change.
+//! T-cycle store by picking one entry per instruction-address change.
 
 use crate::store::TraceStore;
 use crate::header::TraceHeader;
 
 /// A decorator that presents an instruction-level view of an underlying
-/// store. Picks one entry per instruction boundary (where PC changes),
-/// mapping downsampled indices back to the original store transparently.
+/// store. Picks one entry per instruction boundary (where the instruction
+/// address changes), mapping downsampled indices back to the original store
+/// transparently.
 pub struct DownsampledStore<'a> {
     inner: &'a dyn TraceStore,
     /// Maps downsampled row index → original row index
@@ -21,26 +22,27 @@ impl<'a> DownsampledStore<'a> {
         Self { inner, index_map }
     }
 
-    /// Create a downsampled view by picking entries where PC changes.
+    /// Create a downsampled view by picking entries where the instruction
+    /// address (`op_addr`, falling back to `pc`) changes.
     pub fn new(inner: &'a dyn TraceStore) -> Self {
-        let pc_col = inner.field_col("pc");
+        let addr_col = inner.addr_col();
         let mut index_map = Vec::new();
 
-        if let Some(pc) = pc_col {
+        if let Some(addr) = addr_col {
             let count = inner.entry_count();
             if count > 0 {
                 index_map.push(0); // always include first entry
-                let mut prev_pc = inner.get_numeric(pc, 0);
+                let mut prev_addr = inner.get_numeric(addr, 0);
                 for i in 1..count {
-                    let cur_pc = inner.get_numeric(pc, i);
-                    if cur_pc != prev_pc {
+                    let cur_addr = inner.get_numeric(addr, i);
+                    if cur_addr != prev_addr {
                         index_map.push(i);
-                        prev_pc = cur_pc;
+                        prev_addr = cur_addr;
                     }
                 }
             }
         } else {
-            // No PC column — pass through all entries
+            // No address column — pass through all entries
             index_map = (0..inner.entry_count()).collect();
         }
 
