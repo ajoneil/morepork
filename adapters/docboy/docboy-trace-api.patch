@@ -1,8 +1,8 @@
 diff --git a/src/docboy/docboy/debugger/backend.cpp b/src/docboy/docboy/debugger/backend.cpp
-index c654e00..396c4db 100644
+index 0d945ca..6ad50b4 100644
 --- a/src/docboy/docboy/debugger/backend.cpp
 +++ b/src/docboy/docboy/debugger/backend.cpp
-@@ -321,6 +321,11 @@ const std::map<std::string, DebugSymbol>& DebuggerBackend::get_symbols_by_name()
+@@ -324,6 +324,11 @@ const std::vector<DebugSymbol>& DebuggerBackend::get_symbols() const {
  }
  
  void DebuggerBackend::notify_tick(uint64_t tick) {
@@ -14,7 +14,7 @@ index c654e00..396c4db 100644
      if (!frontend) {
          return;
      }
-@@ -842,4 +847,32 @@ uint32_t DebuggerBackend::state_hash() const {
+@@ -879,4 +884,36 @@ uint32_t DebuggerBackend::state_hash() const {
      h = hash_combine(h, memory_hash);
  
      return h;
@@ -46,14 +46,18 @@ index c654e00..396c4db 100644
 +    return core.gb.cpu.sp;
 +}
 +
++uint16_t DebuggerBackend::get_op_addr() const {
++    return core.gb.cpu.instruction.address;
++}
++
 +bool DebuggerBackend::get_ime() const {
 +    return core.gb.cpu.ime == Cpu::ImeState::Enabled;
 +}
 diff --git a/src/docboy/docboy/debugger/backend.h b/src/docboy/docboy/debugger/backend.h
-index eeec895..4e8a798 100644
+index 9a8d685..ce3e48f 100644
 --- a/src/docboy/docboy/debugger/backend.h
 +++ b/src/docboy/docboy/debugger/backend.h
-@@ -107,6 +107,19 @@ public:
+@@ -121,6 +121,20 @@ public:
  
      const Core& get_core() const;
  
@@ -68,12 +72,13 @@ index eeec895..4e8a798 100644
 +    uint16_t get_de() const;
 +    uint16_t get_hl() const;
 +    uint16_t get_sp() const;
++    uint16_t get_op_addr() const;
 +    bool get_ime() const;
 +
  private:
-     void clear();
+     static constexpr uint16_t MAX_BANKS = 512; // 8 MB
  
-@@ -155,6 +168,7 @@ private:
+@@ -182,6 +196,7 @@ private:
      uint32_t memory_hash {};
  
      std::function<void()> on_reset_callback {};

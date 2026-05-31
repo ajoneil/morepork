@@ -47,7 +47,7 @@ $(DOCBOY_DIR):
 
 # Apply trace API patch (tick callback + register getters)
 $(DOCBOY_DIR)/.patched: $(DOCBOY_DIR) docboy-trace-api.patch
-	cd $(DOCBOY_DIR) && git checkout -- . && git apply ../docboy-trace-api.patch
+	cd $(DOCBOY_DIR) && git checkout -- . && patch -p1 --fuzz=5 < ../docboy-trace-api.patch
 	touch $@
 
 # Build DocBoy as a static library via CMake (DMG)

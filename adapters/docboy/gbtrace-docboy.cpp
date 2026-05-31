@@ -93,7 +93,7 @@ static bool g_has_pix = false;
 
 static void build_emitters(const Profile &prof) {
     g_emitters.clear();
-    static const std::unordered_map<std::string, bool> REG16 = {{"pc", true}, {"sp", true}};
+    static const std::unordered_map<std::string, bool> REG16 = {{"pc", true}, {"op_addr", true}, {"sp", true}};
     static const std::unordered_map<std::string, bool> REG8 = {
         {"a", true}, {"f", true}, {"b", true}, {"c", true},
         {"d", true}, {"e", true}, {"h", true}, {"l", true},
@@ -175,7 +175,7 @@ static inline void append_pixel(std::string &out, uint16_t pixel) {
 // debugger accessor layer (matters at ~70K entries per frame).
 
 struct CpuSnapshot {
-    uint16_t af, bc, de, hl, sp, pc;
+    uint16_t af, bc, de, hl, sp, pc, op_addr;
     bool ime;
 };
 
@@ -188,6 +188,10 @@ static void snapshot_cpu() {
     g_cpu_snap.hl = g_debugger->get_hl();
     g_cpu_snap.sp = g_debugger->get_sp();
     g_cpu_snap.pc = g_debugger->get_core().gb.cpu.pc;
+    // Instruction address: the opcode of the in-flight instruction was
+    // fetched from here. Stable across the instruction's T-cycles, while pc
+    // advances through operand reads.
+    g_cpu_snap.op_addr = g_debugger->get_op_addr();
     g_cpu_snap.ime = g_debugger->get_ime();
 }
 
@@ -205,6 +209,7 @@ static inline uint8_t read_cpu_reg8(const std::string &name) {
 
 static inline uint16_t read_cpu_reg16(const std::string &name) {
     if (name == "pc") return g_cpu_snap.pc;
+    if (name == "op_addr") return g_cpu_snap.op_addr;
     if (name == "sp") return g_cpu_snap.sp;
     return 0;
 }
