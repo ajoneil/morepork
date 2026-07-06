@@ -69,7 +69,9 @@ impl<'de> Deserialize<'de> for BootRom {
     }
 }
 
-/// When trace entries are emitted.
+/// When trace entries are emitted. `Instruction`, `Scanline`, and `Frame`
+/// are family-universal; `Mcycle`/`Tcycle` are the GB clock vocabulary and
+/// `Cycle` is the plain CPU-cycle cadence of the 6502 families.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Trigger {
@@ -77,6 +79,7 @@ pub enum Trigger {
     Instruction,
     Mcycle,
     Tcycle,
+    Cycle,
     Scanline,
     Frame,
     Custom,

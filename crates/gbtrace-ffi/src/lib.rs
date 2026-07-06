@@ -85,6 +85,7 @@ pub unsafe extern "C" fn gbtrace_profile_load(path: *const c_char) -> *mut Gbtra
         gbtrace::header::Trigger::Instruction => "instruction",
         gbtrace::header::Trigger::Mcycle => "mcycle",
         gbtrace::header::Trigger::Tcycle => "tcycle",
+        gbtrace::header::Trigger::Cycle => "cycle",
         gbtrace::header::Trigger::Scanline => "scanline",
         gbtrace::header::Trigger::Frame => "frame",
         gbtrace::header::Trigger::Custom => "custom",

@@ -210,3 +210,38 @@ fn parse_every_suite_profile() {
     }
     assert!(parsed >= 10, "expected all suite profiles, parsed {parsed}");
 }
+
+#[test]
+fn nes_profile_and_flag_queries() {
+    let toml = r#"
+[profile]
+name = "nes-smoke"
+description = "NES CPU + PPU registers"
+trigger = "instruction"
+family = "nes"
+
+[fields]
+cpu = "registers"
+ppu = "registers"
+"#;
+    let p = Profile::parse(toml).unwrap();
+    assert_eq!(p.family, "nes");
+    assert_eq!(
+        p.fields,
+        ["pc", "a", "x", "y", "s", "p", "control", "mask", "line", "dot"]
+            .map(String::from)
+    );
+
+    // Flag vocabulary resolves against P, not the GB F register.
+    let nes = gbtrace::family::family("nes").unwrap();
+    let cond = gbtrace::query::parse_condition("flag n becomes set", nes).unwrap();
+    match cond {
+        gbtrace::query::Condition::BitTransition { field, bit, to } => {
+            assert_eq!((field.as_str(), bit, to), ("p", 7, true));
+        }
+        other => panic!("unexpected condition: {other:?}"),
+    }
+    // GB phrases are not in the NES vocabulary.
+    assert!(gbtrace::query::parse_condition("lcd on", nes).is_err());
+    assert!(gbtrace::query::parse_condition("flag h set", nes).is_err());
+}

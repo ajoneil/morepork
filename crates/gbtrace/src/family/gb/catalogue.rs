@@ -6,29 +6,7 @@
 
 use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
 
-macro_rules! field {
-    ($name:expr, u8) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: false, dictionary: false }
-    };
-    ($name:expr, u8, dict) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: false, dictionary: true }
-    };
-    ($name:expr, u16) => {
-        FieldDef { name: $name, field_type: FieldType::UInt16, nullable: false, dictionary: false }
-    };
-    ($name:expr, u16, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::UInt16, nullable: true, dictionary: false }
-    };
-    ($name:expr, u8, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: true, dictionary: false }
-    };
-    ($name:expr, bool) => {
-        FieldDef { name: $name, field_type: FieldType::Bool, nullable: false, dictionary: true }
-    };
-    ($name:expr, str, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::Str, nullable: true, dictionary: false }
-    };
-}
+use crate::family::field;
 
 
 

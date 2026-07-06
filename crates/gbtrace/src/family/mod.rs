@@ -11,6 +11,34 @@ use crate::profile::SubsystemDef;
 use crate::query::Condition;
 
 pub mod gb;
+pub mod nes;
+
+/// Field-catalogue construction shorthand shared by the family catalogues.
+macro_rules! field {
+    ($name:expr, u8) => {
+        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: false, dictionary: false }
+    };
+    ($name:expr, u8, dict) => {
+        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: false, dictionary: true }
+    };
+    ($name:expr, u16) => {
+        FieldDef { name: $name, field_type: FieldType::UInt16, nullable: false, dictionary: false }
+    };
+    ($name:expr, u16, nullable) => {
+        FieldDef { name: $name, field_type: FieldType::UInt16, nullable: true, dictionary: false }
+    };
+    ($name:expr, u8, nullable) => {
+        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: true, dictionary: false }
+    };
+    ($name:expr, bool) => {
+        FieldDef { name: $name, field_type: FieldType::Bool, nullable: false, dictionary: true }
+    };
+    ($name:expr, str, nullable) => {
+        FieldDef { name: $name, field_type: FieldType::Str, nullable: true, dictionary: false }
+    };
+}
+pub(crate) use field;
+
 
 /// A named CPU flag: which field holds it and at which bit. The first name
 /// is canonical (single letter); the rest are accepted aliases.
@@ -64,7 +92,7 @@ impl Family {
 
 /// Every registered family. GB first — it is also the fallback for traces
 /// whose headers predate the `family` field.
-pub static FAMILIES: &[&Family] = &[&gb::GB];
+pub static FAMILIES: &[&Family] = &[&gb::GB, &nes::NES];
 
 /// Look up a family by id.
 pub fn family(id: &str) -> Option<&'static Family> {

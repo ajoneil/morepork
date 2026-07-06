@@ -449,6 +449,7 @@ fn cmd_downsample(input: &PathBuf, output: Option<PathBuf>, target: &str, keep: 
         "instruction" => Trigger::Instruction,
         "mcycle" => Trigger::Mcycle,
         "tcycle" => Trigger::Tcycle,
+        "cycle" => Trigger::Cycle,
         "scanline" => Trigger::Scanline,
         "frame" => Trigger::Frame,
         "custom" => Trigger::Custom,
