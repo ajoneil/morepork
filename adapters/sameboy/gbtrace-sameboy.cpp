@@ -132,7 +132,6 @@ static bool g_stop_opcode_triggered = false;
 // --- FFI writer ---
 static GbtraceWriter *g_writer = nullptr;
 static std::vector<int> g_writer_cols;
-static int g_writer_ly_col = -1;
 
 // Pre-computed list of what to emit per entry.
 struct FieldEmitter {
@@ -274,17 +273,6 @@ static inline int read_reg(GB_gameboy_t *gb, RegisterField::Reg reg) {
 // --- Emit entry ---
 
 static void emit_entry(GB_gameboy_t *gb, uint16_t address) {
-    // Gather ly and pix_len for boundary check
-    uint8_t ly_val = 255;
-    size_t pix_len = 0;
-    if (g_writer_ly_col >= 0) {
-        ly_val = GB_safe_read_memory(gb, 0xFF44);
-    }
-    if (g_has_pix) {
-        pix_len = g_pending_pix.size();
-    }
-    gbtrace_writer_check_boundary(g_writer, ly_val, pix_len);
-
     // Set all field values
     for (size_t i = 0; i < g_emitters.size(); i++) {
         int col = g_writer_cols[i];
@@ -667,7 +655,6 @@ int main(int argc, char *argv[]) {
         g_writer_cols[i] = gbtrace_writer_find_field(
             g_writer, g_emitters[i].name.c_str());
     }
-    g_writer_ly_col = gbtrace_writer_find_field(g_writer, "ly");
 
     // Mark entry 0 as a frame boundary
     gbtrace_writer_mark_frame(g_writer);

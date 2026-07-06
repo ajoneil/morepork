@@ -131,7 +131,6 @@ static void build_emitters(const Profile &prof) {
 
 static GbtraceWriter *g_writer = nullptr;
 static std::vector<int> g_writer_cols;
-static int g_writer_ly_col = -1;
 static DebuggerBackend *g_debugger = nullptr;
 
 // Pixel capture
@@ -224,16 +223,6 @@ static uint64_t g_entry_count = 0;
 
 static void emit_entry() {
     snapshot_cpu();
-
-    uint8_t ly_val = 255;
-    size_t pix_len = 0;
-    if (g_writer_ly_col >= 0) {
-        ly_val = g_debugger->read_memory(0xFF44);
-    }
-    if (g_has_pix) {
-        pix_len = g_pending_pix.size();
-    }
-    gbtrace_writer_check_boundary(g_writer, ly_val, pix_len);
 
     for (size_t i = 0; i < g_emitters.size(); i++) {
         int col = g_writer_cols[i];
@@ -444,7 +433,6 @@ int main(int argc, char *argv[]) {
         g_writer_cols[i] = gbtrace_writer_find_field(
             g_writer, g_emitters[i].name.c_str());
     }
-    g_writer_ly_col = gbtrace_writer_find_field(g_writer, "ly");
 
     // Mark entry 0 as a frame boundary
     gbtrace_writer_mark_frame(g_writer);

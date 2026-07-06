@@ -272,17 +272,6 @@ pub unsafe extern "C" fn gbtrace_writer_field_type(
     }
 }
 
-/// Legacy boundary check — no-op in native format.
-/// Retained for C adapter compatibility.
-#[no_mangle]
-pub unsafe extern "C" fn gbtrace_writer_check_boundary(
-    _w: *mut GbtraceWriter,
-    _ly: u8,
-    _pix_len: usize,
-) -> i32 {
-    0
-}
-
 /// Set a u8 field value.
 #[no_mangle]
 pub unsafe extern "C" fn gbtrace_writer_set_u8(

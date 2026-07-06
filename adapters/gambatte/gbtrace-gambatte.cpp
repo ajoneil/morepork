@@ -117,7 +117,6 @@ static bool g_stop_opcode_triggered = false;
 // --- FFI writer ---
 static GbtraceWriter *g_writer = nullptr;
 static std::vector<int> g_writer_cols;
-static int g_writer_ly_col = -1;
 
 // --- Pixel capture ---
 // Gambatte fills video_buf as a 160x144 RGBA framebuffer during runFor().
@@ -245,22 +244,6 @@ static std::unordered_map<unsigned short, unsigned char> g_io_cache;
 static bool g_io_cache_valid = false;
 
 static void emit_entry(int *r) {
-    // Gather ly and pix_len for boundary check
-    uint8_t ly_val = 255;
-    size_t pix_len = 0;
-    if (g_writer_ly_col >= 0) {
-        if (g_io_cache_valid) {
-            auto it = g_io_cache.find(0xFF44);
-            if (it != g_io_cache.end()) ly_val = it->second;
-        } else {
-            ly_val = g_gb->externalRead(0xFF44);
-        }
-    }
-    if (g_has_pix) {
-        pix_len = g_pending_pix.size();
-    }
-    gbtrace_writer_check_boundary(g_writer, ly_val, pix_len);
-
     // Read current IO values (post-execution of this instruction)
     std::unordered_map<unsigned short, unsigned char> io_now;
     for (const auto &em : g_emitters) {
@@ -535,7 +518,6 @@ int main(int argc, char *argv[]) {
         g_writer_cols[i] = gbtrace_writer_find_field(
             g_writer, g_emitters[i].name.c_str());
     }
-    g_writer_ly_col = gbtrace_writer_find_field(g_writer, "ly");
 
     // Mark entry 0 as a frame boundary so the pre-vblank period is included
     gbtrace_writer_mark_frame(g_writer);

@@ -230,7 +230,6 @@ static int g_stop_opcode_triggered = 0;
 // --- FFI writer ---
 static GbtraceWriter *g_writer = NULL;
 static int g_writer_cols[MAX_FIELDS];
-static int g_writer_ly_col = -1;
 
 static int read_reg8(struct SM83Core *cpu, const char *name) {
     if (strcmp(name, "a") == 0) return cpu->a;
@@ -258,17 +257,6 @@ struct TraceModule {
 
 static void emit_entry(struct mCore *core) {
     struct SM83Core *cpu = core->cpu;
-
-    // Gather ly and pix_len for boundary check
-    uint8_t ly_val = 255;
-    size_t pix_len = 0;
-    if (g_writer_ly_col >= 0) {
-        ly_val = core->rawRead8(core, 0xFF44, -1);
-    }
-    if (g_has_pix) {
-        pix_len = strlen(g_pending_pix);
-    }
-    gbtrace_writer_check_boundary(g_writer, ly_val, pix_len);
 
     // Set all field values
     for (int i = 0; i < g_nemitters; i++) {
@@ -553,7 +541,6 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < g_nemitters; i++) {
         g_writer_cols[i] = gbtrace_writer_find_field(g_writer, g_emitters[i].name);
     }
-    g_writer_ly_col = gbtrace_writer_find_field(g_writer, "ly");
 
     /* Mark entry 0 as a frame boundary */
     gbtrace_writer_mark_frame(g_writer);

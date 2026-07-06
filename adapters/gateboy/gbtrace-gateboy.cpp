@@ -208,7 +208,6 @@ static bool g_has_vram = false;
 static GbtraceWriter *g_writer = nullptr;
 // Column indices into the writer, parallel to g_emitters
 static std::vector<int> g_writer_cols;
-static int g_writer_ly_col = -1;
 static int g_writer_vram_addr_col = -1;
 static int g_writer_vram_data_col = -1;
 
@@ -549,17 +548,6 @@ static StopCondition parse_stop_when(const std::string &spec) {
 static void emit_entry(GateBoy &gb) {
     const CpuState &reg = gb.cpu.core.reg;
 
-    // Gather ly and pix_len for boundary check
-    uint8_t ly_val = 255;
-    size_t pix_len = 0;
-    if (g_writer_ly_col >= 0) {
-        ly_val = (uint8_t)bit_pack(gb.gb_state.reg_ly);
-    }
-    if (g_has_pix) {
-        pix_len = g_pix_buf.size();
-    }
-    gbtrace_writer_check_boundary(g_writer, ly_val, pix_len);
-
     // Set all field values
     for (size_t i = 0; i < g_emitters.size(); i++) {
         int col = g_writer_cols[i];
@@ -809,7 +797,6 @@ int main(int argc, char *argv[]) {
             g_writer_cols[i] = gbtrace_writer_find_field(
                 g_writer, g_emitters[i].name.c_str());
         }
-        g_writer_ly_col = gbtrace_writer_find_field(g_writer, "ly");
         g_writer_vram_addr_col = gbtrace_writer_find_field(g_writer, "vram_addr");
         g_writer_vram_data_col = gbtrace_writer_find_field(g_writer, "vram_data");
         g_has_vram = (g_writer_vram_addr_col >= 0);

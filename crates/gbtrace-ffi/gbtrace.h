@@ -8,9 +8,8 @@
  *   3. Create a writer with gbtrace_writer_new()
  *   4. Look up field indices with gbtrace_writer_find_field()
  *   5. For each trace entry:
- *      a. Call gbtrace_writer_check_boundary() with ly and pix_len
- *      b. Call gbtrace_writer_set_* for each field
- *      c. Call gbtrace_writer_finish_entry()
+ *      a. Call gbtrace_writer_set_* for each field
+ *      b. Call gbtrace_writer_finish_entry()
  *   6. Call gbtrace_writer_close() to finalize
  *   7. Free the profile with gbtrace_profile_free()
  */
@@ -92,12 +91,6 @@ int gbtrace_writer_find_field(const GbtraceWriter *w, const char *name);
 /* Get the field type for a column index.
  * Returns GBTRACE_TYPE_* constant, or -1 if invalid. */
 int gbtrace_writer_field_type(const GbtraceWriter *w, size_t field);
-
-/* Check for frame boundary before writing an entry.
- * ly: current LY value (pass 255 if not applicable).
- * pix_len: length of pix string for this entry (pass 0 if none).
- * Returns 0 on success, -1 on error. */
-int gbtrace_writer_check_boundary(GbtraceWriter *w, uint8_t ly, size_t pix_len);
 
 /* Set field values. Call one per field per entry. */
 void gbtrace_writer_set_u8(GbtraceWriter *w, size_t field, uint8_t value);
