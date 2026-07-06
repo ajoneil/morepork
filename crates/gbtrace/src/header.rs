@@ -82,15 +82,19 @@ pub enum Trigger {
     Custom,
 }
 
-/// How the `pix` field encodes each pixel. DMG output is greyscale, so a 2-bit
-/// shade index per pixel suffices; CGB output is colour, so each pixel is a
-/// 15-bit RGB555 value written as 4 hex chars. Absent ⇒ `shade2` (back-compat).
+/// How pixel data is encoded. DMG output is greyscale, so a 2-bit shade
+/// index per pixel suffices; CGB output is colour, so each pixel is a
+/// 15-bit RGB555 value written as 4 hex chars. Absent ⇒ `shade2`
+/// (back-compat). `Indexed8` is the family-agnostic form: one palette
+/// index per pixel, with dimensions and the palette carried in each
+/// `frame` snapshot payload (`snapshot::IndexedFrame`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PixFormat {
     #[default]
     Shade2,
     Rgb555,
+    Indexed8,
 }
 
 /// Adapter-defined field with its type metadata, declared in the trace
@@ -170,6 +174,12 @@ pub struct TraceHeader {
     #[serde(default)]
     pub rom_sha256: String,
 
+    /// Console family this trace belongs to ("gb"). Absent (legacy traces)
+    /// ⇒ "gb". Distinct from `model`, which names the variant *within* the
+    /// family.
+    #[serde(default = "default_family")]
+    pub family: String,
+
     /// Hardware model identifier (e.g. "DMG-B", "CGB-E").
     #[serde(default = "default_model")]
     pub model: String,
@@ -236,6 +246,7 @@ pub struct TraceHeader {
 
 fn default_format_version() -> String { "1.0".to_string() }
 fn default_emulator() -> String { "unknown".to_string() }
+fn default_family() -> String { "gb".to_string() }
 fn default_model() -> String { "DMG".to_string() }
 
 impl TraceHeader {
@@ -263,6 +274,13 @@ impl TraceHeader {
     /// This header's declaration for a field, when self-describing.
     pub fn field_def(&self, name: &str) -> Option<&HeaderFieldDef> {
         self.field_defs.iter().find(|d| d.name == name)
+    }
+
+    /// The family this trace belongs to. Unknown or empty ids resolve to
+    /// GB — every trace written before the `family` field existed is a GB
+    /// trace, and an unknown id still gets working generic tooling.
+    pub fn family_def(&self) -> &'static crate::family::Family {
+        crate::family::family(&self.family).unwrap_or(&crate::family::gb::GB)
     }
 
     /// Resolve a field's type — `field_defs` when the trace is
@@ -308,6 +326,11 @@ impl TraceHeader {
     /// calls this, so every new trace is self-describing regardless of
     /// which producer (FFI adapter, missingno, `convert`) built the header.
     pub fn ensure_self_describing(&mut self) {
+        if self.family.is_empty() {
+            // Struct-literal construction with `..Default::default()`
+            // yields "" (the derive ignores serde defaults).
+            self.family = default_family();
+        }
         if self.field_defs.is_empty() {
             self.field_defs = self
                 .fields

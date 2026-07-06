@@ -24,6 +24,9 @@ fn pix_stride(format: PixFormat) -> usize {
     match format {
         PixFormat::Shade2 => 1,
         PixFormat::Rgb555 => 4,
+        // GB traces never use Indexed8 (it is the non-GB frame-snapshot
+        // path); inert value so a mislabelled trace degrades gracefully.
+        PixFormat::Indexed8 => 1,
     }
 }
 
@@ -51,6 +54,8 @@ fn for_each_pix<F: FnMut(u16)>(s: &str, format: PixFormat, mut f: F) {
                 i += 4;
             }
         }
+        // GB traces never use Indexed8; emit nothing.
+        PixFormat::Indexed8 => {}
     }
 }
 
@@ -73,6 +78,9 @@ pub fn pix_to_rgb(value: u16, format: PixFormat) -> (u8, u8, u8) {
             let b5 = (value & 0x1F) as u8;
             ((r5 << 3) | (r5 >> 2), (g5 << 3) | (g5 >> 2), (b5 << 3) | (b5 >> 2))
         }
+        // GB traces never use Indexed8; resolving indices needs the frame
+        // snapshot's palette, which this GB replay path doesn't carry.
+        PixFormat::Indexed8 => (0, 0, 0),
     }
 }
 

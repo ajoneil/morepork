@@ -720,36 +720,35 @@ fn align_by_condition(
     Ok(())
 }
 
-/// Cartridge ROM header entry point: the post-boot CPU is poised to fetch
-/// the first cartridge instruction here. Conventionally a NOP, with JP nn
-/// at 0x0101.
-const CARTRIDGE_ENTRY: u16 = 0x0100;
-/// One byte past `CARTRIDGE_ENTRY`. Aligning here skips the post-boot
-/// WriteOp tail and the entry NOP, where adapters land at different
-/// M-cycle sub-phases (see `missingno-gb`'s `Cpu::new` comment about the
-/// in-flight `LDH (FF50), A` residual).
-const CARTRIDGE_AFTER_NOP: u16 = 0x0101;
-
-/// Advance both maps to the first `CARTRIDGE_AFTER_NOP` entry, but only if
-/// both traces start at `CARTRIDGE_ENTRY`. Returns `true` when alignment
-/// was applied. Used by `auto` and `cartridge` sync modes.
+/// Advance both maps to the first entry at the family's second entry-point
+/// address, but only if both traces start at the family's entry point
+/// (GB: cartridge entry 0x0100, conventionally NOP, with JP nn at 0x0101 —
+/// aligning past the entry NOP skips the post-boot WriteOp tail, where
+/// adapters land at different M-cycle sub-phases; see `missingno-gb`'s
+/// `Cpu::new` comment about the in-flight `LDH (FF50), A` residual).
+/// Returns `true` when alignment was applied. Used by `auto` and
+/// `cartridge` sync modes.
 fn try_align_cartridge_entry(
     store_a: &dyn TraceStore,
     store_b: &dyn TraceStore,
     map_a: &mut Vec<usize>,
     map_b: &mut Vec<usize>,
 ) -> bool {
+    let (entry, after_entry) = match store_a.header().family_def().entry_addrs {
+        Some(addrs) => addrs,
+        None => return false,
+    };
     let pc_col_a = match store_a.addr_col() { Some(c) => c, None => return false };
     let pc_col_b = match store_b.addr_col() { Some(c) => c, None => return false };
     if map_a.is_empty() || map_b.is_empty() { return false; }
 
     let pc_a0 = store_a.get_numeric(pc_col_a, map_a[0]) as u16;
     let pc_b0 = store_b.get_numeric(pc_col_b, map_b[0]) as u16;
-    if pc_a0 != CARTRIDGE_ENTRY || pc_b0 != CARTRIDGE_ENTRY { return false; }
+    if pc_a0 != entry || pc_b0 != entry { return false; }
 
     match (
-        find_pc_position(store_a, pc_col_a, map_a, CARTRIDGE_AFTER_NOP),
-        find_pc_position(store_b, pc_col_b, map_b, CARTRIDGE_AFTER_NOP),
+        find_pc_position(store_a, pc_col_a, map_a, after_entry),
+        find_pc_position(store_b, pc_col_b, map_b, after_entry),
     ) {
         (Some(a), Some(b)) => {
             map_a.drain(..a);

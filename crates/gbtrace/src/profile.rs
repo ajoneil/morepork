@@ -67,7 +67,7 @@ pub struct SubsystemDef {
 
 impl SubsystemDef {
     /// Get all fields for the given layers.
-    fn fields_for_layers(&self, layers: &[Layer]) -> Vec<&'static FieldDef> {
+    pub(crate) fn fields_for_layers(&self, layers: &[Layer]) -> Vec<&'static FieldDef> {
         self.layers
             .iter()
             .filter(|(l, _)| layers.contains(l))
@@ -76,7 +76,7 @@ impl SubsystemDef {
     }
 
     /// Get all fields across all layers.
-    fn all_fields(&self) -> Vec<&'static FieldDef> {
+    pub(crate) fn all_fields(&self) -> Vec<&'static FieldDef> {
         self.layers
             .iter()
             .flat_map(|(_, fields)| fields.iter())
@@ -84,234 +84,32 @@ impl SubsystemDef {
     }
 
     /// Get the available layer names for this subsystem.
-    fn available_layers(&self) -> Vec<Layer> {
+    pub(crate) fn available_layers(&self) -> Vec<Layer> {
         self.layers.iter().map(|(l, _)| *l).collect()
     }
 }
 
 // ---------------------------------------------------------------------------
-// Field definitions — Game Boy hardware
+// Field lookup helpers — the legacy fallback
 // ---------------------------------------------------------------------------
+//
+// These consult the Game Boy catalogue only. They exist for traces whose
+// headers predate `field_defs` — every such trace is a GB trace, so this
+// fallback is permanently GB and deliberately not family-parameterised.
+// New code with a header in hand should use `TraceHeader::resolve_*`.
 
-macro_rules! field {
-    ($name:expr, u8) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: false, dictionary: false }
-    };
-    ($name:expr, u8, dict) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: false, dictionary: true }
-    };
-    ($name:expr, u16) => {
-        FieldDef { name: $name, field_type: FieldType::UInt16, nullable: false, dictionary: false }
-    };
-    ($name:expr, u16, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::UInt16, nullable: true, dictionary: false }
-    };
-    ($name:expr, u8, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: true, dictionary: false }
-    };
-    ($name:expr, bool) => {
-        FieldDef { name: $name, field_type: FieldType::Bool, nullable: false, dictionary: true }
-    };
-    ($name:expr, str, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::Str, nullable: true, dictionary: false }
-    };
-}
-
-pub static CPU: SubsystemDef = SubsystemDef {
-    name: "cpu",
-    layers: &[
-        (Layer::Registers, &[
-            field!("pc", u16),
-            field!("op_addr", u16),
-            field!("sp", u16),
-            field!("a", u8),
-            field!("f", u8, dict),
-            field!("b", u8),
-            field!("c", u8),
-            field!("d", u8),
-            field!("e", u8),
-            field!("h", u8),
-            field!("l", u8),
-            field!("ime", bool),
-            field!("op_state", u8),
-            field!("mcycle_phase", u8),
-            field!("halted", bool),
-        ]),
-        (Layer::Internal, &[
-            field!("bus_addr", u16),
-        ]),
-        (Layer::Timing, &[
-            field!("mcycles", u8),
-            field!("tcycles", u8),
-        ]),
-    ],
-};
-
-pub static PPU: SubsystemDef = SubsystemDef {
-    name: "ppu",
-    layers: &[
-        (Layer::Registers, &[
-            field!("lcdc", u8, dict),
-            field!("stat", u8, dict),
-            field!("ly", u8),
-            field!("lyc", u8),
-            field!("scy", u8),
-            field!("scx", u8),
-            field!("wy", u8),
-            field!("wx", u8),
-            field!("bgp", u8, dict),
-            field!("obp0", u8, dict),
-            field!("obp1", u8, dict),
-            field!("dma", u8),
-        ]),
-        (Layer::Internal, &[
-            // sprite store (10 sprites × 3 fields)
-            field!("oam0_x", u8), field!("oam0_id", u8), field!("oam0_attr", u8),
-            field!("oam1_x", u8), field!("oam1_id", u8), field!("oam1_attr", u8),
-            field!("oam2_x", u8), field!("oam2_id", u8), field!("oam2_attr", u8),
-            field!("oam3_x", u8), field!("oam3_id", u8), field!("oam3_attr", u8),
-            field!("oam4_x", u8), field!("oam4_id", u8), field!("oam4_attr", u8),
-            field!("oam5_x", u8), field!("oam5_id", u8), field!("oam5_attr", u8),
-            field!("oam6_x", u8), field!("oam6_id", u8), field!("oam6_attr", u8),
-            field!("oam7_x", u8), field!("oam7_id", u8), field!("oam7_attr", u8),
-            field!("oam8_x", u8), field!("oam8_id", u8), field!("oam8_attr", u8),
-            field!("oam9_x", u8), field!("oam9_id", u8), field!("oam9_attr", u8),
-            // pixel FIFO
-            field!("bgw_fifo_a", u8), field!("bgw_fifo_b", u8),
-            field!("spr_fifo_a", u8), field!("spr_fifo_b", u8),
-            field!("mask_pipe", u8), field!("pal_pipe", u8),
-            // fetcher
-            field!("tfetch_state", u8, dict), field!("sfetch_state", u8, dict),
-            field!("tile_temp_a", u8), field!("tile_temp_b", u8),
-            // counters/flags
-            field!("pix_count", u8), field!("sprite_count", u8), field!("scan_count", u8),
-            field!("rendering", bool), field!("win_mode", bool),
-        ]),
-        (Layer::Writes, &[
-            field!("vram_addr", u16, nullable),
-            field!("vram_data", u8, nullable),
-        ]),
-        (Layer::Output, &[
-            field!("pix", str, nullable),
-            field!("pix_x", u8),
-        ]),
-    ],
-};
-
-pub static APU: SubsystemDef = SubsystemDef {
-    name: "apu",
-    layers: &[
-        (Layer::Registers, &[
-            // Channel 1 — square with sweep
-            field!("ch1_sweep", u8), field!("ch1_duty_len", u8), field!("ch1_vol_env", u8),
-            field!("ch1_freq_lo", u8), field!("ch1_freq_hi", u8),
-            // Channel 2 — square
-            field!("ch2_duty_len", u8), field!("ch2_vol_env", u8),
-            field!("ch2_freq_lo", u8), field!("ch2_freq_hi", u8),
-            // Channel 3 — wave
-            field!("ch3_dac", u8), field!("ch3_len", u8), field!("ch3_vol", u8),
-            field!("ch3_freq_lo", u8), field!("ch3_freq_hi", u8),
-            // Channel 4 — noise
-            field!("ch4_len", u8), field!("ch4_vol_env", u8),
-            field!("ch4_freq", u8), field!("ch4_control", u8),
-            // Control
-            field!("master_vol", u8), field!("sound_pan", u8), field!("sound_on", u8),
-        ]),
-        (Layer::Internal, &[
-            // Channel 1 — square with sweep
-            field!("ch1_active", bool),
-            field!("ch1_freq_cnt", u16),
-            field!("ch1_env_vol", u8),
-            field!("ch1_phase", u8),
-            field!("ch1_sweep_shadow", u16),
-            field!("ch1_len_cnt", u8),
-            // Channel 2 — square
-            field!("ch2_active", bool),
-            field!("ch2_freq_cnt", u16),
-            field!("ch2_env_vol", u8),
-            field!("ch2_phase", u8),
-            field!("ch2_len_cnt", u8),
-            // Channel 3 — wave
-            field!("ch3_active", bool),
-            field!("ch3_freq_cnt", u16),
-            field!("ch3_wave_idx", u8),
-            field!("ch3_sample", u8),
-            field!("ch3_len_cnt", u8),
-            // Channel 4 — noise
-            field!("ch4_active", bool),
-            field!("ch4_freq_cnt", u16),
-            field!("ch4_env_vol", u8),
-            field!("ch4_lfsr", u16),
-            field!("ch4_len_cnt", u8),
-        ]),
-        (Layer::Writes, &[
-            field!("apu_write_addr", u16, nullable),
-            field!("apu_write_data", u8, nullable),
-        ]),
-    ],
-};
-
-pub static TIMER: SubsystemDef = SubsystemDef {
-    name: "timer",
-    layers: &[
-        (Layer::Registers, &[
-            field!("div", u8),
-            field!("tima", u8),
-            field!("tma", u8),
-            field!("tac", u8, dict),
-        ]),
-    ],
-};
-
-pub static INTERRUPT: SubsystemDef = SubsystemDef {
-    name: "interrupt",
-    layers: &[
-        (Layer::Registers, &[
-            field!("if_", u8),
-            field!("ie", u8),
-        ]),
-        // CPU interrupt-dispatch DFFs from PPU spec §13.2. Names are the
-        // spec's semantic handles. `dispatch_trigger` (combinational
-        // pulse) and `ime_pending` (EI delay SR latch) are deferred —
-        // their value is sub-M-cycle and adapters' modeling differs.
-        (Layer::Internal, &[
-            field!("irq_pending", bool),
-            field!("dispatch_active", bool),
-            field!("irq_latched", bool),
-        ]),
-    ],
-};
-
-pub static SERIAL: SubsystemDef = SubsystemDef {
-    name: "serial",
-    layers: &[
-        (Layer::Registers, &[
-            field!("sb", u8),
-            field!("sc", u8),
-        ]),
-    ],
-};
-
-/// All subsystems in field order.
-pub static ALL_SUBSYSTEMS: &[&SubsystemDef] = &[
-    &CPU, &PPU, &APU, &TIMER, &INTERRUPT, &SERIAL,
-];
-
-// ---------------------------------------------------------------------------
-// Field lookup helpers
-// ---------------------------------------------------------------------------
-
-/// Look up a field definition by name across all subsystems.
+/// Look up a field definition by name across the GB subsystems.
 pub fn lookup_field(name: &str) -> Option<&'static FieldDef> {
-    ALL_SUBSYSTEMS.iter()
+    crate::family::gb::catalogue::SUBSYSTEMS
+        .iter()
         .flat_map(|s| s.all_fields())
         .find(|f| f.name == name)
 }
 
-/// Look up which subsystem and layer a field belongs to.
+/// Look up which GB subsystem and layer a field belongs to.
 /// Returns (subsystem_name, layer_name) or None for unknown/memory fields.
 pub fn field_group(name: &str) -> Option<(&'static str, &'static str)> {
-    for subsystem in ALL_SUBSYSTEMS {
+    for subsystem in crate::family::gb::catalogue::SUBSYSTEMS {
         for (layer, fields) in subsystem.layers {
             if fields.iter().any(|f| f.name == name) {
                 let layer_name = match layer {
@@ -375,6 +173,8 @@ pub fn is_known_field(name: &str) -> bool {
 pub struct Profile {
     pub name: String,
     pub description: String,
+    /// Console family the profile targets ("gb" when the TOML omits it).
+    pub family: String,
     pub trigger: Trigger,
     /// Flattened, ordered list of field names to capture.
     pub fields: Vec<String>,
@@ -405,6 +205,9 @@ struct ProfileMeta {
     name: String,
     description: String,
     trigger: Trigger,
+    /// Console family this profile targets. Absent ⇒ "gb".
+    #[serde(default)]
+    family: Option<String>,
 }
 
 /// Subsystem layer selection in TOML.
@@ -423,18 +226,6 @@ enum LayerSelection {
 
 #[derive(Deserialize, Default)]
 struct FieldGroupsToml {
-    #[serde(default)]
-    cpu: Option<LayerSelection>,
-    #[serde(default)]
-    ppu: Option<LayerSelection>,
-    #[serde(default)]
-    apu: Option<LayerSelection>,
-    #[serde(default)]
-    timer: Option<LayerSelection>,
-    #[serde(default)]
-    interrupt: Option<LayerSelection>,
-    #[serde(default)]
-    serial: Option<LayerSelection>,
     /// Arbitrary memory reads: name = "hex_address"
     #[serde(default)]
     memory: BTreeMap<String, String>,
@@ -444,6 +235,10 @@ struct FieldGroupsToml {
     /// Each adapter resolves its own list at trace-creation time.
     #[serde(default)]
     extensions: BTreeMap<String, Vec<String>>,
+    /// Every other key is a subsystem layer selection, validated against
+    /// the profile's family catalogue.
+    #[serde(flatten)]
+    subsystems: BTreeMap<String, LayerSelection>,
 }
 
 fn parse_hex_addr(s: &str) -> std::result::Result<u16, String> {
@@ -506,20 +301,33 @@ impl Profile {
     pub fn parse(toml_str: &str) -> Result<Self> {
         let raw: ProfileToml = toml::from_str(toml_str)?;
 
+        let family_id = raw.profile.family.as_deref().unwrap_or("gb");
+        let family = crate::family::family(family_id).ok_or_else(|| {
+            let known: Vec<&str> = crate::family::FAMILIES.iter().map(|f| f.id).collect();
+            Error::Profile(format!(
+                "unknown family '{family_id}': expected one of {}",
+                known.join(", ")
+            ))
+        })?;
+
+        // Reject subsystem keys the family doesn't have (previously a typo'd
+        // key was silently ignored).
+        for key in raw.fields.subsystems.keys() {
+            if !family.subsystems.iter().any(|s| s.name == key) {
+                let known: Vec<&str> = family.subsystems.iter().map(|s| s.name).collect();
+                return Err(Error::Profile(format!(
+                    "unknown subsystem '{key}' for family '{}': expected one of {}",
+                    family.id,
+                    known.join(", ")
+                )));
+            }
+        }
+
+        // Resolve each subsystem's layer selection into fields, in the
+        // family's catalogue order (not TOML key order).
         let mut fields = Vec::new();
-
-        // Resolve each subsystem's layer selection into fields.
-        let subsystem_selections: &[(&SubsystemDef, &Option<LayerSelection>)] = &[
-            (&CPU, &raw.fields.cpu),
-            (&PPU, &raw.fields.ppu),
-            (&APU, &raw.fields.apu),
-            (&TIMER, &raw.fields.timer),
-            (&INTERRUPT, &raw.fields.interrupt),
-            (&SERIAL, &raw.fields.serial),
-        ];
-
-        for (subsystem, selection) in subsystem_selections {
-            if let Some(sel) = selection {
+        for subsystem in family.subsystems {
+            if let Some(sel) = raw.fields.subsystems.get(subsystem.name) {
                 let layers = resolve_layers(sel, subsystem)
                     .map_err(Error::Profile)?;
                 for field_def in subsystem.fields_for_layers(&layers) {
@@ -537,7 +345,7 @@ impl Profile {
         // Parse memory address fields
         let mut memory = BTreeMap::new();
         for (name, addr_str) in &raw.fields.memory {
-            if fields.contains(name) || is_known_field(name) {
+            if fields.contains(name) || family.lookup_field(name).is_some() {
                 return Err(Error::Profile(format!(
                     "memory field '{name}' conflicts with a built-in field"
                 )));
@@ -554,7 +362,7 @@ impl Profile {
         // shadow built-ins or memory entries.
         for (adapter, ext_fields) in &raw.fields.extensions {
             for name in ext_fields {
-                if is_known_field(name) {
+                if family.lookup_field(name).is_some() {
                     return Err(Error::Profile(format!(
                         "extensions.{adapter}: '{name}' shadows a built-in field"
                     )));
@@ -570,6 +378,7 @@ impl Profile {
         Ok(Profile {
             name: raw.profile.name,
             description: raw.profile.description,
+            family: family.id.to_string(),
             trigger: raw.profile.trigger,
             fields,
             memory,

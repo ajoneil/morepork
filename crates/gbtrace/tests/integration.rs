@@ -144,3 +144,69 @@ fn header_validation() {
     };
     assert!(h.validate().is_ok());
 }
+
+#[test]
+fn profile_family_defaults_to_gb() {
+    let toml = r#"
+[profile]
+name = "t"
+description = "t"
+trigger = "instruction"
+
+[fields]
+cpu = "registers"
+"#;
+    let p = Profile::parse(toml).unwrap();
+    assert_eq!(p.family, "gb");
+    assert!(p.fields.contains(&"pc".to_string()));
+}
+
+#[test]
+fn profile_rejects_unknown_family() {
+    let toml = r#"
+[profile]
+name = "t"
+description = "t"
+trigger = "instruction"
+family = "n64"
+
+[fields]
+cpu = "registers"
+"#;
+    let err = Profile::parse(toml).unwrap_err().to_string();
+    assert!(err.contains("unknown family 'n64'"), "{err}");
+}
+
+#[test]
+fn profile_rejects_unknown_subsystem() {
+    let toml = r#"
+[profile]
+name = "t"
+description = "t"
+trigger = "instruction"
+
+[fields]
+vdp = "registers"
+"#;
+    let err = Profile::parse(toml).unwrap_err().to_string();
+    assert!(err.contains("unknown subsystem 'vdp'"), "{err}");
+}
+
+#[test]
+fn parse_every_suite_profile() {
+    let suites_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()
+        .parent().unwrap()
+        .join("test-suites");
+    let mut parsed = 0;
+    for entry in std::fs::read_dir(&suites_dir).unwrap() {
+        let profile_path = entry.unwrap().path().join("profile.toml");
+        if profile_path.exists() {
+            let p = Profile::load(&profile_path)
+                .unwrap_or_else(|e| panic!("{}: {e}", profile_path.display()));
+            assert_eq!(p.family, "gb", "{}", profile_path.display());
+            parsed += 1;
+        }
+    }
+    assert!(parsed >= 10, "expected all suite profiles, parsed {parsed}");
+}

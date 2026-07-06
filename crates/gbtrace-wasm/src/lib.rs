@@ -1,5 +1,4 @@
-use gbtrace::disasm;
-use gbtrace::framebuffer;
+use gbtrace::family::gb::framebuffer;
 use gbtrace::profile::FieldType;
 use wasm_bindgen::prelude::*;
 
@@ -33,7 +32,7 @@ pub struct TraceStore {
     /// When set, all accessors use this mapping transparently.
     downsample_map: Option<Vec<usize>>,
     /// Cached VRAM reconstruction state (built lazily on first access).
-    vram_cache: Option<gbtrace::vram::VramCache>,
+    vram_cache: Option<gbtrace::family::gb::vram::VramCache>,
 }
 
 #[wasm_bindgen]
@@ -185,7 +184,7 @@ impl TraceStore {
             field: &'static str,
             bit: u8,
         }
-        let flags: Vec<JsFlag> = gbtrace::query::flag_defs()
+        let flags: Vec<JsFlag> = self.store.header().family_def().flags
             .iter()
             .map(|d| JsFlag { name: d.names[0], field: d.field, bit: d.bit })
             .collect();
@@ -254,6 +253,7 @@ impl TraceStore {
         match self.store.header().pix_format {
             gbtrace::PixFormat::Rgb555 => "rgb555".to_string(),
             gbtrace::PixFormat::Shade2 => "shade2".to_string(),
+            gbtrace::PixFormat::Indexed8 => "indexed8".to_string(),
         }
     }
 
@@ -305,9 +305,12 @@ impl TraceStore {
                         None
                     }
                 }
+                // Indexed8 frames come from `frame` snapshots, not the GB
+                // per-entry pix stream.
+                gbtrace::PixFormat::Indexed8 => None,
             };
             if let Some(v) = value {
-                let (r, g, b) = gbtrace::framebuffer::pix_to_rgb(v, format);
+                let (r, g, b) = framebuffer::pix_to_rgb(v, format);
                 result[i - start] =
                     0xFF00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
             }
@@ -536,7 +539,10 @@ impl TraceStore {
     /// Disassemble the instruction at the given PC.
     pub fn disassemble(&self, pc: u16) -> String {
         match &self.rom {
-            Some(rom) => disasm::disassemble(rom, pc).0,
+            Some(rom) => match self.store.header().family_def().disassemble {
+                Some(disassemble) => disassemble(rom, pc).0,
+                None => String::new(),
+            },
             None => String::new(),
         }
     }
@@ -548,6 +554,10 @@ impl TraceStore {
             Some(r) => r,
             None => return Ok(to_js(&Vec::<String>::new())?),
         };
+        let disassemble = match self.store.header().family_def().disassemble {
+            Some(f) => f,
+            None => return Ok(to_js(&Vec::<String>::new())?),
+        };
         let end = (start + count).min(self.entry_count());
         let addr_col = self.store.addr_col();
         let mnemonics: Vec<String> = (start..end)
@@ -557,7 +567,7 @@ impl TraceStore {
                 let addr = addr_col
                     .map(|col| self.store.get_numeric(col, row))
                     .unwrap_or(0) as u16;
-                disasm::disassemble(rom, addr).0
+                disassemble(rom, addr).0
             })
             .collect();
         Ok(to_js(&mnemonics)?)
@@ -575,7 +585,7 @@ impl TraceStore {
     #[wasm_bindgen(js_name = buildVramCache)]
     pub fn build_vram_cache(&mut self) {
         if self.vram_cache.is_none() {
-            self.vram_cache = gbtrace::vram::VramCache::build(&*self.store);
+            self.vram_cache = gbtrace::family::gb::vram::VramCache::build(&*self.store);
         }
     }
 
@@ -590,7 +600,7 @@ impl TraceStore {
             (0xe0, 0xf8, 0xd0), (0x88, 0xc0, 0x70),
             (0x34, 0x68, 0x56), (0x08, 0x18, 0x20),
         ];
-        let rgba = gbtrace::vram::render_tile_sheet(&snap.data, &PALETTE);
+        let rgba = gbtrace::family::gb::vram::render_tile_sheet(&snap.data, &PALETTE);
         Ok(js_sys::Uint8ClampedArray::from(&rgba[..]).into())
     }
 
@@ -620,7 +630,7 @@ impl TraceStore {
             (0xe0, 0xf8, 0xd0), (0x88, 0xc0, 0x70),
             (0x34, 0x68, 0x56), (0x08, 0x18, 0x20),
         ];
-        let rgba = gbtrace::vram::render_tilemap(&snap.data, tilemap_base, signed_addressing, &PALETTE);
+        let rgba = gbtrace::family::gb::vram::render_tilemap(&snap.data, tilemap_base, signed_addressing, &PALETTE);
         Ok(js_sys::Uint8ClampedArray::from(&rgba[..]).into())
     }
 
@@ -648,7 +658,7 @@ impl TraceStore {
     /// Entry count respecting downsampling.
     /// Reconstruct VRAM at an entry, handling borrow splitting between
     /// the mutable cache and immutable store.
-    fn vram_at(&mut self, entry: usize) -> Option<gbtrace::vram::VramSnapshot> {
+    fn vram_at(&mut self, entry: usize) -> Option<gbtrace::family::gb::vram::VramSnapshot> {
         self.build_vram_cache();
         let entry = self.map_row(entry);
         // Split borrows: take cache out, use store, put cache back

@@ -157,6 +157,7 @@ fn cmd_info(path: &PathBuf) -> i32 {
     println!("File:      {}", path.display());
     println!("Emulator:  {}", h.emulator);
     println!("Version:   {}", h.emulator_version);
+    println!("Family:    {}", h.family_def().id);
     println!("Model:     {}", h.model);
     println!("Profile:   {}", h.profile);
     println!("Trigger:   {:?}", h.trigger);
@@ -231,7 +232,12 @@ fn cmd_render(path: &PathBuf, output_dir: Option<PathBuf>, frame_filter: Option<
         }
     };
 
-    let frames = gbtrace::framebuffer::reconstruct_frames(store.as_ref());
+    let family = store.header().family_def();
+    if family.id != "gb" {
+        eprintln!("Error: frame rendering is not implemented for family '{}'", family.id);
+        return 1;
+    }
+    let frames = gbtrace::family::gb::framebuffer::reconstruct_frames(store.as_ref());
     if frames.is_empty() {
         eprintln!("No frames with pixel data found (trace needs a 'pix' field)");
         return 1;
@@ -460,7 +466,7 @@ fn cmd_downsample(input: &PathBuf, output: Option<PathBuf>, target: &str, keep: 
         EveryNth(usize),
     }
     let filter = if let Some(cond_str) = keep {
-        match gbtrace::query::parse_condition(cond_str) {
+        match gbtrace::query::parse_condition(cond_str, store.header().family_def()) {
             Ok(c) => Filter::Condition(c),
             Err(e) => { eprintln!("Error: bad --keep condition: {e}"); return 1; }
         }
@@ -475,7 +481,7 @@ fn cmd_downsample(input: &PathBuf, output: Option<PathBuf>, target: &str, keep: 
                 // T-cycle of an M-cycle — picking it gives one entry per M-cycle
                 // at the "after previous M-cycle's commits" sample point, which
                 // is the natural alignment for an M-cycle-cadence trace.
-                match gbtrace::query::parse_condition("mcycle_phase=0x0e") {
+                match gbtrace::query::parse_condition("mcycle_phase=0x0e", store.header().family_def()) {
                     Ok(c) => Filter::Condition(c),
                     Err(e) => { eprintln!("Error: internal default condition failed: {e}"); return 1; }
                 }
