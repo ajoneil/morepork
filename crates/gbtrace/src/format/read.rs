@@ -454,6 +454,11 @@ pub fn derive_groups_pub(fields: &[String]) -> Vec<FieldGroup> {
     derive_groups(fields)
 }
 
+/// WIRE-FROZEN: traces written before headers recorded `field_groups` carry
+/// no grouping, and their chunk layout is exactly what this function
+/// produced at write time. Readers reconstruct it from here, so any change
+/// silently corrupts every legacy trace. Extend grouping via the header's
+/// `field_groups`, never by editing this.
 fn derive_groups(fields: &[String]) -> Vec<FieldGroup> {
     let cpu_fields: Vec<String> = fields.iter()
         .filter(|f| matches!(f.as_str(), "pc"|"op_addr"|"sp"|"a"|"f"|"b"|"c"|"d"|"e"|"h"|"l"|"op"|"ime"|"op_state"|"mcycle_phase"|"halted"|"bus_addr"))

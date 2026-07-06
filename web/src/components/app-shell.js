@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'lit';
 // prepareForDiffSync removed — downsampling is now a transparent view on the store
+import { setFieldMeta } from '../lib/format.js';
 import './file-loader.js';
 import { humanizeTestName } from './test-picker.js';
 import './test-picker.js';
@@ -574,9 +575,22 @@ export class AppShell extends LitElement {
     this._frameBoundariesB = [];
     this._viewStart = 0;
     this._viewEnd = store.entryCount();
-    // Default: show only CPU fields. User opts into other groups.
-    const cpuFields = new Set(['pc', 'sp', 'a', 'f', 'b', 'c', 'd', 'e', 'h', 'l']);
+    // Install this trace's display metadata (16-bit widths, flag fields).
+    try { setFieldMeta(store.fieldDefs(), store.flagDefs()); } catch { /* legacy wasm */ }
+    // Default: show only CPU register fields; the user opts into other
+    // groups. The curated Game Boy set applies when the trace has those
+    // fields; otherwise (another system's trace) the header's field defs
+    // say which fields are CPU registers.
     const fields = this._allFields;
+    let cpuFields = new Set(['pc', 'sp', 'a', 'f', 'b', 'c', 'd', 'e', 'h', 'l']);
+    if (!fields.some((f) => cpuFields.has(f))) {
+      try {
+        cpuFields = new Set(
+          store.fieldDefs()
+            .filter((d) => d.subsystem === 'cpu' && d.layer === 'registers')
+            .map((d) => d.name));
+      } catch { /* legacy wasm: keep the GB set */ }
+    }
     const h = new Set();
     for (const f of fields) {
       if (!cpuFields.has(f)) h.add(f);

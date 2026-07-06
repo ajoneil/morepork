@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import { displayVal, normalizeInput } from '../lib/format.js';
+import { displayVal, normalizeInput, flagChips } from '../lib/format.js';
 
 const SEMANTIC_CONDITIONS = [
   // PPU
@@ -20,12 +20,7 @@ const SEMANTIC_CONDITIONS = [
 ];
 
 // Flag chips cycle: off -> becomes set -> becomes clear -> off
-const FLAG_CHIPS = [
-  { name: 'Z', flag: 'z' },
-  { name: 'N', flag: 'n' },
-  { name: 'H', flag: 'h' },
-  { name: 'C', flag: 'c' },
-];
+// (vocabulary comes from the loaded trace's flag metadata)
 const FLAG_MODES = [null, 'set', 'clear'];  // cycle order
 
 export class TraceQuery extends LitElement {
@@ -284,7 +279,7 @@ export class TraceQuery extends LitElement {
         `)}
         ${(this.fields || []).includes('f') ? html`
           <span class="section-label" style="margin-left:6px">Flags</span>
-          ${FLAG_CHIPS.map(fc => {
+          ${flagChips().map(fc => {
             const mode = this._flagModes[fc.flag] || null;
             const label = mode ? `${fc.name} ${mode}` : fc.name;
             return html`

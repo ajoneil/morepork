@@ -122,12 +122,33 @@ impl TraceStore {
         arr
     }
 
-    /// Get the field names from the header (excludes internal fields like `pix`).
+    /// Get the field names from the header, excluding pixel-stream output
+    /// fields (the `output` layer's `pix`), which render as frames, not
+    /// table columns.
     #[wasm_bindgen(js_name = fieldNames)]
     pub fn field_names(&self) -> Result<JsValue, JsError> {
-        let fields = &self.store.header().fields;
-        let filtered: Vec<&String> = fields.iter().filter(|f| f.as_str() != "pix").collect();
+        let header = self.store.header();
+        let is_pixel_stream = |name: &str| match header.field_def(name) {
+            Some(def) => {
+                def.layer.as_deref() == Some("output")
+                    && def.field_type == gbtrace::profile::FieldType::Str
+            }
+            None => name == "pix",
+        };
+        let filtered: Vec<&String> = header
+            .fields
+            .iter()
+            .filter(|f| !is_pixel_stream(f))
+            .collect();
         Ok(to_js(&filtered)?)
+    }
+
+    /// Typed field declarations from a self-describing header: array of
+    /// {name, type, subsystem?, layer?, nullable, dictionary}. Empty for
+    /// traces written before field_defs existed.
+    #[wasm_bindgen(js_name = fieldDefs)]
+    pub fn field_defs(&self) -> Result<JsValue, JsError> {
+        Ok(to_js(&self.store.header().field_defs)?)
     }
 
     /// Get field grouping info: returns a JS object mapping field name
@@ -150,6 +171,25 @@ impl TraceStore {
             }
         }
         Ok(to_js(&groups)?)
+    }
+
+    /// The flag vocabulary for this trace's system: array of
+    /// {name, field, bit} in display order (high bit first). `name` is the
+    /// canonical single-letter form. Drives flag rendering and the query
+    /// builder's flag chips.
+    #[wasm_bindgen(js_name = flagDefs)]
+    pub fn flag_defs(&self) -> Result<JsValue, JsError> {
+        #[derive(serde::Serialize)]
+        struct JsFlag {
+            name: &'static str,
+            field: &'static str,
+            bit: u8,
+        }
+        let flags: Vec<JsFlag> = gbtrace::query::flag_defs()
+            .iter()
+            .map(|d| JsFlag { name: d.names[0], field: d.field, bit: d.bit })
+            .collect();
+        Ok(to_js(&flags)?)
     }
 
     /// Whether this trace has pixel data (a `pix` column).

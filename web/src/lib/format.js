@@ -1,33 +1,71 @@
-/** Known 16-bit fields — always display as 4 hex digits. */
-const FIELDS_16BIT = new Set(['pc', 'op_addr', 'sp']);
+/** Field-display metadata, installed per loaded trace via setFieldMeta().
+ *  The defaults reproduce the Game Boy vocabulary so legacy traces (headers
+ *  without field_defs) render exactly as before. */
+let sixteenBitFields = new Set(['pc', 'op_addr', 'sp']);
+let flagFields = new Map([
+  ['f', [
+    { name: 'Z', bit: 7 },
+    { name: 'N', bit: 6 },
+    { name: 'H', bit: 5 },
+    { name: 'C', bit: 4 },
+  ]],
+]);
 
-/** Format the F (flags) register: hex value + flag letters. */
-function formatFlags(v) {
-  const hex = v.toString(16).padStart(2, '0');
-  const z = (v & 0x80) ? 'Z' : '·';
-  const n = (v & 0x40) ? 'N' : '·';
-  const h = (v & 0x20) ? 'H' : '·';
-  const c = (v & 0x10) ? 'C' : '·';
-  return `${hex} ${z}${n}${h}${c}`;
+/** Install per-trace field metadata from the wasm store.
+ *  fieldDefs: store.fieldDefs() — [{name, type, ...}]; empty for legacy
+ *  traces, which keep the current 16-bit set.
+ *  flagDefs: store.flagDefs() — [{name, field, bit}] in display order. */
+export function setFieldMeta(fieldDefs, flagDefs) {
+  if (fieldDefs && fieldDefs.length) {
+    sixteenBitFields = new Set(
+      fieldDefs.filter((d) => d.type === 'u16').map((d) => d.name));
+  }
+  if (flagDefs && flagDefs.length) {
+    flagFields = new Map();
+    for (const { name, field, bit } of flagDefs) {
+      if (!flagFields.has(field)) flagFields.set(field, []);
+      flagFields.get(field).push({ name: name.toUpperCase(), bit });
+    }
+  }
 }
 
-/** Format flags with per-flag diff highlighting (returns HTML string).
+/** Whether a field renders as a flags register. */
+export function isFlagField(fieldName) {
+  return flagFields.has(fieldName);
+}
+
+/** Flag chips for the query builder: [{name, flag}] in display order,
+ *  where `flag` is the name the query grammar accepts (`flag z set`). */
+export function flagChips() {
+  const chips = [];
+  for (const flags of flagFields.values()) {
+    for (const { name } of flags) {
+      chips.push({ name, flag: name.toLowerCase() });
+    }
+  }
+  return chips;
+}
+
+/** Format a flags register: hex value + flag letters. */
+function formatFlags(v, fieldName) {
+  const hex = v.toString(16).padStart(2, '0');
+  const letters = flagFields.get(fieldName)
+    .map(({ name, bit }) => ((v >> bit) & 1 ? name : '·'))
+    .join('');
+  return `${hex} ${letters}`;
+}
+
+/** Format a flags register with per-flag diff highlighting (returns HTML).
  *  diffColor is applied to flags that differ from otherVal. */
-export function displayFlagsDiff(v, otherVal, diffColor) {
-  if (typeof v !== 'number') return displayVal(v, 'f');
+export function displayFlagsDiff(v, otherVal, diffColor, fieldName = 'f') {
+  if (typeof v !== 'number') return displayVal(v, fieldName);
   const hex = v.toString(16).padStart(2, '0');
   const xor = (typeof otherVal === 'number') ? (v ^ otherVal) : 0;
-  const flags = [
-    { bit: 0x80, ch: 'Z' },
-    { bit: 0x40, ch: 'N' },
-    { bit: 0x20, ch: 'H' },
-    { bit: 0x10, ch: 'C' },
-  ];
-  const parts = flags.map(({ bit, ch }) => {
-    const set = (v & bit) !== 0;
-    const differs = (xor & bit) !== 0;
-    const letter = set ? ch : '·';
-    if (differs) return `<span style="color:${diffColor};font-weight:600">${letter}</span>`;
+  const parts = flagFields.get(fieldName).map(({ name, bit }) => {
+    const letter = ((v >> bit) & 1) ? name : '·';
+    if ((xor >> bit) & 1) {
+      return `<span style="color:${diffColor};font-weight:600">${letter}</span>`;
+    }
     return letter;
   });
   const hexDiffers = v !== otherVal;
@@ -40,8 +78,8 @@ export function displayFlagsDiff(v, otherVal, diffColor) {
 export function displayVal(v, fieldName) {
   if (v === undefined || v === null) return '';
   if (typeof v === 'number') {
-    if (fieldName === 'f') return formatFlags(v);
-    if (fieldName && FIELDS_16BIT.has(fieldName)) {
+    if (fieldName && flagFields.has(fieldName)) return formatFlags(v, fieldName);
+    if (fieldName && sixteenBitFields.has(fieldName)) {
       return v.toString(16).padStart(4, '0');
     }
     if (v <= 0xFF) return v.toString(16).padStart(2, '0');

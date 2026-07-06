@@ -263,11 +263,12 @@ fn bit_transitions(
 // for now — they become per-family tables when the family registry lands
 // (docs/multi-system.md).
 
-/// A named CPU flag: which field holds it and at which bit.
-struct FlagDef {
-    names: &'static [&'static str],
-    field: &'static str,
-    bit: u8,
+/// A named CPU flag: which field holds it and at which bit. The first name
+/// is canonical (single letter); the rest are accepted aliases.
+pub struct FlagDef {
+    pub names: &'static [&'static str],
+    pub field: &'static str,
+    pub bit: u8,
 }
 
 static FLAGS: &[FlagDef] = &[
@@ -276,6 +277,13 @@ static FLAGS: &[FlagDef] = &[
     FlagDef { names: &["h", "half", "halfcarry"], field: "f", bit: 5 },
     FlagDef { names: &["c", "carry"], field: "f", bit: 4 },
 ];
+
+/// The flag vocabulary, in display order (high bit first). Consumers (the
+/// web viewer's flag rendering and query chips) read it from here rather
+/// than hard-coding register names.
+pub fn flag_defs() -> &'static [FlagDef] {
+    FLAGS
+}
 
 /// A semantic phrase that is exactly one fixed string.
 static EXACT_PHRASES: &[(&str, fn() -> Condition)] = &[
