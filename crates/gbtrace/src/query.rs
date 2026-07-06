@@ -1,7 +1,9 @@
 //! Query conditions for filtering and searching trace entries.
 //!
 //! Conditions range from simple field comparisons to stateful transition
-//! detection and Game Boy-specific semantic queries.
+//! detection. System-semantic phrases ("lcd on", "flag z set") desugar to
+//! the generic conditions through vocabulary tables; the `Condition` enum
+//! itself is system-agnostic.
 
 use crate::entry::TraceEntry;
 use serde_json::Value;
@@ -27,38 +29,20 @@ pub enum Condition {
     /// Field changed from a specific value (was that value, now isn't).
     FieldChangesFrom { field: String, value: String },
 
-    // --- Semantic: Game Boy-specific conditions ---
-    /// PPU enters the specified mode (0=HBlank, 1=VBlank, 2=OAM, 3=Drawing).
-    /// Derived from STAT register bits 0-1. Requires `stat` field.
-    PpuEntersMode(u8),
+    /// A single bit transitions to the given state (from its complement).
+    /// The generic form behind "becomes set"/"becomes clear" queries and
+    /// semantic phrases like `lcd on` and `interrupt N`.
+    BitTransition { field: String, bit: u8, to: bool },
 
-    /// LCD turns on (LCDC bit 7 transitions 0→1). Requires `lcdc` field.
-    LcdTurnsOn,
+    /// A masked view of a field transitions to a specific value: matches
+    /// when `cur & mask == value` and the previous entry's masked value
+    /// differed (or there is no previous entry). Behind `ppu enters mode N`.
+    MaskedChangesTo { field: String, mask: u64, value: u64 },
 
-    /// LCD turns off (LCDC bit 7 transitions 1→0). Requires `lcdc` field.
-    LcdTurnsOff,
-
-    /// Timer overflow: TIMA wraps to TMA value. Requires `tima` field.
-    TimerOverflow,
-
-    /// An interrupt fires (IF bit transitions 0→1).
-    /// Bit index: 0=VBlank, 1=STAT, 2=Timer, 3=Serial, 4=Joypad.
-    /// Requires `if_` field.
-    InterruptFires(u8),
-
-    /// CPU flag is set. Derived from F register bits.
-    /// Flag: Z=7, N=6, H=5, C=4.
-    /// Requires `f` field.
-    FlagSet(u8),
-
-    /// CPU flag is clear. Requires `f` field.
-    FlagClear(u8),
-
-    /// CPU flag transitions to set (was clear, now set). Requires `f` field.
-    FlagBecomesSet(u8),
-
-    /// CPU flag transitions to clear (was set, now clear). Requires `f` field.
-    FlagBecomesClear(u8),
+    /// A counter field wraps: its value decreases sharply from near the top
+    /// of its range (heuristic: `cur < prev && prev > 0x80`). Behind
+    /// `timer overflow`.
+    FieldWraps { field: String },
 
     /// Bitwise-AND test: `(field & mask) != 0`. Generalises per-bit
     /// queries; e.g., `if_ & 0x02` matches whenever the STAT IRQ bit is
@@ -83,20 +67,14 @@ impl Condition {
     pub fn is_stateful(&self) -> bool {
         match self {
             Condition::FieldEquals { .. }
-            | Condition::FlagSet(_)
-            | Condition::FlagClear(_)
             | Condition::FieldBitMask { .. }
             | Condition::FieldBitMaskEquals { .. } => false,
             Condition::FieldChanges { .. }
             | Condition::FieldChangesTo { .. }
             | Condition::FieldChangesFrom { .. }
-            | Condition::PpuEntersMode(_)
-            | Condition::LcdTurnsOn
-            | Condition::LcdTurnsOff
-            | Condition::TimerOverflow
-            | Condition::InterruptFires(_)
-            | Condition::FlagBecomesSet(_)
-            | Condition::FlagBecomesClear(_) => true,
+            | Condition::BitTransition { .. }
+            | Condition::MaskedChangesTo { .. }
+            | Condition::FieldWraps { .. } => true,
             Condition::All(cs) | Condition::Any(cs) => cs.iter().any(|c| c.is_stateful()),
         }
     }
@@ -169,48 +147,25 @@ fn eval_condition(cond: &Condition, entry: &TraceEntry, prev: Option<&TraceEntry
             prev.map_or(false, |p| matches_val(p)) && !matches_val(entry)
         }
 
-        Condition::PpuEntersMode(mode) => {
-            let cur_mode = entry_field_u8(entry, "stat").map(|s| s & 0x03);
-            let prv_mode = prev.and_then(|p| entry_field_u8(p, "stat")).map(|s| s & 0x03);
-            cur_mode == Some(*mode) && prv_mode != Some(*mode)
+        Condition::BitTransition { field, bit, to } => {
+            bit_transitions(entry, prev, field, *bit, !*to, *to)
         }
 
-        Condition::LcdTurnsOn => {
-            bit_transitions(entry, prev, "lcdc", 7, false, true)
+        Condition::MaskedChangesTo { field, mask, value } => {
+            let masked = |e: &TraceEntry| e.get(field).and_then(|v| v.as_u64()).map(|n| n & mask);
+            masked(entry) == Some(*value)
+                && prev.and_then(masked) != Some(*value)
         }
 
-        Condition::LcdTurnsOff => {
-            bit_transitions(entry, prev, "lcdc", 7, true, false)
-        }
-
-        Condition::TimerOverflow => {
-            // Detect when TIMA decreases (wraps from high value to TMA reload value)
-            let cur = entry_field_u8(entry, "tima");
-            let prv = prev.and_then(|p| entry_field_u8(p, "tima"));
+        Condition::FieldWraps { field } => {
+            // Heuristic: a sharp decrease from near the top of the range
+            // (e.g. TIMA wrapping to its TMA reload value).
+            let cur = entry.get(field).and_then(|v| v.as_u64());
+            let prv = prev.and_then(|p| p.get(field)).and_then(|v| v.as_u64());
             match (cur, prv) {
-                (Some(c), Some(p)) => c < p && p > 0x80, // heuristic: large decrease = overflow
+                (Some(c), Some(p)) => c < p && p > 0x80,
                 _ => false,
             }
-        }
-
-        Condition::InterruptFires(bit) => {
-            bit_transitions(entry, prev, "if_", *bit, false, true)
-        }
-
-        Condition::FlagSet(bit) => {
-            entry_field_u8(entry, "f").map_or(false, |f| (f >> bit) & 1 == 1)
-        }
-
-        Condition::FlagClear(bit) => {
-            entry_field_u8(entry, "f").map_or(false, |f| (f >> bit) & 1 == 0)
-        }
-
-        Condition::FlagBecomesSet(bit) => {
-            bit_transitions(entry, prev, "f", *bit, false, true)
-        }
-
-        Condition::FlagBecomesClear(bit) => {
-            bit_transitions(entry, prev, "f", *bit, true, false)
         }
 
         Condition::FieldBitMask { field, mask } => {
@@ -263,11 +218,7 @@ fn field_matches_value(entry: &TraceEntry, field: &str, value: &str) -> bool {
     }
 }
 
-fn entry_field_u8(entry: &TraceEntry, field: &str) -> Option<u8> {
-    entry.get_u8(field)
-}
-
-/// Check if a specific bit in a hex field transitioned between two states.
+/// Check if a specific bit in a numeric field transitioned between two states.
 fn bit_transitions(
     entry: &TraceEntry,
     prev: Option<&TraceEntry>,
@@ -276,8 +227,8 @@ fn bit_transitions(
     from: bool,
     to: bool,
 ) -> bool {
-    let cur_val = entry_field_u8(entry, field);
-    let prv_val = prev.and_then(|p| entry_field_u8(p, field));
+    let cur_val = entry.get(field).and_then(|v| v.as_u64());
+    let prv_val = prev.and_then(|p| p.get(field)).and_then(|v| v.as_u64());
     match (cur_val, prv_val) {
         (Some(c), Some(p)) => {
             let cur_bit = (c >> bit) & 1 == 1;
@@ -303,15 +254,61 @@ fn bit_transitions(
 /// - `lcd on` / `lcd off` — LCD turns on/off
 /// - `timer overflow` — TIMA overflows
 /// - `interrupt N` — interrupt bit N fires (0=vblank, 1=stat, 2=timer, 3=serial, 4=joypad)
-/// Map a CPU flag name to its bit position in the F register.
-fn flag_bit(name: &str) -> Result<u8, String> {
-    match name.to_lowercase().as_str() {
-        "z" | "zero" => Ok(7),
-        "n" | "sub" | "subtract" => Ok(6),
-        "h" | "half" | "halfcarry" => Ok(5),
-        "c" | "carry" => Ok(4),
-        _ => Err(format!("unknown flag '{name}': expected z, n, h, or c")),
-    }
+// ---------------------------------------------------------------------------
+// System-semantic vocabulary
+// ---------------------------------------------------------------------------
+//
+// Flag names and semantic phrases desugar to the generic conditions above;
+// only these tables know register names and bit meanings. Game Boy content
+// for now — they become per-family tables when the family registry lands
+// (docs/multi-system.md).
+
+/// A named CPU flag: which field holds it and at which bit.
+struct FlagDef {
+    names: &'static [&'static str],
+    field: &'static str,
+    bit: u8,
+}
+
+static FLAGS: &[FlagDef] = &[
+    FlagDef { names: &["z", "zero"], field: "f", bit: 7 },
+    FlagDef { names: &["n", "sub", "subtract"], field: "f", bit: 6 },
+    FlagDef { names: &["h", "half", "halfcarry"], field: "f", bit: 5 },
+    FlagDef { names: &["c", "carry"], field: "f", bit: 4 },
+];
+
+/// A semantic phrase that is exactly one fixed string.
+static EXACT_PHRASES: &[(&str, fn() -> Condition)] = &[
+    ("lcd on", || Condition::BitTransition { field: "lcdc".into(), bit: 7, to: true }),
+    ("lcd off", || Condition::BitTransition { field: "lcdc".into(), bit: 7, to: false }),
+    ("timer overflow", || Condition::FieldWraps { field: "tima".into() }),
+];
+
+/// A semantic phrase of the form `<prefix><number>`, with an inclusive
+/// maximum for the numeric argument.
+static NUMBERED_PHRASES: &[(&str, u8, fn(u8) -> Condition)] = &[
+    ("ppu enters mode ", 3, |mode| Condition::MaskedChangesTo {
+        field: "stat".into(),
+        mask: 0x03,
+        value: mode as u64,
+    }),
+    ("interrupt ", 4, |bit| Condition::BitTransition {
+        field: "if_".into(),
+        bit,
+        to: true,
+    }),
+];
+
+/// Map a CPU flag name to the field/bit holding it.
+fn flag_def(name: &str) -> Result<&'static FlagDef, String> {
+    let name = name.to_lowercase();
+    FLAGS
+        .iter()
+        .find(|d| d.names.contains(&name.as_str()))
+        .ok_or_else(|| {
+            let expected: Vec<&str> = FLAGS.iter().map(|d| d.names[0]).collect();
+            format!("unknown flag '{name}': expected {}", expected.join(", "))
+        })
 }
 
 pub fn parse_condition(s: &str) -> Result<Condition, String> {
@@ -322,40 +319,44 @@ pub fn parse_condition(s: &str) -> Result<Condition, String> {
         let rest = rest.trim();
         // "flag z becomes set" / "flag z becomes clear"
         if let Some(inner) = rest.strip_suffix(" becomes set") {
-            return Ok(Condition::FlagBecomesSet(flag_bit(inner.trim())?));
+            let d = flag_def(inner.trim())?;
+            return Ok(Condition::BitTransition { field: d.field.into(), bit: d.bit, to: true });
         }
         if let Some(inner) = rest.strip_suffix(" becomes clear") {
-            return Ok(Condition::FlagBecomesClear(flag_bit(inner.trim())?));
+            let d = flag_def(inner.trim())?;
+            return Ok(Condition::BitTransition { field: d.field.into(), bit: d.bit, to: false });
         }
         // "flag z set" / "flag z clear"
         if let Some(inner) = rest.strip_suffix(" set") {
-            return Ok(Condition::FlagSet(flag_bit(inner.trim())?));
+            let d = flag_def(inner.trim())?;
+            return Ok(Condition::FieldBitMask { field: d.field.into(), mask: 1 << d.bit });
         }
         if let Some(inner) = rest.strip_suffix(" clear") {
-            return Ok(Condition::FlagClear(flag_bit(inner.trim())?));
+            let d = flag_def(inner.trim())?;
+            return Ok(Condition::FieldBitMaskEquals {
+                field: d.field.into(),
+                mask: 1 << d.bit,
+                value: 0,
+            });
         }
         return Err(format!("invalid flag condition: '{s}'. Expected: flag z set, flag c clear, flag z becomes set, flag c becomes clear"));
     }
 
-    // Semantic conditions
-    if let Some(rest) = s.strip_prefix("ppu enters mode ") {
-        let mode: u8 = rest.trim().parse()
-            .map_err(|_| format!("invalid PPU mode: {rest}"))?;
-        if mode > 3 {
-            return Err(format!("PPU mode must be 0-3, got {mode}"));
+    // Semantic phrases
+    for (phrase, build) in EXACT_PHRASES {
+        if s == *phrase {
+            return Ok(build());
         }
-        return Ok(Condition::PpuEntersMode(mode));
     }
-    if s == "lcd on" { return Ok(Condition::LcdTurnsOn); }
-    if s == "lcd off" { return Ok(Condition::LcdTurnsOff); }
-    if s == "timer overflow" { return Ok(Condition::TimerOverflow); }
-    if let Some(rest) = s.strip_prefix("interrupt ") {
-        let bit: u8 = rest.trim().parse()
-            .map_err(|_| format!("invalid interrupt bit: {rest}"))?;
-        if bit > 4 {
-            return Err(format!("interrupt bit must be 0-4, got {bit}"));
+    for (prefix, max, build) in NUMBERED_PHRASES {
+        if let Some(rest) = s.strip_prefix(prefix) {
+            let n: u8 = rest.trim().parse()
+                .map_err(|_| format!("invalid number in '{s}': {rest}"))?;
+            if n > *max {
+                return Err(format!("'{}' takes 0-{max}, got {n}", prefix.trim_end()));
+            }
+            return Ok(build(n));
         }
-        return Ok(Condition::InterruptFires(bit));
     }
 
     // "field changes to value"

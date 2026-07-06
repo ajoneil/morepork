@@ -198,8 +198,38 @@ pub trait TraceStore {
                     false
                 }
             }
-            // Semantic conditions (PPU mode, LCD on/off, etc.) need previous row state
-            _ => false,
+            Condition::FieldBitMask { field, mask } => {
+                self.field_col(field)
+                    .map_or(false, |col| (self.get_numeric(col, row) & mask) != 0)
+            }
+            Condition::FieldBitMaskEquals { field, mask, value } => {
+                self.field_col(field)
+                    .map_or(false, |col| (self.get_numeric(col, row) & mask) == *value)
+            }
+            Condition::BitTransition { field, bit, to } => {
+                if row == 0 { return false; }
+                self.field_col(field).map_or(false, |col| {
+                    let cur = (self.get_numeric(col, row) >> bit) & 1 == 1;
+                    let prev = (self.get_numeric(col, row - 1) >> bit) & 1 == 1;
+                    prev == !*to && cur == *to
+                })
+            }
+            Condition::MaskedChangesTo { field, mask, value } => {
+                self.field_col(field).map_or(false, |col| {
+                    if self.get_numeric(col, row) & mask != *value { return false; }
+                    row == 0 || (self.get_numeric(col, row - 1) & mask) != *value
+                })
+            }
+            Condition::FieldWraps { field } => {
+                if row == 0 { return false; }
+                self.field_col(field).map_or(false, |col| {
+                    let cur = self.get_numeric(col, row);
+                    let prev = self.get_numeric(col, row - 1);
+                    cur < prev && prev > 0x80
+                })
+            }
+            Condition::All(cs) => cs.iter().all(|c| self.eval_condition_trait(c, row)),
+            Condition::Any(cs) => cs.iter().any(|c| self.eval_condition_trait(c, row)),
         }
     }
 

@@ -509,16 +509,13 @@ impl TraceStore {
             None => return Ok(to_js(&Vec::<String>::new())?),
         };
         let end = (start + count).min(self.entry_count());
+        let addr_col = self.store.addr_col();
         let mnemonics: Vec<String> = (start..end)
             .map(|i| {
-                // op_addr is the instruction address (stable across an
-                // instruction's T-cycles); pc advances mid-instruction.
                 // Map through the downsample view so we read the right entry.
                 let row = self.map_row(i);
-                let addr = self
-                    .store
-                    .get_numeric_named("op_addr", row)
-                    .or_else(|| self.store.get_numeric_named("pc", row))
+                let addr = addr_col
+                    .map(|col| self.store.get_numeric(col, row))
                     .unwrap_or(0) as u16;
                 disasm::disassemble(rom, addr).0
             })
