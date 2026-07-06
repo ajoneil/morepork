@@ -55,6 +55,13 @@ target/release/gbtrace convert trace.gbtrace.jsonl -o trace.gbtrace
 
 ## Architecture
 
+**Multi-system effort (active):** gbtrace is being generalized beyond the Game Boy
+(working name "emutrace"). The architecture, constraints, and order of work live
+in `docs/multi-system.md` — read it before touching `profile.rs`, `header.rs`,
+`query.rs`, the `family/` modules, or the web viewer. Long-running efforts keep
+their live status in `receipts/<effort>/ROADMAP.md` (receipts/ is gitignored —
+never reference specific receipt paths from committed files).
+
 ### Trace format (`crates/gbtrace/src/format/`)
 
 - Native binary format (`.gbtrace`): magic `GBTR`, current `VERSION = 2`. Layout is
