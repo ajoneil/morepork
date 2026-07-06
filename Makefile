@@ -238,15 +238,20 @@ clean:
 
 # ── Adapter builds ───────────────────────────────────────────────────
 
-adapters/gambatte/gbtrace-gambatte:
+FFI_LIB := $(PROJECT_DIR)/target/release/libgbtrace_ffi.a
+FFI_HEADER := $(PROJECT_DIR)/crates/gbtrace-ffi/gbtrace.h
+
+# C/C++ adapters statically link the FFI, so they must relink when it
+# changes — otherwise they silently ship a stale trace writer.
+adapters/gambatte/gbtrace-gambatte: adapters/gambatte/gbtrace-gambatte.cpp $(FFI_LIB) $(FFI_HEADER)
 	@echo "Building gambatte adapter..."
 	@$(MAKE) -C adapters/gambatte -j$$(nproc)
 
-adapters/sameboy/gbtrace-sameboy:
+adapters/sameboy/gbtrace-sameboy: adapters/sameboy/gbtrace-sameboy.cpp $(FFI_LIB) $(FFI_HEADER)
 	@echo "Building sameboy adapter..."
 	@$(MAKE) -C adapters/sameboy -j$$(nproc)
 
-adapters/mgba/gbtrace-mgba:
+adapters/mgba/gbtrace-mgba: adapters/mgba/gbtrace-mgba.c $(FFI_LIB) $(FFI_HEADER)
 	@echo "Building mgba adapter..."
 	@$(MAKE) -C adapters/mgba -j$$(nproc)
 
@@ -254,19 +259,15 @@ adapters/missingno/gbtrace-missingno:
 	@echo "Building missingno adapter..."
 	@cd adapters/missingno && cargo build --release && cp target/release/gbtrace-missingno .
 
-adapters/docboy/gbtrace-docboy adapters/docboy/gbtrace-docboy-cgb:
+adapters/docboy/gbtrace-docboy adapters/docboy/gbtrace-docboy-cgb: adapters/docboy/gbtrace-docboy.cpp $(FFI_LIB) $(FFI_HEADER)
 	@echo "Building docboy adapters (DMG + CGB)..."
 	@$(MAKE) -C adapters/docboy
-
-
-FFI_LIB := $(PROJECT_DIR)/target/release/libgbtrace_ffi.a
-FFI_HEADER := $(PROJECT_DIR)/crates/gbtrace-ffi/gbtrace.h
 
 $(CLI): $(wildcard crates/gbtrace/src/*.rs crates/gbtrace/src/**/*.rs)
 	@echo "Building gbtrace..."
 	@cargo build --release --features cli 2>&1 | tail -1
 
-$(FFI_LIB): $(wildcard crates/gbtrace-ffi/src/*.rs crates/gbtrace/src/*.rs)
+$(FFI_LIB): $(wildcard crates/gbtrace-ffi/src/*.rs crates/gbtrace/src/*.rs crates/gbtrace/src/**/*.rs)
 	@echo "Building gbtrace-ffi..."
 	@cargo build --release -p gbtrace-ffi 2>&1 | tail -1
 
