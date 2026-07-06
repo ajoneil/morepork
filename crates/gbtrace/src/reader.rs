@@ -9,7 +9,7 @@ use std::path::Path;
 /// Streaming reader for `.gbtrace.jsonl` and `.gbtrace.jsonl.gz` files.
 ///
 /// Reads entries one at a time — never loads the full file into memory.
-/// Per the JSONL spec (`receipts/design/file-format.md`), the header line is
+/// The header line is
 /// optional: if the first JSON object lacks `"_header": true` it is treated
 /// as the first data entry and a default header is synthesised. Header fields
 /// other than `_header` all have defaults, and `fields` is inferred from the

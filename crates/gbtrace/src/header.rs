@@ -117,8 +117,8 @@ fn is_false(b: &bool) -> bool { !b }
 
 /// The header line of a `.gbtrace` file.
 ///
-/// In the JSONL interchange format only `_header: true` is required; all other
-/// fields default per the file-format spec (`receipts/design/file-format.md`).
+/// In the JSONL interchange format only `_header: true` is required; every
+/// other field has a serde default.
 /// Field types are resolved from name via the built-in catalogue, so an emulator
 /// can emit data lines with no header and the reader will synthesise one.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
