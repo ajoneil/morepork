@@ -28,6 +28,7 @@ fn test_header() -> TraceHeader {
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
+        ..Default::default()
     }
 }
 
@@ -198,6 +199,7 @@ fn test_large_chunk_boundary() {
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
+        ..Default::default()
     };
 
     let groups = vec![
@@ -254,6 +256,7 @@ fn test_framebuffer() {
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
+        ..Default::default()
     };
 
     let groups = vec![
@@ -350,6 +353,7 @@ fn test_extension_fields_roundtrip() {
         pix_format: PixFormat::default(),
         extension_fields,
         notes: String::new(),
+        ..Default::default()
     };
 
     let groups = vec![
@@ -433,6 +437,7 @@ fn test_empty_trace() {
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
+        ..Default::default()
     };
 
     let groups = vec![
@@ -451,4 +456,51 @@ fn test_empty_trace() {
 
     assert_eq!(store.entry_count(), 0);
     assert_eq!(store.frame_boundaries().len(), 0);
+}
+
+#[test]
+fn test_header_self_describing_on_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("selfdesc.gbtrace");
+
+    let header = test_header();
+    let groups = test_groups();
+    {
+        let mut w = GbtraceWriter::create(&path, &header, &groups).unwrap();
+        w.set_u16(0, 0x0150);
+        w.set_u16(1, 0xFFFE);
+        for col in 2..13 {
+            w.set_u8(col, 0);
+        }
+        w.set_null(13);
+        w.set_null(14);
+        w.set_null(15);
+        w.finish_entry().unwrap();
+        w.finish().unwrap();
+    }
+
+    let data = std::fs::read(&path).unwrap();
+    let store = GbtraceStore::from_bytes(&data).unwrap();
+    let h = store.header();
+
+    // Every field got a typed def, and the storage grouping the writer
+    // used was recorded verbatim.
+    assert_eq!(h.field_defs.len(), h.fields.len());
+    assert_eq!(h.field_groups.len(), groups.len());
+    assert_eq!(h.field_groups[0].name, "cpu");
+    assert_eq!(h.field_groups[0].fields, groups[0].fields);
+
+    // Types and encodings resolve from the defs.
+    use gbtrace::profile::FieldType;
+    assert_eq!(h.resolve_field_type("vram_addr"), FieldType::UInt16);
+    assert!(h.resolve_field_nullable("pix"));
+    assert!(h.resolve_field_dictionary("f"));
+
+    // Subsystem/layer are captured per field.
+    let def = h.field_def("ly").unwrap();
+    assert_eq!(def.subsystem.as_deref(), Some("ppu"));
+    assert_eq!(def.layer.as_deref(), Some("registers"));
+
+    // No op_addr in this trace, so pc is the instruction-address column.
+    assert_eq!(h.instruction_addr_field.as_deref(), Some("pc"));
 }

@@ -27,7 +27,7 @@ use arrow::record_batch::RecordBatch;
 
 use crate::error::{Error, Result};
 use crate::header::TraceHeader;
-use crate::profile::{field_dictionary, FieldType};
+use crate::profile::FieldType;
 
 use super::*;
 
@@ -183,28 +183,35 @@ impl GbtraceWriter {
         out.write_all(MAGIC)?;
         out.write_all(&[VERSION])?;
 
+        // Every written trace is self-describing: complete field defs, the
+        // storage grouping actually used, and the instruction-address
+        // column all go into the header.
+        let mut header = header.clone();
+        header.ensure_self_describing();
+        if header.field_groups.is_empty() {
+            header.field_groups = groups.to_vec();
+        }
+
         // Write header (JSON, zstd-compressed)
-        let header_json = serde_json::to_string(header)?;
+        let header_json = serde_json::to_string(&header)?;
         let header_compressed = zstd::encode_all(header_json.as_bytes(), 3)
             .map_err(|e| Error::Io(io::Error::new(io::ErrorKind::Other, e)))?;
         out.write_all(&(header_compressed.len() as u32).to_le_bytes())?;
         out.write_all(&header_compressed)?;
 
-        let group_mapping = GroupMapping::from_groups(groups, &header.fields);
+        let group_mapping = GroupMapping::from_groups(&header.field_groups, &header.fields);
 
         let columns: Vec<ColBuf> = header.fields.iter()
             .map(|name| {
                 let ft = header.resolve_field_type(name);
-                // Extension fields don't participate in dictionary encoding;
-                // built-in fields fall through to the static catalogue.
-                let dict = field_dictionary(name);
+                let dict = header.resolve_field_dictionary(name);
                 ColBuf::new(ft, dict, DEFAULT_CHUNK_SIZE)
             })
             .collect();
 
         Ok(Self {
             out,
-            header: header.clone(),
+            header,
             group_mapping,
             columns,
             chunk_size: DEFAULT_CHUNK_SIZE,
@@ -357,7 +364,7 @@ impl GbtraceWriter {
         self.columns = self.header.fields.iter()
             .map(|name| {
                 let ft = self.header.resolve_field_type(name);
-                let dict = field_dictionary(name);
+                let dict = self.header.resolve_field_dictionary(name);
                 ColBuf::new(ft, dict, self.chunk_size)
             })
             .collect();

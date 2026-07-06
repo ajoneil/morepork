@@ -52,10 +52,16 @@ pub trait TraceStore {
     }
 
     /// Column index of the instruction address, used for sync/collapse and
-    /// disassembly. Prefers `op_addr` (stable across an instruction's
-    /// T-cycles) and falls back to `pc`, which advances mid-instruction, for
-    /// traces predating the `op_addr` field.
+    /// disassembly. A self-describing header names it explicitly
+    /// (`instruction_addr_field`); older traces prefer `op_addr` (stable
+    /// across an instruction's T-cycles), falling back to `pc`, which
+    /// advances mid-instruction.
     fn addr_col(&self) -> Option<usize> {
+        if let Some(name) = &self.header().instruction_addr_field {
+            if let Some(col) = self.field_col(name) {
+                return Some(col);
+            }
+        }
         self.field_col("op_addr").or_else(|| self.field_col("pc"))
     }
 

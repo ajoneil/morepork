@@ -136,9 +136,16 @@ impl TraceStore {
     #[wasm_bindgen(js_name = fieldGroups)]
     pub fn field_groups(&self) -> Result<JsValue, JsError> {
         use std::collections::BTreeMap;
+        let header = self.store.header();
         let mut groups: BTreeMap<&str, (&str, &str)> = BTreeMap::new();
-        for field in &self.store.header().fields {
-            if let Some((subsystem, layer)) = gbtrace::profile::field_group(field) {
+        for field in &header.fields {
+            // Self-describing traces carry subsystem/layer in the header;
+            // legacy traces resolve through the built-in catalogue.
+            if let Some(def) = header.field_def(field) {
+                if let (Some(s), Some(l)) = (&def.subsystem, &def.layer) {
+                    groups.insert(field, (s, l));
+                }
+            } else if let Some((subsystem, layer)) = gbtrace::profile::field_group(field) {
                 groups.insert(field, (subsystem, layer));
             }
         }

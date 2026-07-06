@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::format::FieldGroup;
 use crate::profile::FieldType;
 
 /// How the boot ROM was handled for this trace.
@@ -115,6 +116,33 @@ pub struct ExtensionField {
 
 fn is_false(b: &bool) -> bool { !b }
 
+/// Typed declaration of one trace field, carried in the header so the file
+/// is self-describing: readers resolve type, nullability, encoding, and
+/// semantic grouping from here without consulting the built-in catalogue.
+/// Traces written before this existed omit it; readers then fall back to
+/// the static catalogue, which therefore remains as the legacy-trace path.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HeaderFieldDef {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub field_type: FieldType,
+    /// Hardware subsystem ("cpu", "ppu", …). None for profile-defined
+    /// memory watches and extension fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsystem: Option<String>,
+    /// Capture layer within the subsystem ("registers", "internal", …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nullable: bool,
+    /// Whether the column uses dictionary encoding.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dictionary: bool,
+    /// For extension fields: the emulator that defined it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
 /// The header line of a `.gbtrace` file.
 ///
 /// In the JSONL interchange format only `_header: true` is required; every
@@ -176,6 +204,23 @@ pub struct TraceHeader {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extension_fields: BTreeMap<String, ExtensionField>,
 
+    /// Typed declarations for every name in `fields`, making the trace
+    /// self-describing (see [`HeaderFieldDef`]). The writer populates this;
+    /// it is empty on traces written before it existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_defs: Vec<HeaderFieldDef>,
+
+    /// The storage grouping used for this file's chunks (each group is one
+    /// Arrow IPC block). When empty (legacy traces), readers re-derive the
+    /// writer's grouping convention from field names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_groups: Vec<FieldGroup>,
+
+    /// Name of the column holding the current instruction's address, used
+    /// for sync, collapse, and disassembly. Absent ⇒ `op_addr`, then `pc`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instruction_addr_field: Option<String>,
+
     /// Optional freeform notes.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub notes: String,
@@ -207,10 +252,18 @@ impl TraceHeader {
         Ok(())
     }
 
-    /// Resolve a field's type — built-in fields use the static catalogue;
-    /// extension fields use `extension_fields`; unknown names fall back
-    /// to `UInt8`.
+    /// This header's declaration for a field, when self-describing.
+    pub fn field_def(&self, name: &str) -> Option<&HeaderFieldDef> {
+        self.field_defs.iter().find(|d| d.name == name)
+    }
+
+    /// Resolve a field's type — `field_defs` when the trace is
+    /// self-describing; otherwise the static catalogue, then
+    /// `extension_fields`; unknown names fall back to `UInt8`.
     pub fn resolve_field_type(&self, name: &str) -> FieldType {
+        if let Some(def) = self.field_def(name) {
+            return def.field_type;
+        }
         if let Some(def) = crate::profile::lookup_field(name) {
             return def.field_type;
         }
@@ -222,6 +275,9 @@ impl TraceHeader {
 
     /// Resolve a field's nullability.
     pub fn resolve_field_nullable(&self, name: &str) -> bool {
+        if let Some(def) = self.field_def(name) {
+            return def.nullable;
+        }
         if let Some(def) = crate::profile::lookup_field(name) {
             return def.nullable;
         }
@@ -229,5 +285,70 @@ impl TraceHeader {
             return ext.nullable;
         }
         false
+    }
+
+    /// Resolve whether a field's column uses dictionary encoding.
+    pub fn resolve_field_dictionary(&self, name: &str) -> bool {
+        if let Some(def) = self.field_def(name) {
+            return def.dictionary;
+        }
+        crate::profile::field_dictionary(name)
+    }
+
+    /// Fill `field_defs` and `instruction_addr_field` from the built-in
+    /// catalogue and `extension_fields` when absent. The binary writer
+    /// calls this, so every new trace is self-describing regardless of
+    /// which producer (FFI adapter, missingno, `convert`) built the header.
+    pub fn ensure_self_describing(&mut self) {
+        if self.field_defs.is_empty() {
+            self.field_defs = self
+                .fields
+                .iter()
+                .map(|name| {
+                    if let Some(def) = crate::profile::lookup_field(name) {
+                        let (subsystem, layer) = crate::profile::field_group(name)
+                            .map(|(s, l)| (Some(s.to_string()), Some(l.to_string())))
+                            .unwrap_or((None, None));
+                        HeaderFieldDef {
+                            name: name.clone(),
+                            field_type: def.field_type,
+                            subsystem,
+                            layer,
+                            nullable: def.nullable,
+                            dictionary: def.dictionary,
+                            source: None,
+                        }
+                    } else if let Some(ext) = self.extension_fields.get(name) {
+                        HeaderFieldDef {
+                            name: name.clone(),
+                            field_type: ext.field_type,
+                            subsystem: None,
+                            layer: None,
+                            nullable: ext.nullable,
+                            dictionary: false,
+                            source: ext.source.clone(),
+                        }
+                    } else {
+                        // Profile-defined memory watches and unknown names:
+                        // the same u8 fallback readers have always used.
+                        HeaderFieldDef {
+                            name: name.clone(),
+                            field_type: FieldType::UInt8,
+                            subsystem: None,
+                            layer: None,
+                            nullable: false,
+                            dictionary: false,
+                            source: None,
+                        }
+                    }
+                })
+                .collect();
+        }
+        if self.instruction_addr_field.is_none() {
+            self.instruction_addr_field = ["op_addr", "pc"]
+                .iter()
+                .find(|n| self.fields.iter().any(|f| f == *n))
+                .map(|n| n.to_string());
+        }
     }
 }

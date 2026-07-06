@@ -789,6 +789,7 @@ mod tests {
                     pix_format: PixFormat::default(),
                     extension_fields: std::collections::BTreeMap::new(),
                     notes: String::new(),
+                    ..Default::default()
                 },
                 pcs,
             }
@@ -833,6 +834,7 @@ mod tests {
                 pix_format: PixFormat::default(),
                 extension_fields: std::collections::BTreeMap::new(),
                 notes: String::new(),
+                ..Default::default()
             };
             Self { header, pcs, op_addrs }
         }

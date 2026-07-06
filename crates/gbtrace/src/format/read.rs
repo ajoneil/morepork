@@ -154,9 +154,14 @@ impl GbtraceStore {
             .map(|(i, f)| (f.clone(), i))
             .collect();
 
-        // TODO: read group definitions from header JSON.
-        // For now, derive from field names using the standard grouping.
-        let groups = derive_groups(&header.fields);
+        // Self-describing traces record their storage grouping in the
+        // header; legacy traces re-derive the writer's grouping convention
+        // from field names.
+        let groups = if header.field_groups.is_empty() {
+            derive_groups(&header.fields)
+        } else {
+            header.field_groups.clone()
+        };
         let field_to_group = build_field_to_group(&groups);
 
         Ok(Self {

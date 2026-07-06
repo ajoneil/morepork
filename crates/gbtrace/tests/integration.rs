@@ -119,6 +119,7 @@ fn header_validation() {
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
+        ..Default::default()
     };
     assert!(h.validate().is_err());
 
@@ -139,6 +140,7 @@ fn header_validation() {
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
         notes: String::new(),
+        ..Default::default()
     };
     assert!(h.validate().is_ok());
 }
