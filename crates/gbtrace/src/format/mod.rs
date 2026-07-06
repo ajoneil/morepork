@@ -57,6 +57,31 @@ pub enum SnapshotType {
 }
 
 impl SnapshotType {
+    /// The kind name written into `TraceHeader::snapshot_kinds`. `frame` and
+    /// `memory` are format-level (the viewer depends on them); the rest are
+    /// Game Boy family state, hence the `gb.` namespace.
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Frame => "frame",
+            Self::Memory => "memory",
+            Self::CpuState => "gb.cpu",
+            Self::PpuTiming => "gb.ppu",
+            Self::ApuState => "gb.apu",
+            Self::TimerState => "gb.timer",
+            Self::DmaState => "gb.dma",
+            Self::SerialState => "gb.serial",
+            Self::MbcState => "gb.mbc",
+        }
+    }
+
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Frame, Self::Memory, Self::CpuState, Self::PpuTiming,
+            Self::ApuState, Self::TimerState, Self::DmaState,
+            Self::SerialState, Self::MbcState,
+        ]
+    }
+
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
             0 => Some(Self::Frame),

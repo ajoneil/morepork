@@ -221,6 +221,14 @@ pub struct TraceHeader {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instruction_addr_field: Option<String>,
 
+    /// Kind name for each numeric snapshot tag, indexed by tag value
+    /// (`snapshot_kinds[0]` names tag 0). `frame` and `memory` are
+    /// format-level kinds; system-specific state uses namespaced names
+    /// (`gb.cpu`, …). When empty (legacy traces), tags resolve through the
+    /// built-in `SnapshotType` enum.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snapshot_kinds: Vec<String>,
+
     /// Optional freeform notes.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub notes: String,
@@ -350,5 +358,20 @@ impl TraceHeader {
                 .find(|n| self.fields.iter().any(|f| f == *n))
                 .map(|n| n.to_string());
         }
+        if self.snapshot_kinds.is_empty() {
+            self.snapshot_kinds = crate::format::SnapshotType::all()
+                .iter()
+                .map(|t| t.kind_name().to_string())
+                .collect();
+        }
+    }
+
+    /// The kind name for a snapshot tag: from `snapshot_kinds` when the
+    /// trace is self-describing, else the built-in `SnapshotType` names.
+    pub fn snapshot_kind_name(&self, tag: u8) -> Option<&str> {
+        if let Some(name) = self.snapshot_kinds.get(tag as usize) {
+            return Some(name);
+        }
+        crate::format::SnapshotType::from_u8(tag).map(|t| t.kind_name())
     }
 }
