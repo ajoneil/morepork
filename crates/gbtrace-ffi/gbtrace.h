@@ -75,7 +75,10 @@ typedef struct GbtraceWriter GbtraceWriter;
 
 /* Create a new trace writer.
  * path: null-terminated output file path.
- * header_json: pointer to JSON header string.
+ * header_json: pointer to JSON header string. May include a "family" key
+ *   naming the console family ("gb", ...); absent means "gb". The writer
+ *   fills in the self-describing metadata (field_defs, field_groups,
+ *   instruction_addr_field, snapshot_kinds) itself.
  * header_len: byte length of header_json (not null-terminated).
  * Returns writer handle, or NULL on error. */
 GbtraceWriter *gbtrace_writer_new(const char *path,
