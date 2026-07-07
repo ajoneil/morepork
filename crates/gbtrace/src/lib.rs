@@ -17,6 +17,6 @@ pub use entry::TraceEntry;
 pub use error::Error;
 pub use header::{BootRom, PixFormat, TraceHeader, Trigger};
 pub use profile::{FieldType, Profile};
-pub use query::{Condition, ConditionEvaluator};
+pub use query::Condition;
 pub use reader::JsonlReader;
 

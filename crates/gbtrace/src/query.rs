@@ -5,14 +5,13 @@
 //! the generic conditions through vocabulary tables; the `Condition` enum
 //! itself is system-agnostic.
 
-use crate::entry::TraceEntry;
-use serde_json::Value;
-
 /// A condition that can be evaluated against trace entries.
 ///
 /// Some conditions are stateless (e.g. `FieldEquals`) and can be checked
 /// against a single entry. Others are stateful (e.g. `FieldChanges`) and
-/// require tracking the previous entry — use [`ConditionEvaluator`] for those.
+/// compare against the previous entry. Evaluation lives with the trace
+/// store (`TraceStore::eval_condition_trait`), which reads both rows by
+/// column.
 #[derive(Debug, Clone)]
 pub enum Condition {
     // --- Stateless: single-entry checks ---
@@ -62,183 +61,6 @@ pub enum Condition {
     Any(Vec<Condition>),
 }
 
-impl Condition {
-    /// Whether this condition requires state from the previous entry.
-    pub fn is_stateful(&self) -> bool {
-        match self {
-            Condition::FieldEquals { .. }
-            | Condition::FieldBitMask { .. }
-            | Condition::FieldBitMaskEquals { .. } => false,
-            Condition::FieldChanges { .. }
-            | Condition::FieldChangesTo { .. }
-            | Condition::FieldChangesFrom { .. }
-            | Condition::BitTransition { .. }
-            | Condition::MaskedChangesTo { .. }
-            | Condition::FieldWraps { .. } => true,
-            Condition::All(cs) | Condition::Any(cs) => cs.iter().any(|c| c.is_stateful()),
-        }
-    }
-}
-
-/// Evaluates conditions against a stream of trace entries, tracking
-/// state for transition-based conditions.
-pub struct ConditionEvaluator {
-    condition: Condition,
-    prev: Option<TraceEntry>,
-}
-
-impl ConditionEvaluator {
-    pub fn new(condition: Condition) -> Self {
-        Self {
-            condition,
-            prev: None,
-        }
-    }
-
-    /// Check whether the current entry matches the condition,
-    /// given the tracked previous entry state.
-    /// Call this for each entry in order.
-    pub fn evaluate(&mut self, entry: &TraceEntry) -> bool {
-        let result = eval_condition(&self.condition, entry, self.prev.as_ref());
-        self.prev = Some(entry.clone());
-        result
-    }
-
-    /// Reset the evaluator state (e.g. when starting a new trace).
-    pub fn reset(&mut self) {
-        self.prev = None;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Internal evaluation
-// ---------------------------------------------------------------------------
-
-fn eval_condition(cond: &Condition, entry: &TraceEntry, prev: Option<&TraceEntry>) -> bool {
-    match cond {
-        Condition::FieldEquals { field, value } => {
-            match entry.get(field) {
-                Some(Value::Number(n)) => {
-                    // Compare numerically: parse the condition value as hex or decimal
-                    if let Some(target) = parse_number(value) {
-                        n.as_u64() == Some(target)
-                    } else {
-                        false
-                    }
-                }
-                Some(v) => entry_field_str_raw(v) == *value,
-                None => false,
-            }
-        }
-
-        Condition::FieldChanges { field } => {
-            let cur = entry_field_str(entry, field);
-            let prv = prev.and_then(|p| entry_field_str(p, field));
-            cur.is_some() && cur != prv
-        }
-
-        Condition::FieldChangesTo { field, value } => {
-            let matches_val = |e: &TraceEntry| field_matches_value(e, field, value);
-            matches_val(entry) && prev.is_none_or(|p| !matches_val(p))
-        }
-
-        Condition::FieldChangesFrom { field, value } => {
-            let matches_val = |e: &TraceEntry| field_matches_value(e, field, value);
-            prev.is_some_and(&matches_val) && !matches_val(entry)
-        }
-
-        Condition::BitTransition { field, bit, to } => {
-            bit_transitions(entry, prev, field, *bit, !*to, *to)
-        }
-
-        Condition::MaskedChangesTo { field, mask, value } => {
-            let masked = |e: &TraceEntry| e.get(field).and_then(|v| v.as_u64()).map(|n| n & mask);
-            masked(entry) == Some(*value)
-                && prev.and_then(masked) != Some(*value)
-        }
-
-        Condition::FieldWraps { field } => {
-            // Heuristic: a sharp decrease from near the top of the range
-            // (e.g. TIMA wrapping to its TMA reload value).
-            let cur = entry.get(field).and_then(|v| v.as_u64());
-            let prv = prev.and_then(|p| p.get(field)).and_then(|v| v.as_u64());
-            match (cur, prv) {
-                (Some(c), Some(p)) => c < p && p > 0x80,
-                _ => false,
-            }
-        }
-
-        Condition::FieldBitMask { field, mask } => {
-            entry.get(field).and_then(|v| v.as_u64()).is_some_and(|n| (n & mask) != 0)
-        }
-
-        Condition::FieldBitMaskEquals { field, mask, value } => {
-            entry.get(field).and_then(|v| v.as_u64()).is_some_and(|n| (n & mask) == *value)
-        }
-
-        Condition::All(cs) => cs.iter().all(|c| eval_condition(c, entry, prev)),
-        Condition::Any(cs) => cs.iter().any(|c| eval_condition(c, entry, prev)),
-    }
-}
-
-/// Get a field value as its raw string representation.
-fn entry_field_str(entry: &TraceEntry, field: &str) -> Option<String> {
-    entry.get(field).map(entry_field_str_raw)
-}
-
-fn entry_field_str_raw(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Null => "null".to_string(),
-        _ => v.to_string(),
-    }
-}
-
-/// Parse a number from user input. Always treats as hex (with or without 0x prefix).
-pub fn parse_number(s: &str) -> Option<u64> {
-    let s = s.trim();
-    let hex = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
-    u64::from_str_radix(hex, 16).ok()
-}
-
-/// Check if a field in an entry matches a value string (numeric or string comparison).
-fn field_matches_value(entry: &TraceEntry, field: &str, value: &str) -> bool {
-    match entry.get(field) {
-        Some(Value::Number(n)) => {
-            if let Some(target) = parse_number(value) {
-                n.as_u64() == Some(target)
-            } else {
-                false
-            }
-        }
-        Some(v) => entry_field_str_raw(v) == *value,
-        None => false,
-    }
-}
-
-/// Check if a specific bit in a numeric field transitioned between two states.
-fn bit_transitions(
-    entry: &TraceEntry,
-    prev: Option<&TraceEntry>,
-    field: &str,
-    bit: u8,
-    from: bool,
-    to: bool,
-) -> bool {
-    let cur_val = entry.get(field).and_then(|v| v.as_u64());
-    let prv_val = prev.and_then(|p| p.get(field)).and_then(|v| v.as_u64());
-    match (cur_val, prv_val) {
-        (Some(c), Some(p)) => {
-            let cur_bit = (c >> bit) & 1 == 1;
-            let prv_bit = (p >> bit) & 1 == 1;
-            prv_bit == from && cur_bit == to
-        }
-        _ => false,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Condition parsing from strings, against a family's vocabulary
 // ---------------------------------------------------------------------------
@@ -246,6 +68,14 @@ fn bit_transitions(
 // Flag names and semantic phrases desugar to the generic conditions above;
 // only the family's tables (`family::Family`) know register names and bit
 // meanings.
+
+/// Parse a number from condition syntax. Always treats the digits as hex
+/// (with or without a `0x` prefix).
+pub fn parse_number(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let hex = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    u64::from_str_radix(hex, 16).ok()
+}
 
 /// Map a CPU flag name to the family's flag definition.
 fn flag_def<'f>(
