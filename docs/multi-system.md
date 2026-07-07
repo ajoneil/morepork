@@ -1,11 +1,12 @@
 # Going multi-system
 
-gbtrace was built for one machine. Its sibling project missingno has already grown
-past that — the frontend drives Game Boy, Atari 2600, Master System, and NES cores
-through family-agnostic seams (`docs/adding-a-system.md` in the missingno repo,
-https://github.com/ajoneil/missingno). This document is the equivalent map for the
-trace side: how the format, core library, CLI, FFI, and web viewer become
-system-agnostic, what stays exactly as it is, and the order of work. Trust the
+gbtrace was built for one machine and has since grown past it, the same way its
+sibling project missingno did — that frontend drives Game Boy, Atari 2600, Master
+System, and NES cores through family-agnostic seams (`docs/adding-a-system.md` in
+the missingno repo, https://github.com/ajoneil/missingno). This document is the
+equivalent map for the trace side: how the format, core library, CLI, FFI, and
+web viewer stay system-agnostic, where family knowledge lives (the registry
+currently hosts gb, nes, and vcs), and what adding a family involves. Trust the
 seams named here, but verify signatures against the source before building on
 them.
 
@@ -76,7 +77,10 @@ is mutable, so both ride per-frame). GB traces keep their raw frame payloads.
 ### 2. Family knowledge lives in one registry in the core
 
 `crates/gbtrace/src/family/` — a static registry (like missingno's `FAMILIES`
-table), one module per family, GB at `src/family/gb/`. A `Family` provides:
+table), one module per family: `gb/`, `nes/`, `vcs/`, with the shared 6502
+decode table, register catalogue, and flag vocabulary in `mos6502.rs`
+(the NES's 2A03 and the VCS's 6507 carry the same core; each family keeps
+only its CPU-address-to-ROM-offset mapping). A `Family` provides:
 
 - **Default field catalogue** (`subsystems`) — validates profiles and types
   legacy traces. The GB catalogue lives in `family/gb/catalogue.rs`.
@@ -84,9 +88,11 @@ table), one module per family, GB at `src/family/gb/`. A `Family` provides:
   engine's `flag …` conditions and the viewer's flag rendering (exported
   through wasm `flagDefs()`).
 - **Semantic query phrases** (`exact_phrases`, `numbered_phrases`) — named
-  conditions (`"lcd on"`, `"ppu enters mode N"`) that desugar to the generic
-  `Condition` variants; `parse_condition` takes the family whose vocabulary
-  it parses.
+  conditions (`"lcd on"`, `"ppu enters mode N"`, `"vblank starts"`) that
+  desugar to the generic `Condition` variants; `parse_condition` takes the
+  family whose vocabulary it parses. `labelled_phrases` is the UI-facing
+  subset — {group, label, query, needed field} — exported through wasm
+  `semanticPhrases()` to drive the query builder's one-click chips.
 - **Disassembler** (`disassemble`) — `fn(&[u8], u16) -> (String, u8)`. SM83
   lives in `family/gb/disasm.rs`.
 - **Diff alignment hint** (`entry_addrs`) — the address every trace of the
@@ -137,10 +143,11 @@ keys are an error), resolved in catalogue order. `[fields.memory]` and
    `format/read.rs` is wire-frozen — pre-`field_groups` traces reconstruct
    their chunk layout from it.
 2. **missingno tracks gbtrace's git HEAD with no pin**
-   (`missingno-gb/Cargo.toml: gbtrace = { git = ... }`). Breaking the Rust API
-   on main breaks missingno's `--features gbtrace` build immediately. Land
-   breaking changes together with the matching missingno update, and push
-   gbtrace first, then missingno immediately after. The consumer surface:
+   (`missingno-{gb,gbc,nes,vcs}/Cargo.toml: gbtrace = { git = ... }`).
+   Breaking the Rust API on main breaks missingno's `--features gbtrace`
+   build immediately. Land breaking changes together with the matching
+   missingno update, and push gbtrace first, then missingno immediately
+   after. The consumer surface:
    - `gbtrace::format::write::GbtraceWriter` — `create(path, &header,
      &groups)`, `set_u8/u16/bool/str/null(col, v)`, `finish_entry`,
      `mark_frame`, `write_snapshot(SnapshotType, &[u8])`, `finish`.
@@ -153,52 +160,56 @@ keys are an error), resolved in catalogue order. `[fields.memory]` and
      TimerSnapshot, DmaSnapshot, SerialSnapshot, MbcSnapshot}` and
      `gbtrace::snapshot::{MemoryRegion, build_memory_payload}` — the
      save-state restore path.
+   - `gbtrace::snapshot::IndexedFrame` — the NES and VCS tracers' frame
+     payloads.
 3. **Adapter CLI surface is frozen** (`--rom/--profile/--output/--frames/
    --stop-when/--stop-opcode/--reference/--model`): `gen-rules.py` and the
    trace scripts hard-code it. Additions must not disturb existing
    invocations.
 
-## What each future family brings
+## What each family brings
 
 | | NES | VCS | SMS |
 |---|---|---|---|
 | CPU state | 6502: `a,x,y,s,p,pc` (+rdy) | same 6502 core (6507) | Z80: full main+shadow set, `ix,iy,sp,pc,wz,i,r,im,iff1/2` |
 | Stepping | `step_cycle` / `step_instruction` / `step_frame` | same + own core-side `Debugger` | `Cpu::step` returns T-states |
 | Frame | 256×240 fixed, 6-bit colour indices | `Vec<[u8; VISIBLE_CLOCKS]>`, **emergent height**, TIA indices | 256×192, CRAM-indexed + per-frame 32-byte CRAM |
-| Disassembler | ✓ `missingno_6502::disasm` | ✓ (same) | ✗ none exists |
-| Trace hooks in missingno | none yet | none yet | none yet (its `bus_trace()` is test-only) |
+| Disassembler | ✓ shared `family/mos6502` + iNES map | ✓ shared core + 6507 cartridge map | ✗ none exists |
+| Trace hooks in missingno | ✓ `missingno-nes/src/trace.rs` | ✓ `missingno-vcs/src/trace.rs` | none (its `bus_trace()` is test-only) |
 
-Recommended second family: **NES** — fixed geometry, cycle-granular stepping,
-public PPU/APU/OAM state, an existing disassembler to check a gbtrace 6502
-decoder against, and it exercises every seam (catalogue, flags, disasm,
-indexed frames) without VCS's emergent-height wrinkle. VCS third, as the
-stress test of the per-frame-dimensions model. SMS waits for a Z80
-disassembler or ships with hex-dump disassembly.
+NES went second because it exercises every seam (catalogue, flags, disasm,
+indexed frames) with fixed geometry; VCS third as the stress test of the
+per-frame-dimensions model (its emergent height is why `IndexedFrame`
+carries dimensions per frame). SMS waits for a Z80 disassembler or ships
+with hex-dump disassembly.
 
-On the missingno side the only trace seam is
-`SystemDebugger::capture_trace(&mut self, path) -> Option<ScreenDisplay>`
-(GB overrides it; others inherit the `None` default) plus the
-`missingno trace` CLI subcommand — a per-family tracer there is missingno
-work, but the family contract in this document is what it implements.
+On the missingno side each family's tracer is a `trace` module in its core
+crate behind a `gbtrace` feature (a `Tracer` with per-field emitters,
+`mark_frame` writing self-contained `IndexedFrame` payloads), routed from
+the `missingno trace` CLI subcommand by ROM detection — a per-family tracer
+there is missingno work, but the family contract in this document is what
+it implements.
 
 ## Web viewer notes
 
-Field display is metadata-driven: the wasm store exposes `fieldDefs()` and
-`flagDefs()`, and `web/src/lib/format.js` keeps its GB tables only as
-defaults for legacy traces. Two deliberate GB-shaped remainders:
+Field display is metadata-driven: the wasm store exposes `fieldDefs()`,
+`flagDefs()`, and `semanticPhrases()`; `web/src/lib/format.js` keeps its GB
+tables only as defaults for legacy traces, and the query builder's chips
+come from the family vocabulary. Frames render through two paths: the GB
+per-entry pix replay (fixed 160×144, partial-frame scrubbing), and indexed
+frame snapshots (`hasIndexedFrames()`/`indexedFrame()`), where each payload
+carries its own dimensions, palette, and pixel aspect. One deliberate
+GB-shaped remainder: the ASM column anchors at the visible `pc` column.
+Every surveyed family names its program counter `pc`, while
+`instruction_addr_field` is typically the hidden `op_addr` — anchoring
+there would remove the column from the default GB view.
 
-- The ASM column anchors at the visible `pc` column. Every surveyed family
-  names its program counter `pc`, while `instruction_addr_field` is typically
-  the hidden `op_addr` — anchoring there would remove the column from the
-  default GB view.
-- `trace-query.js`'s `SEMANTIC_CONDITIONS` chip list is GB-worded but gated
-  on field presence; it follows the family vocabulary once the registry
-  exports labelled semantic phrases.
-
-GB-specific panels (sprite table, APU, FIFO, VRAM, pixel display) are gated
-on field presence, which non-GB traces won't have; a per-family panel
-registry keyed on `header.family` becomes worthwhile when a second family
-ships panels.
+GB-specific panels (sprite table, APU, FIFO, VRAM, pixel replay) are gated
+on the gb family plus the fields they render; default visible columns come
+from the curated GB register set for gb traces and from the header's field
+defs for any other family. A per-family panel registry keyed on
+`header.family` becomes worthwhile when a second family ships panels of
+its own.
 
 ## Naming
 
@@ -212,22 +223,17 @@ Format note for that day: keep accepting `GBTR` magic forever; a new magic
 
 ## Order of work
 
-Each step leaves the GB pipeline green (`cargo test -p gbtrace`, spot-check
-`make traces-<suite>`):
+The generalization landed in this order, each step leaving the GB pipeline
+green (`cargo test -p gbtrace`, spot-check `make traces-<suite>`):
+self-describing format → family registry (GB moved behind it,
+`Indexed8`/`IndexedFrame`) → NES (catalogue, flags, 6502 disassembler,
+missingno tracer, viewer) → family-aware web viewer (indexed frames,
+labelled phrase chips, panel gating) → VCS (the emergent-height stress
+test, on the shared `mos6502` core). What remains:
 
-1. **Self-describing format** — header metadata + reader preference +
-   catalogue fallback (see "The format is fully self-describing").
-2. **Family registry** — `src/family/`, GB moved behind it, `family` header
-   field, `Indexed8`/`IndexedFrame`.
-3. **Second family (NES)** — `family/nes/` catalogue, flags, 6502
-   disassembler (verify against `missingno_6502::disasm`); then a NES
-   profile, a missingno-side tracer, and a captured trace that opens in the
-   CLI and web viewer.
-4. **Web panels for non-GB families** — per-family panel registry, labelled
-   semantic-phrase export for the query chips.
-5. **VCS** (frame-model stress test), then SMS behind a Z80 disassembler.
-6. **Rename** — blocked on the name decision; deliberately last.
-
-The manifest's `systems.{dmg,cgb}` map and the test picker stay GB-only until
-a non-GB test suite exists; they need a family level then
-(`scripts/manifest.py`, `web/src/components/test-picker.js`).
+1. **SMS** — blocked on a Z80 disassembler (or ships with hex-dump
+   disassembly); its missingno core also has no trace hooks yet.
+2. **Non-GB test suites** — the manifest's `systems.{dmg,cgb}` map and the
+   test picker stay GB-only until one exists; they need a family level then
+   (`scripts/manifest.py`, `web/src/components/test-picker.js`).
+3. **Rename** — blocked on the name decision; deliberately last.
