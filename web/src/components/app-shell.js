@@ -203,12 +203,22 @@ export class AppShell extends LitElement {
   }
 
   /** True if the trace includes PPU internal fields. */
+  /** The loaded trace's console family ("gb" for legacy traces). */
+  get _family() {
+    return this._header?.family || 'gb';
+  }
+
+  // The FIFO/sprite/APU/VRAM panels are GB-specific: they gate on the GB
+  // family plus the fields they render, so another family reusing a field
+  // name (e.g. an NES APU's ch1_active) can't trip them. A per-family
+  // panel registry replaces this once a second family ships panels.
   get _hasPpuInternals() {
-    return this._allFields.includes('oam0_x');
+    return this._family === 'gb' && this._allFields.includes('oam0_x');
   }
 
   get _hasApuFields() {
-    return this._allFields.includes('ch1_sweep') || this._allFields.includes('ch1_active');
+    return this._family === 'gb'
+      && (this._allFields.includes('ch1_sweep') || this._allFields.includes('ch1_active'));
   }
 
   /** Fields the user has selected (all minus hidden). Used for queries, stats, diff. */
@@ -270,7 +280,7 @@ export class AppShell extends LitElement {
         .triggerA=${this._header?.trigger || null}
         .triggerB=${this._storeB?.header()?.trigger || null}
         .downsampled=${this._downsampled}
-        .hasPixels=${this._store?.hasPixels() || false}
+        .hasPixels=${this._hasFrames(this._store)}
         .pixelsActive=${this._chartField === '__pixels__'}
       ></trace-selector>
 
@@ -293,6 +303,11 @@ export class AppShell extends LitElement {
         : ''
       }
     `;
+  }
+
+  /** Whether a store can show frames: GB pix replay or indexed frame snapshots. */
+  _hasFrames(store) {
+    return !!(store && (store.hasPixels() || store.hasIndexedFrames?.()));
   }
 
   /** Get the frame range for the current view. */
@@ -329,7 +344,7 @@ export class AppShell extends LitElement {
           ></trace-chart>
         ` : ''}
 
-        ${(this._store?.hasPixels()) ? html`
+        ${this._hasFrames(this._store) ? html`
           ${this._renderPpuBar(hasPerEntryPix)}
         ` : ''}
 
@@ -422,7 +437,7 @@ export class AppShell extends LitElement {
               .perEntryPixels=${hasPerEntryPix}
               .currentIndex=${this._effectiveIndex}
             ></pixel-display>
-            ${this._store?.hasVramData?.() ? html`
+            ${this._family === 'gb' && this._store?.hasVramData?.() ? html`
               <vram-viewer
                 .store=${this._store}
                 .currentIndex=${this._effectiveIndex ?? 0}
@@ -500,7 +515,7 @@ export class AppShell extends LitElement {
           ></trace-chart>
         ` : ''}
 
-        ${(this._store?.hasPixels() || this._storeB?.hasPixels()) ? html`
+        ${(this._hasFrames(this._store) || this._hasFrames(this._storeB)) ? html`
           ${this._renderPpuBar(this._store?.hasPerEntryPixels() || this._storeB?.hasPerEntryPixels() || false)}
         ` : ''}
 
@@ -578,12 +593,12 @@ export class AppShell extends LitElement {
     // Install this trace's display metadata (16-bit widths, flag fields).
     try { setFieldMeta(store.fieldDefs(), store.flagDefs()); } catch { /* legacy wasm */ }
     // Default: show only CPU register fields; the user opts into other
-    // groups. The curated Game Boy set applies when the trace has those
-    // fields; otherwise (another system's trace) the header's field defs
-    // say which fields are CPU registers.
+    // groups. GB traces (and legacy traces, which are all GB) keep the
+    // curated register set; other families derive theirs from the
+    // header's field defs.
     const fields = this._allFields;
     let cpuFields = new Set(['pc', 'sp', 'a', 'f', 'b', 'c', 'd', 'e', 'h', 'l']);
-    if (!fields.some((f) => cpuFields.has(f))) {
+    if ((this._header?.family || 'gb') !== 'gb') {
       try {
         cpuFields = new Set(
           store.fieldDefs()
