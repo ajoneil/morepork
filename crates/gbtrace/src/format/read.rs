@@ -324,6 +324,10 @@ impl TraceStore for GbtraceStore {
             .collect()
     }
 
+    fn frame_payload(&self, frame_idx: usize) -> Option<Vec<u8>> {
+        self.framebuffer(frame_idx)
+    }
+
     fn get_str(&self, col: usize, row: usize) -> String {
         let name = &self.header.fields[col];
         match self.read_group_value(name, row) {

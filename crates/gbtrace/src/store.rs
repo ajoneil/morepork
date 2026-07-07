@@ -65,6 +65,12 @@ pub trait TraceStore {
         self.field_col("op_addr").or_else(|| self.field_col("pc"))
     }
 
+    /// Decompressed payload of the Nth frame snapshot, when the format
+    /// carries one (native traces; None for other stores).
+    fn frame_payload(&self, _frame_idx: usize) -> Option<Vec<u8>> {
+        None
+    }
+
     /// Get column segments for a field over a contiguous row range.
     /// Each segment is a slice of an Arrow array within one chunk.
     /// Returns None if bulk access is not supported (e.g. downsampled stores).

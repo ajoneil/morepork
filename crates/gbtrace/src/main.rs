@@ -232,6 +232,12 @@ fn cmd_render(path: &PathBuf, output_dir: Option<PathBuf>, frame_filter: Option<
         }
     };
 
+    // Indexed frame snapshots render family-agnostically: each payload
+    // carries its own dimensions and palette.
+    if store.header().pix_format == gbtrace::header::PixFormat::Indexed8 {
+        return render_indexed_frames(store.as_ref(), path, output_dir, frame_filter);
+    }
+
     let family = store.header().family_def();
     if family.id != "gb" {
         eprintln!("Error: frame rendering is not implemented for family '{}'", family.id);
@@ -281,6 +287,82 @@ fn cmd_render(path: &PathBuf, output_dir: Option<PathBuf>, frame_filter: Option<
     }
 
     println!("Rendered {} frame(s)", frames.len());
+    0
+}
+
+/// Render `frame` snapshot payloads (`snapshot::IndexedFrame`) to PNGs.
+fn render_indexed_frames(
+    store: &dyn gbtrace::store::TraceStore,
+    path: &PathBuf,
+    output_dir: Option<PathBuf>,
+    frame_filter: Option<String>,
+) -> i32 {
+    let count = store.frame_boundaries().len();
+    if count == 0 {
+        eprintln!("No frame snapshots found");
+        return 1;
+    }
+
+    let out_dir = output_dir.unwrap_or_else(|| PathBuf::from("."));
+    if !out_dir.exists() {
+        if let Err(e) = std::fs::create_dir_all(&out_dir) {
+            eprintln!("Failed to create output directory: {e}");
+            return 1;
+        }
+    }
+
+    let selected: Option<Vec<usize>> = frame_filter.map(|s| {
+        s.split(',')
+            .filter_map(|n| n.trim().parse::<usize>().ok())
+            .collect()
+    });
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("frame");
+
+    let mut rendered = 0;
+    for idx in 0..count {
+        let frame_num = idx + 1; // 1-based for display
+        if let Some(ref sel) = selected {
+            if !sel.contains(&frame_num) { continue; }
+        }
+        let Some(payload) = store.frame_payload(idx) else {
+            println!("  Frame {frame_num:>3}  (no pixel payload)");
+            continue;
+        };
+        let Some(frame) = gbtrace::snapshot::IndexedFrame::from_bytes(&payload) else {
+            eprintln!("  Frame {frame_num:>3}  ERROR: malformed indexed-frame payload");
+            continue;
+        };
+
+        let rgba = frame.to_rgba();
+        let mut png_data = Vec::new();
+        {
+            let mut encoder =
+                png::Encoder::new(&mut png_data, frame.width as u32, frame.height as u32);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&rgba).unwrap();
+        }
+
+        let out_path = out_dir.join(format!("{stem}_frame{frame_num:03}.png"));
+        match std::fs::write(&out_path, &png_data) {
+            Ok(_) => {
+                println!(
+                    "  Frame {:>3}  {} ({}x{})",
+                    frame_num,
+                    out_path.display(),
+                    frame.width,
+                    frame.height
+                );
+                rendered += 1;
+            }
+            Err(e) => {
+                eprintln!("  Frame {frame_num:>3}  ERROR: {e}");
+            }
+        }
+    }
+
+    println!("Rendered {rendered} frame(s)");
     0
 }
 
