@@ -105,11 +105,19 @@ impl<'a> TraceComparison<'a> {
             }
             "cartridge" => {
                 if !try_align_cartridge_entry(store_a, store_b, &mut map_a, &mut map_b) {
-                    return Err(Error::Diff(
-                        "sync=cartridge: both traces must start at PC=0x0100 \
-                         (cartridge ROM entry) and contain a later PC=0x0101 entry"
-                            .into(),
-                    ));
+                    let msg = match store_a.header().family_def().entry_addrs {
+                        Some((entry, next)) => format!(
+                            "sync=cartridge: both traces must start at \
+                             PC=0x{entry:04X} (program entry) and contain a \
+                             later PC=0x{next:04X} entry"
+                        ),
+                        None => format!(
+                            "sync=cartridge: family '{}' has no fixed program \
+                             entry address; use sync=pc or a condition",
+                            store_a.header().family_def().id
+                        ),
+                    };
+                    return Err(Error::Diff(msg));
                 }
             }
             "pc" => {

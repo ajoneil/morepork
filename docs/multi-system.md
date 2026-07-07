@@ -139,9 +139,13 @@ keys are an error), resolved in catalogue order. `[fields.memory]` and
 1. **The existing trace corpus (~20 GB on Spaces) must stay readable without
    regeneration.** Traces without `family`/`field_defs` imply `family = "gb"`
    and resolve through the GB catalogue. This fallback is permanent, cheap,
-   and tested by the roundtrip tests. The legacy `derive_groups` in
-   `format/read.rs` is wire-frozen — pre-`field_groups` traces reconstruct
-   their chunk layout from it.
+   and tested by the roundtrip tests. Two pieces of the `format` module are
+   wire-frozen for the same reason: `derive_groups` in `format/read.rs`
+   (pre-`field_groups` traces reconstruct their chunk layout from it), and
+   the GB-specific `SnapshotType` variants with their tag→kind-name mapping
+   (`gb.cpu`…`gb.mbc` — the fallback for headers that predate
+   `snapshot_kinds`). Both stay in `format/` deliberately; only `frame` and
+   `memory` are format-level concepts.
 2. **missingno tracks gbtrace's git HEAD with no pin**
    (`missingno-{gb,gbc,nes,vcs}/Cargo.toml: gbtrace = { git = ... }`).
    Breaking the Rust API on main breaks missingno's `--features gbtrace`

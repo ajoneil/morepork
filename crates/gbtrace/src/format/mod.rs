@@ -36,7 +36,8 @@ pub const DEFAULT_CHUNK_SIZE: usize = 65536;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SnapshotType {
-    /// Frame boundary. Payload is optional screen data (160x144 shade values).
+    /// Frame boundary. Payload is optional screen data: raw GB pixels in
+    /// the header's pix_format, or a serialized `snapshot::IndexedFrame`.
     Frame = 0,
     /// Bulk memory contents (WRAM, VRAM, OAM, HRAM, wave RAM, cartridge RAM).
     Memory = 1,

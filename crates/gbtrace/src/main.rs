@@ -50,7 +50,7 @@ enum Command {
         #[arg(long)]
         fields: Option<String>,
     },
-    /// Show frame boundaries detected from ly scanline counter
+    /// Show the trace's frame boundaries
     Frames {
         /// Trace file to inspect
         input: PathBuf,
@@ -98,9 +98,10 @@ enum Command {
         /// Exclude these fields from comparison (comma-separated)
         #[arg(long)]
         exclude: Option<String>,
-        /// Sync mode before comparing. Modes: auto (default; cartridge-entry
-        /// skip if both start at PC=0x0100, else first-common-PC), cartridge,
-        /// pc, none, or a condition like `pc=0x0101` / `lcdc&80` (hex values).
+        /// Sync mode before comparing. Modes: auto (default; skip to the
+        /// family's program entry when both traces start there, else
+        /// first-common-address), cartridge, pc, none, or a condition
+        /// like `pc=0x0101` / `lcdc&80` (hex values).
         #[arg(long)]
         sync: Option<String>,
         /// One-line-per-field summary output
@@ -196,7 +197,7 @@ fn cmd_frames(path: &PathBuf) -> i32 {
 
     let boundaries = store.frame_boundaries();
     if boundaries.is_empty() {
-        println!("No frames detected (trace has no ly field)");
+        println!("No frames detected (trace has no frame boundaries)");
         return 0;
     }
 
