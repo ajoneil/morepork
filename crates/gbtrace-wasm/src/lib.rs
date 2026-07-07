@@ -216,6 +216,36 @@ impl TraceStore {
         self.store.has_field("pix")
     }
 
+    /// Whether this trace carries indexed frame snapshots
+    /// (`pix_format = indexed8`) instead of the GB per-entry pix stream.
+    #[wasm_bindgen(js_name = hasIndexedFrames)]
+    pub fn has_indexed_frames(&self) -> bool {
+        self.store.header().pix_format == gbtrace::PixFormat::Indexed8
+    }
+
+    /// Decode the Nth `frame` snapshot payload as an indexed frame.
+    /// Returns `{width, height, pixelAspect, rgba: Uint8ClampedArray}`
+    /// or null when the frame has no payload. Each payload carries its
+    /// own dimensions and palette, so this works for any family.
+    #[wasm_bindgen(js_name = indexedFrame)]
+    pub fn indexed_frame(&self, frame_index: usize) -> Result<JsValue, JsError> {
+        let payload = match self.store.frame_payload(frame_index) {
+            Some(p) => p,
+            None => return Ok(JsValue::NULL),
+        };
+        let frame = match gbtrace::snapshot::IndexedFrame::from_bytes(&payload) {
+            Some(f) => f,
+            None => return Ok(JsValue::NULL),
+        };
+        let obj = js_sys::Object::new();
+        let rgba = js_sys::Uint8ClampedArray::from(&frame.to_rgba()[..]);
+        js_sys::Reflect::set(&obj, &"width".into(), &JsValue::from(frame.width)).unwrap();
+        js_sys::Reflect::set(&obj, &"height".into(), &JsValue::from(frame.height)).unwrap();
+        js_sys::Reflect::set(&obj, &"pixelAspect".into(), &JsValue::from(frame.pixel_aspect)).unwrap();
+        js_sys::Reflect::set(&obj, &"rgba".into(), &rgba).unwrap();
+        Ok(obj.into())
+    }
+
     /// Whether this trace has per-entry pixel data (not full-frame dumps).
     /// Returns true even when downsampled, since the underlying data has pixels.
     #[wasm_bindgen(js_name = hasPerEntryPixels)]

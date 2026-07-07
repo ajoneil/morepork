@@ -7,12 +7,16 @@ const SCALE = 2;
 const PALETTE = [[0xe0,0xf8,0xd0], [0x88,0xc0,0x70], [0x34,0x68,0x56], [0x08,0x18,0x20]];
 
 /**
- * Renders Game Boy LCD frames from trace pixel data.
+ * Renders console frames from trace pixel data.
  *
  * Single mode: one canvas showing the current frame.
  * Compare mode (storeB set): three canvases — A | diff | B.
  * T-cycle mode (perEntryPixels): renders partial frames at the given
  * currentIndex and supports pixel crosshair highlighting.
+ *
+ * Two frame sources: the GB per-entry pix replay (fixed 160×144), and
+ * indexed frame snapshots (`pix_format = indexed8`) whose payloads carry
+ * their own dimensions, palette, and pixel aspect.
  */
 export class PixelDisplay extends LitElement {
   static properties = {
@@ -29,6 +33,7 @@ export class PixelDisplay extends LitElement {
     _highlightPixel: { state: true },
     _pixMap: { state: true },
     _pixMapFrame: { state: true },
+    _dims: { state: true },
   };
 
   static styles = css`
@@ -107,6 +112,11 @@ export class PixelDisplay extends LitElement {
     this._pixMap = null;
     this._reversePixMap = null;
     this._pixMapFrame = -1;
+    this._dims = { w: LCD_WIDTH, h: LCD_HEIGHT, aspect: 1 };
+  }
+
+  _isIndexed() {
+    return this.store?.hasIndexedFrames?.() || false;
   }
 
   updated(changed) {
@@ -114,6 +124,12 @@ export class PixelDisplay extends LitElement {
       this._frameCountA = this.store?.frameCount() || 0;
       this._pixMap = null;
       this._pixMapFrame = -1;
+    }
+    if (changed.has('_dims')) {
+      // Canvas dimension attributes changed (indexed frames size per
+      // frame), which cleared the canvases — repaint them.
+      this.updateComplete.then(() => this._draw());
+      return;
     }
     if (changed.has('viewStart') || changed.has('frameBoundaries') ||
         changed.has('store') || changed.has('storeB') || changed.has('currentIndex')) {
@@ -311,17 +327,17 @@ export class PixelDisplay extends LitElement {
     }
   }
 
-  _renderDiff(rgbaA, rgbaB) {
+  _renderDiff(rgbaA, rgbaB, w = LCD_WIDTH, h = LCD_HEIGHT) {
     const canvas = this.renderRoot?.querySelector('#diff');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    if (!rgbaA || !rgbaB) { ctx.clearRect(0, 0, LCD_WIDTH, LCD_HEIGHT); return; }
+    if (!rgbaA || !rgbaB) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
     // Compare rendered RGBA pixels — format-agnostic, so it works for both
     // DMG (greyscale) and CGB (colour) frames.
     const a = new Uint8ClampedArray(rgbaA.buffer || rgbaA);
     const b = new Uint8ClampedArray(rgbaB.buffer || rgbaB);
-    const diff = new Uint8ClampedArray(LCD_WIDTH * LCD_HEIGHT * 4);
-    for (let i = 0; i < LCD_WIDTH * LCD_HEIGHT; i++) {
+    const diff = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
       const off = i * 4;
       const same = a[off] === b[off] && a[off+1] === b[off+1]
         && a[off+2] === b[off+2] && a[off+3] === b[off+3];
@@ -338,7 +354,7 @@ export class PixelDisplay extends LitElement {
         diff[off+3] = 255;
       }
     }
-    ctx.putImageData(new ImageData(diff, LCD_WIDTH, LCD_HEIGHT), 0, 0);
+    ctx.putImageData(new ImageData(diff, w, h), 0, 0);
   }
 
   _canvasToLcd(e) {
@@ -388,7 +404,53 @@ export class PixelDisplay extends LitElement {
     }
   }
 
+  /** Draw an indexed frame snapshot; returns {width, height, rgba} or null. */
+  _renderIndexedToCanvas(id, store, frameIndex) {
+    const canvas = this.renderRoot?.querySelector(`#${id}`);
+    if (!canvas) return null;
+    const ctx = canvas.getContext('2d');
+    if (!store) { ctx.clearRect(0, 0, canvas.width, canvas.height); return null; }
+    try {
+      const frame = store.indexedFrame(frameIndex);
+      if (!frame) { ctx.clearRect(0, 0, canvas.width, canvas.height); return null; }
+      if (canvas.width !== frame.width || canvas.height !== frame.height) {
+        canvas.width = frame.width;
+        canvas.height = frame.height;
+      }
+      const arr = new Uint8ClampedArray(frame.rgba.buffer || frame.rgba);
+      ctx.putImageData(new ImageData(arr, frame.width, frame.height), 0, 0);
+      return { width: frame.width, height: frame.height, aspect: frame.pixelAspect || 1, rgba: arr };
+    } catch (err) {
+      console.error('Failed to render indexed frame:', err);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return null;
+    }
+  }
+
+  _drawIndexed() {
+    const fi = this._frameIndex;
+    const a = this._renderIndexedToCanvas('canvasA', this.store, fi);
+    if (a) {
+      const d = this._dims;
+      if (d.w !== a.width || d.h !== a.height || d.aspect !== a.aspect) {
+        this._dims = { w: a.width, h: a.height, aspect: a.aspect };
+      }
+    }
+    if (this.storeB) {
+      const b = this._renderIndexedToCanvas('canvasB', this.storeB, fi);
+      if (a && b && a.width === b.width && a.height === b.height) {
+        this._renderDiff(a.rgba, b.rgba, a.width, a.height);
+      } else {
+        this._renderDiff(null, null);
+      }
+    }
+  }
+
   _draw() {
+    if (this._isIndexed()) {
+      this._drawIndexed();
+      return;
+    }
     const fi = this._frameIndex;
     if (this.storeB) {
       if (this.perEntryPixels && this.currentIndex != null) {
@@ -410,6 +472,9 @@ export class PixelDisplay extends LitElement {
 
   render() {
     const total = this._frameCountA;
+    const { w: W, h: H, aspect } = this._dims;
+    const cssW = Math.round(W * SCALE * aspect);
+    const cssH = H * SCALE;
 
     if (this.storeB) {
       return html`
@@ -426,23 +491,23 @@ export class PixelDisplay extends LitElement {
             <div class="compare-panel">
               <span class="compare-label a">${this.nameA || 'A'}</span>
               <div class="canvas-wrap">
-                <canvas id="canvasA" width=${LCD_WIDTH} height=${LCD_HEIGHT}
-                  style="width: ${LCD_WIDTH * SCALE}px; height: ${LCD_HEIGHT * SCALE}px;"></canvas>
+                <canvas id="canvasA" width=${W} height=${H}
+                  style="width: ${cssW}px; height: ${cssH}px;"></canvas>
                 ${this.perEntryPixels ? html`
-                  <canvas class="highlight-overlay" width=${LCD_WIDTH} height=${LCD_HEIGHT}
-                    style="width: ${LCD_WIDTH * SCALE}px; height: ${LCD_HEIGHT * SCALE}px;"></canvas>
+                  <canvas class="highlight-overlay" width=${W} height=${H}
+                    style="width: ${cssW}px; height: ${cssH}px;"></canvas>
                 ` : ''}
               </div>
             </div>
             <div class="compare-panel">
               <span class="compare-label diff">diff</span>
-              <canvas id="diff" width=${LCD_WIDTH} height=${LCD_HEIGHT}
-                style="width: ${LCD_WIDTH * SCALE}px; height: ${LCD_HEIGHT * SCALE}px;"></canvas>
+              <canvas id="diff" width=${W} height=${H}
+                style="width: ${cssW}px; height: ${cssH}px;"></canvas>
             </div>
             <div class="compare-panel">
               <span class="compare-label b">${this.nameB || 'B'}</span>
-              <canvas id="canvasB" width=${LCD_WIDTH} height=${LCD_HEIGHT}
-                style="width: ${LCD_WIDTH * SCALE}px; height: ${LCD_HEIGHT * SCALE}px;"></canvas>
+              <canvas id="canvasB" width=${W} height=${H}
+                style="width: ${cssW}px; height: ${cssH}px;"></canvas>
             </div>
           </div>
         </div>
@@ -460,11 +525,11 @@ export class PixelDisplay extends LitElement {
           @mouseleave=${this.perEntryPixels ? this._onCanvasMouseLeave : null}
           @click=${this.perEntryPixels ? this._onCanvasClick : null}
           style="${this.perEntryPixels ? 'cursor:crosshair;' : ''}">
-          <canvas id="canvasA" width=${LCD_WIDTH} height=${LCD_HEIGHT}
-            style="width: ${LCD_WIDTH * SCALE}px; height: ${LCD_HEIGHT * SCALE}px;"></canvas>
+          <canvas id="canvasA" width=${W} height=${H}
+            style="width: ${cssW}px; height: ${cssH}px;"></canvas>
           ${this.perEntryPixels ? html`
-            <canvas class="highlight-overlay" width=${LCD_WIDTH} height=${LCD_HEIGHT}
-              style="width: ${LCD_WIDTH * SCALE}px; height: ${LCD_HEIGHT * SCALE}px;"></canvas>
+            <canvas class="highlight-overlay" width=${W} height=${H}
+              style="width: ${cssW}px; height: ${cssH}px;"></canvas>
           ` : ''}
         </div>
       </div>
