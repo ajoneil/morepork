@@ -2,8 +2,10 @@
 //!
 //! Reads the `pix` field from trace entries and reconstructs 160×144 frames.
 //! The encoding depends on `TraceHeader::pix_format`:
-//!   - `Shade2` (DMG): one char per pixel, `'0'`-`'3'` (2-bit greyscale shade).
-//!   - `Rgb555` (CGB): four hex chars per pixel, the 15-bit colour (`0000`-`7FFF`).
+//! - `Shade2` (DMG): one char per pixel, `'0'`-`'3'` (2-bit greyscale shade).
+//! - `Rgb555` (CGB): four hex chars per pixel, the 15-bit colour
+//!   (`0000`-`7FFF`).
+//!
 //! Pixels are pushed left-to-right per scanline, with scanline boundaries
 //! detected from `ly` changes.
 

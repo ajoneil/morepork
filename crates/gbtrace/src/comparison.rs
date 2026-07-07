@@ -139,6 +139,10 @@ impl<'a> TraceComparison<'a> {
         self.map_a.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.map_a.is_empty()
+    }
+
     /// Get the original entry index in store A for an aligned index.
     pub fn original_a(&self, aligned_idx: usize) -> usize {
         self.map_a[aligned_idx]
@@ -181,8 +185,8 @@ impl<'a> TraceComparison<'a> {
 
     /// Compute per-field diff statistics, optionally restricted to specific fields.
     pub fn compute_stats_filtered(&mut self, filter: Option<&[&str]>) -> &[FieldDiffStats] {
-        if self.field_stats.is_some() {
-            return self.field_stats.as_ref().unwrap();
+        if let Some(ref stats) = self.field_stats {
+            return stats;
         }
 
         let fields_a = &self.store_a.header().fields;
@@ -287,15 +291,9 @@ fn compare_segments(segs_a: &[ColumnSegment], segs_b: &[ColumnSegment]) -> usize
     let mut iter_a = SegmentIter::new(segs_a);
     let mut iter_b = SegmentIter::new(segs_b);
 
-    loop {
-        let (arr_a, off_a) = match iter_a.current() {
-            Some(v) => v,
-            None => break,
-        };
-        let (arr_b, off_b) = match iter_b.current() {
-            Some(v) => v,
-            None => break,
-        };
+    while let (Some((arr_a, off_a)), Some((arr_b, off_b))) =
+        (iter_a.current(), iter_b.current())
+    {
 
         let avail_a = segment_remaining(&iter_a);
         let avail_b = segment_remaining(&iter_b);
@@ -542,15 +540,9 @@ fn diff_indices_from_segments(segs_a: &[ColumnSegment], segs_b: &[ColumnSegment]
     let mut iter_b = SegmentIter::new(segs_b);
     let mut global_pos = global_start;
 
-    loop {
-        let (arr_a, off_a) = match iter_a.current() {
-            Some(v) => v,
-            None => break,
-        };
-        let (arr_b, off_b) = match iter_b.current() {
-            Some(v) => v,
-            None => break,
-        };
+    while let (Some((arr_a, off_a)), Some((arr_b, off_b))) =
+        (iter_a.current(), iter_b.current())
+    {
 
         let avail_a = segment_remaining(&iter_a);
         let avail_b = segment_remaining(&iter_b);

@@ -70,14 +70,14 @@ impl ColBuf {
             Self::U64(b) => b.append_value(0),
             Self::Bool(b) => b.append_value(false),
             Self::Str(b) => b.append_value(""),
-            Self::DictU8(b) => { let _ = b.append_value(0); }
+            Self::DictU8(b) => { b.append_value(0); }
         }
     }
 
     fn append_u8(&mut self, val: u8) {
         match self {
             Self::U8(b) => b.append_value(val),
-            Self::DictU8(b) => { let _ = b.append_value(val); }
+            Self::DictU8(b) => { b.append_value(val); }
             _ => self.append_mismatched(),
         }
     }
@@ -170,7 +170,7 @@ impl GroupMapping {
 
         let mut col_indices = Vec::new();
 
-        for (_gi, group) in groups.iter().enumerate() {
+        for group in groups.iter() {
             let mut cols = Vec::new();
             for field_name in &group.fields {
                 if let Some(&ci) = field_to_col.get(field_name.as_str()) {
@@ -256,7 +256,7 @@ impl GbtraceWriter {
         // Write header (JSON, zstd-compressed)
         let header_json = serde_json::to_string(&header)?;
         let header_compressed = zstd::encode_all(header_json.as_bytes(), 3)
-            .map_err(|e| Error::Io(io::Error::new(io::ErrorKind::Other, e)))?;
+            .map_err(|e| Error::Io(io::Error::other(e)))?;
         out.write_all(&(header_compressed.len() as u32).to_le_bytes())?;
         out.write_all(&header_compressed)?;
 
@@ -318,7 +318,7 @@ impl GbtraceWriter {
             Vec::new()
         } else {
             zstd::encode_all(payload, 3)
-                .map_err(|e| Error::Io(io::Error::new(io::ErrorKind::Other, e)))?
+                .map_err(|e| Error::Io(io::Error::other(e)))?
         };
 
         let offset = self.out.stream_position()?;
@@ -374,20 +374,20 @@ impl GbtraceWriter {
 
             let schema = Arc::new(Schema::new(fields));
             let batch = RecordBatch::try_new(schema.clone(), arrays)
-                .map_err(|e| Error::Arrow(e))?;
+                .map_err(Error::Arrow)?;
 
             // Serialize to Arrow IPC stream
             let mut ipc_buf = Vec::new();
             {
                 let mut writer = StreamWriter::try_new(&mut ipc_buf, &schema)
-                    .map_err(|e| Error::Arrow(e))?;
-                writer.write(&batch).map_err(|e| Error::Arrow(e))?;
-                writer.finish().map_err(|e| Error::Arrow(e))?;
+                    .map_err(Error::Arrow)?;
+                writer.write(&batch).map_err(Error::Arrow)?;
+                writer.finish().map_err(Error::Arrow)?;
             }
 
             // Compress with zstd
             let compressed = zstd::encode_all(ipc_buf.as_slice(), 3)
-                .map_err(|e| Error::Io(io::Error::new(io::ErrorKind::Other, e)))?;
+                .map_err(|e| Error::Io(io::Error::other(e)))?;
 
             group_blobs.push((gi as u8, compressed));
         }

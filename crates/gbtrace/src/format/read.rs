@@ -118,26 +118,26 @@ impl GbtraceStore {
         let mut pos = footer_offset;
 
         // Chunk index
-        let num_chunks = read_u32(&data, &mut pos) as usize;
+        let num_chunks = read_u32(data, &mut pos) as usize;
         let mut chunk_index = Vec::with_capacity(num_chunks);
         let mut cumulative = Vec::with_capacity(num_chunks);
         let mut total = 0usize;
         for _ in 0..num_chunks {
-            let offset = read_u64(&data, &mut pos);
-            let entry_count = read_u32(&data, &mut pos);
+            let offset = read_u64(data, &mut pos);
+            let entry_count = read_u32(data, &mut pos);
             chunk_index.push(ChunkIndexEntry { offset, entry_count });
             total += entry_count as usize;
             cumulative.push(total);
         }
 
         // Snapshot index
-        let num_snapshots = read_u32(&data, &mut pos) as usize;
+        let num_snapshots = read_u32(data, &mut pos) as usize;
         let mut snapshot_index = Vec::with_capacity(num_snapshots);
         for _ in 0..num_snapshots {
             let snapshot_type = data[pos]; pos += 1;
-            let entry_index = read_u64(&data, &mut pos);
-            let offset = read_u64(&data, &mut pos);
-            let payload_size = read_u32(&data, &mut pos);
+            let entry_index = read_u64(data, &mut pos);
+            let offset = read_u64(data, &mut pos);
+            let payload_size = read_u32(data, &mut pos);
             snapshot_index.push(SnapshotIndexEntry {
                 snapshot_type,
                 entry_index,
@@ -146,7 +146,7 @@ impl GbtraceStore {
             });
         }
 
-        let total_entries = read_u64(&data, &mut pos) as usize;
+        let total_entries = read_u64(data, &mut pos) as usize;
 
         // Build field index
         let field_index: HashMap<String, usize> = header.fields.iter()
@@ -354,11 +354,10 @@ impl TraceStore for GbtraceStore {
 
     fn is_null(&self, col: usize, row: usize) -> bool {
         let name = &self.header.fields[col];
-        match self.read_group_value(name, row) {
-            Some(GroupValue::Null) => true,
-            None => true,
-            _ => false,
-        }
+        matches!(
+            self.read_group_value(name, row),
+            Some(GroupValue::Null) | None
+        )
     }
 
     fn get_column_segments(&self, field: &str, start: usize, end: usize) -> Option<Vec<crate::store::ColumnSegment>> {

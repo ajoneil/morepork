@@ -3,7 +3,7 @@
 //! this family (the header's free-form `model` string), not separate
 //! families.
 
-use super::{Family, FlagDef, LabelledPhrase};
+use super::{ExactPhrase, Family, FlagDef, LabelledPhrase, NumberedPhrase};
 use crate::query::Condition;
 
 pub mod catalogue;
@@ -19,13 +19,13 @@ static FLAGS: &[FlagDef] = &[
     FlagDef { names: &["c", "carry"], field: "f", bit: 4 },
 ];
 
-static EXACT_PHRASES: &[(&str, fn() -> Condition)] = &[
+static EXACT_PHRASES: &[ExactPhrase] = &[
     ("lcd on", || Condition::BitTransition { field: "lcdc".into(), bit: 7, to: true }),
     ("lcd off", || Condition::BitTransition { field: "lcdc".into(), bit: 7, to: false }),
     ("timer overflow", || Condition::FieldWraps { field: "tima".into() }),
 ];
 
-static NUMBERED_PHRASES: &[(&str, u8, fn(u8) -> Condition)] = &[
+static NUMBERED_PHRASES: &[NumberedPhrase] = &[
     ("ppu enters mode ", 3, |mode| Condition::MaskedChangesTo {
         field: "stat".into(),
         mask: 0x03,

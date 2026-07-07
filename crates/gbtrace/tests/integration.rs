@@ -100,7 +100,7 @@ fn entry_hex_formatting() {
     assert_eq!(e.get("f").unwrap().as_u64().unwrap(), 0x00);
     assert_eq!(e.get("pc").unwrap().as_u64().unwrap(), 0x0100);
     assert_eq!(e.get("sp").unwrap().as_u64().unwrap(), 0xFFFF);
-    assert_eq!(e.get("ime").unwrap().as_bool().unwrap(), true);
+    assert!(e.get("ime").unwrap().as_bool().unwrap());
 }
 
 #[test]

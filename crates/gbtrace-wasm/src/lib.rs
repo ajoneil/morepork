@@ -86,7 +86,7 @@ impl TraceStore {
 
     /// Return the trace header as a JS object.
     pub fn header(&self) -> Result<JsValue, JsError> {
-        Ok(to_js(self.store.header())?)
+        to_js(self.store.header())
     }
 
     /// Number of entries in the trace.
@@ -139,7 +139,7 @@ impl TraceStore {
             .iter()
             .filter(|f| !is_pixel_stream(f))
             .collect();
-        Ok(to_js(&filtered)?)
+        to_js(&filtered)
     }
 
     /// Typed field declarations from a self-describing header: array of
@@ -147,7 +147,7 @@ impl TraceStore {
     /// traces written before field_defs existed.
     #[wasm_bindgen(js_name = fieldDefs)]
     pub fn field_defs(&self) -> Result<JsValue, JsError> {
-        Ok(to_js(&self.store.header().field_defs)?)
+        to_js(&self.store.header().field_defs)
     }
 
     /// Get field grouping info: returns a JS object mapping field name
@@ -169,7 +169,7 @@ impl TraceStore {
                 groups.insert(field, (subsystem, layer));
             }
         }
-        Ok(to_js(&groups)?)
+        to_js(&groups)
     }
 
     /// The flag vocabulary for this trace's system: array of
@@ -188,7 +188,7 @@ impl TraceStore {
             .iter()
             .map(|d| JsFlag { name: d.names[0], field: d.field, bit: d.bit })
             .collect();
-        Ok(to_js(&flags)?)
+        to_js(&flags)
     }
 
     /// Labelled semantic query phrases for this trace's family: array of
@@ -207,7 +207,7 @@ impl TraceStore {
             .iter()
             .map(|p| JsPhrase { group: p.group, label: p.label, query: p.query, needs: p.needs })
             .collect();
-        Ok(to_js(&phrases)?)
+        to_js(&phrases)
     }
 
     /// Whether this trace has pixel data (a `pix` column).
@@ -417,7 +417,7 @@ impl TraceStore {
         if index >= self.entry_count() {
             return Ok(JsValue::NULL);
         }
-        Ok(to_js(&self.row_to_map(index))?)
+        to_js(&self.row_to_map(index))
     }
 
     /// Get a range of entries as a JS array. Used for virtual scrolling.
@@ -425,7 +425,7 @@ impl TraceStore {
     pub fn entries_range(&self, start: usize, count: usize) -> Result<JsValue, JsError> {
         let end = (start + count).min(self.entry_count());
         let slice: Vec<_> = (start..end).map(|i| self.row_to_map(i)).collect();
-        Ok(to_js(&slice)?)
+        to_js(&slice)
     }
 
     /// Parse a condition string and find all matching entry indices.
@@ -481,7 +481,7 @@ impl TraceStore {
         let max_len = self.entry_count().min(other.entry_count());
         let start = start.min(max_len);
         let end = end.min(max_len);
-        let len = if end > start { end - start } else { 0 };
+        let len = end.saturating_sub(start);
 
         let fields = self.store.header().fields.clone();
 
@@ -530,7 +530,7 @@ impl TraceStore {
             fields: field_counts,
         };
 
-        Ok(to_js(&stats)?)
+        to_js(&stats)
     }
 
     /// Compare ALL fields between this store and another.
@@ -601,11 +601,11 @@ impl TraceStore {
     pub fn disassemble_range(&self, start: usize, count: usize) -> Result<JsValue, JsError> {
         let rom = match &self.rom {
             Some(r) => r,
-            None => return Ok(to_js(&Vec::<String>::new())?),
+            None => return to_js(&Vec::<String>::new()),
         };
         let disassemble = match self.store.header().family_def().disassemble {
             Some(f) => f,
-            None => return Ok(to_js(&Vec::<String>::new())?),
+            None => return to_js(&Vec::<String>::new()),
         };
         let end = (start + count).min(self.entry_count());
         let addr_col = self.store.addr_col();
@@ -619,7 +619,7 @@ impl TraceStore {
                 disassemble(rom, addr).0
             })
             .collect();
-        Ok(to_js(&mnemonics)?)
+        to_js(&mnemonics)
     }
     // --- VRAM reconstruction ---
 
@@ -758,7 +758,7 @@ impl TraceStore {
                     let s = store.get_str(col_idx, orig_row);
                     if s.len() == 1 {
                         let ch = s.as_bytes()[0];
-                        if ch >= b'0' && ch <= b'3' {
+                        if (b'0'..=b'3').contains(&ch) {
                             JsField::Num((ch - b'0') as f64)
                         } else {
                             continue;

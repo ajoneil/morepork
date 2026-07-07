@@ -17,6 +17,12 @@ pub struct VramSnapshot {
     pub entry: usize,
 }
 
+impl Default for VramSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VramSnapshot {
     pub fn new() -> Self {
         Self {

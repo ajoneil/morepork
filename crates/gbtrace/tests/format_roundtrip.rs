@@ -264,10 +264,7 @@ fn test_framebuffer() {
     ];
 
     // Create a test framebuffer (23040 bytes)
-    let mut fb = vec![0u8; 23040];
-    for i in 0..23040 {
-        fb[i] = (i % 4) as u8;
-    }
+    let fb: Vec<u8> = (0..23040).map(|i| (i % 4) as u8).collect();
 
     // Write
     {

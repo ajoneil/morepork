@@ -12,10 +12,12 @@ use crate::profile::FieldType;
 /// - `"stripped:<original>"` — boot entries were removed post-capture
 /// - `"<sha256>"` — a specific boot ROM was used, identified by hash
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum BootRom {
     /// Boot ROM was skipped; initial state is post-boot.
     Skip,
     /// Emulator's built-in boot ROM was used.
+    #[default]
     Builtin,
     /// Boot ROM was used but entries were stripped post-capture.
     /// Contains the original boot_rom value (e.g. the SHA-256 hash).
@@ -36,11 +38,6 @@ impl BootRom {
     }
 }
 
-impl Default for BootRom {
-    fn default() -> Self {
-        BootRom::Builtin
-    }
-}
 
 impl Serialize for BootRom {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

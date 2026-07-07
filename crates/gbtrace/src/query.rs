@@ -139,12 +139,12 @@ fn eval_condition(cond: &Condition, entry: &TraceEntry, prev: Option<&TraceEntry
 
         Condition::FieldChangesTo { field, value } => {
             let matches_val = |e: &TraceEntry| field_matches_value(e, field, value);
-            matches_val(entry) && prev.map_or(true, |p| !matches_val(p))
+            matches_val(entry) && prev.is_none_or(|p| !matches_val(p))
         }
 
         Condition::FieldChangesFrom { field, value } => {
             let matches_val = |e: &TraceEntry| field_matches_value(e, field, value);
-            prev.map_or(false, |p| matches_val(p)) && !matches_val(entry)
+            prev.is_some_and(&matches_val) && !matches_val(entry)
         }
 
         Condition::BitTransition { field, bit, to } => {
@@ -169,11 +169,11 @@ fn eval_condition(cond: &Condition, entry: &TraceEntry, prev: Option<&TraceEntry
         }
 
         Condition::FieldBitMask { field, mask } => {
-            entry.get(field).and_then(|v| v.as_u64()).map_or(false, |n| (n & mask) != 0)
+            entry.get(field).and_then(|v| v.as_u64()).is_some_and(|n| (n & mask) != 0)
         }
 
         Condition::FieldBitMaskEquals { field, mask, value } => {
-            entry.get(field).and_then(|v| v.as_u64()).map_or(false, |n| (n & mask) == *value)
+            entry.get(field).and_then(|v| v.as_u64()).is_some_and(|n| (n & mask) == *value)
         }
 
         Condition::All(cs) => cs.iter().all(|c| eval_condition(c, entry, prev)),
@@ -183,7 +183,7 @@ fn eval_condition(cond: &Condition, entry: &TraceEntry, prev: Option<&TraceEntry
 
 /// Get a field value as its raw string representation.
 fn entry_field_str(entry: &TraceEntry, field: &str) -> Option<String> {
-    entry.get(field).map(|v| entry_field_str_raw(v))
+    entry.get(field).map(entry_field_str_raw)
 }
 
 fn entry_field_str_raw(v: &Value) -> String {
@@ -240,22 +240,7 @@ fn bit_transitions(
 }
 
 // ---------------------------------------------------------------------------
-// Condition parsing from strings
-// ---------------------------------------------------------------------------
-
-/// Parse a condition from a human-readable string.
-///
-/// Supported formats:
-/// - `field=value` — field equals value
-/// - `field changes` — field changes to any value
-/// - `field changes to value` — field transitions to specific value
-/// - `field changes from value` — field transitions from specific value
-/// - `ppu enters mode N` — PPU enters mode 0-3
-/// - `lcd on` / `lcd off` — LCD turns on/off
-/// - `timer overflow` — TIMA overflows
-/// - `interrupt N` — interrupt bit N fires (0=vblank, 1=stat, 2=timer, 3=serial, 4=joypad)
-// ---------------------------------------------------------------------------
-// Parsing against a family's vocabulary
+// Condition parsing from strings, against a family's vocabulary
 // ---------------------------------------------------------------------------
 //
 // Flag names and semantic phrases desugar to the generic conditions above;
@@ -278,6 +263,17 @@ fn flag_def<'f>(
         })
 }
 
+/// Parse a condition from a human-readable string.
+///
+/// Generic formats, valid for every family:
+/// - `field=value` — field equals value
+/// - `field changes` / `field changes to value` / `field changes from value`
+/// - `field & mask` / `field & mask = value` — bitwise tests
+/// - `flag <name> set/clear/becomes set/becomes clear` — through the
+///   family's flag vocabulary
+///
+/// Plus the family's semantic phrases (`exact_phrases`,
+/// `numbered_phrases`), e.g. the GB's `lcd on` or `ppu enters mode N`.
 pub fn parse_condition(
     s: &str,
     family: &crate::family::Family,

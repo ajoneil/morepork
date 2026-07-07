@@ -5,7 +5,7 @@
 //! (CPU registers, PPU control/mask and beam position) and grows with its
 //! tracer; adapters can carry anything else as extension fields.
 
-use super::{Family, LabelledPhrase, field, mos6502};
+use super::{ExactPhrase, Family, LabelledPhrase, field, mos6502};
 use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
 use crate::query::Condition;
 
@@ -26,7 +26,7 @@ pub static PPU: SubsystemDef = SubsystemDef {
 pub static SUBSYSTEMS: &[&SubsystemDef] = &[&mos6502::CPU, &PPU];
 
 /// NTSC vblank begins on scanline 241 (0xF1).
-static EXACT_PHRASES: &[(&str, fn() -> Condition)] = &[
+static EXACT_PHRASES: &[ExactPhrase] = &[
     ("vblank starts", || Condition::FieldChangesTo { field: "line".into(), value: "0xf1".into() }),
 ];
 

@@ -50,6 +50,17 @@ pub struct FlagDef {
     pub bit: u8,
 }
 
+/// Instruction decoder: (rom, address) → (mnemonic, length).
+pub type Disassemble = fn(&[u8], u16) -> (String, u8);
+
+/// A semantic phrase that is exactly one fixed string (`"lcd on"`),
+/// desugaring to a generic [`Condition`].
+pub type ExactPhrase = (&'static str, fn() -> Condition);
+
+/// A semantic phrase of the form `<prefix><number>` (`"interrupt 2"`),
+/// with an inclusive maximum for the number.
+pub type NumberedPhrase = (&'static str, u8, fn(u8) -> Condition);
+
 /// A semantic phrase with display metadata for query-builder UIs.
 /// `query` is the phrase exactly as [`crate::query::parse_condition`]
 /// accepts it; UIs show the chip under `group` with `label` when the
@@ -75,21 +86,19 @@ pub struct Family {
     /// in display order (high bit first).
     pub flags: &'static [FlagDef],
 
-    /// Semantic query phrases that are exactly one fixed string
-    /// (`"lcd on"`), desugaring to a generic [`Condition`].
-    pub exact_phrases: &'static [(&'static str, fn() -> Condition)],
+    /// Semantic query phrases that are exactly one fixed string.
+    pub exact_phrases: &'static [ExactPhrase],
 
-    /// Semantic query phrases of the form `<prefix><number>`
-    /// (`"interrupt 2"`), with an inclusive maximum for the number.
-    pub numbered_phrases: &'static [(&'static str, u8, fn(u8) -> Condition)],
+    /// Semantic query phrases carrying a number.
+    pub numbered_phrases: &'static [NumberedPhrase],
 
     /// The subset of semantic phrases worth showing as one-click chips in
     /// query UIs, with display labels and grouping. Every entry's `query`
     /// must parse against this family's vocabulary.
     pub labelled_phrases: &'static [LabelledPhrase],
 
-    /// Instruction decoder: (rom, address) → (mnemonic, length).
-    pub disassemble: Option<fn(&[u8], u16) -> (String, u8)>,
+    /// Instruction decoder.
+    pub disassemble: Option<Disassemble>,
 
     /// Diff-alignment hint: the address every trace of this system reaches
     /// at program entry, and the address of the entry's second instruction
