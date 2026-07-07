@@ -773,7 +773,7 @@ mod tests {
 
     impl PcStore {
         fn new(pcs: Vec<u16>) -> Self {
-            Self {
+            let mut store = Self {
                 header: TraceHeader {
                     _header: true,
                     format_version: "0.1.0".into(),
@@ -791,7 +791,9 @@ mod tests {
                     ..Default::default()
                 },
                 pcs,
-            }
+            };
+            store.header.ensure_self_describing();
+            store
         }
     }
 
@@ -819,7 +821,7 @@ mod tests {
 
     impl RegStore {
         fn new(pcs: Vec<u16>, op_addrs: Vec<u16>, trigger: Trigger) -> Self {
-            let header = TraceHeader {
+            let mut header = TraceHeader {
                 _header: true,
                 format_version: "0.1.0".into(),
                 emulator: "test".into(),
@@ -835,6 +837,7 @@ mod tests {
                 notes: String::new(),
                 ..Default::default()
             };
+            header.ensure_self_describing();
             Self { header, pcs, op_addrs }
         }
     }

@@ -46,6 +46,7 @@ pub static VCS: Family = Family {
     numbered_phrases: &[],
     labelled_phrases: &[],
     disassemble: Some(disasm::disassemble),
+    snapshot_kinds: &[],
     // The reset vector is ROM-dependent; diff falls back to
     // first-common-address alignment.
     entry_addrs: None,

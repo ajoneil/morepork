@@ -100,6 +100,11 @@ pub struct Family {
     /// Instruction decoder.
     pub disassemble: Option<Disassemble>,
 
+    /// Kind names for this family's typed snapshot payloads, in tag order
+    /// starting at [`crate::format::FAMILY_TAG_BASE`]. Namespaced by the
+    /// family id (`"gb.cpu"`, …). Empty when the family defines none.
+    pub snapshot_kinds: &'static [&'static str],
+
     /// Diff-alignment hint: the address every trace of this system reaches
     /// at program entry, and the address of the entry's second instruction
     /// (proves execution continued past it). GB: cartridge entry

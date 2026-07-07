@@ -127,12 +127,11 @@ impl TraceStore {
     #[wasm_bindgen(js_name = fieldNames)]
     pub fn field_names(&self) -> Result<JsValue, JsError> {
         let header = self.store.header();
-        let is_pixel_stream = |name: &str| match header.field_def(name) {
-            Some(def) => {
+        let is_pixel_stream = |name: &str| {
+            header.field_def(name).is_some_and(|def| {
                 def.layer.as_deref() == Some("output")
                     && def.field_type == gbtrace::profile::FieldType::Str
-            }
-            None => name == "pix",
+            })
         };
         let filtered: Vec<&String> = header
             .fields
@@ -159,14 +158,10 @@ impl TraceStore {
         let header = self.store.header();
         let mut groups: BTreeMap<&str, (&str, &str)> = BTreeMap::new();
         for field in &header.fields {
-            // Self-describing traces carry subsystem/layer in the header;
-            // legacy traces resolve through the built-in catalogue.
             if let Some(def) = header.field_def(field) {
                 if let (Some(s), Some(l)) = (&def.subsystem, &def.layer) {
                     groups.insert(field, (s, l));
                 }
-            } else if let Some((subsystem, layer)) = gbtrace::profile::field_group(field) {
-                groups.insert(field, (subsystem, layer));
             }
         }
         to_js(&groups)

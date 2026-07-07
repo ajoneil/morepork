@@ -154,14 +154,19 @@ impl GbtraceStore {
             .map(|(i, f)| (f.clone(), i))
             .collect();
 
-        // Self-describing traces record their storage grouping in the
-        // header; legacy traces re-derive the writer's grouping convention
-        // from field names.
-        let groups = if header.field_groups.is_empty() {
-            derive_groups(&header.fields)
-        } else {
-            header.field_groups.clone()
-        };
+        // The header must be self-describing: the current writer always
+        // records field metadata and the storage grouping, and legacy
+        // fallbacks have been removed (regenerate old traces).
+        if !header.fields.is_empty()
+            && (header.field_defs.is_empty() || header.field_groups.is_empty())
+        {
+            return Err(Error::InvalidHeader(
+                "legacy trace: header lacks field_defs/field_groups; \
+                 regenerate it with current tools"
+                    .into(),
+            ));
+        }
+        let groups = header.field_groups.clone();
         let field_to_group = build_field_to_group(&groups);
 
         Ok(Self {
@@ -282,7 +287,7 @@ impl GbtraceStore {
     /// Get a framebuffer for a specific frame (by frame index, not snapshot index).
     pub fn framebuffer(&self, frame_idx: usize) -> Option<Vec<u8>> {
         let frame_snapshots: Vec<&SnapshotIndexEntry> = self.snapshot_index.iter()
-            .filter(|s| s.snapshot_type == SnapshotType::Frame as u8)
+            .filter(|s| s.snapshot_type == super::TAG_FRAME)
             .collect();
         let snap = frame_snapshots.get(frame_idx)?;
         if snap.payload_size == 0 { return None; }
@@ -299,10 +304,10 @@ impl GbtraceStore {
         zstd::decode_all(Cursor::new(&self.data[payload_start..payload_end])).ok()
     }
 
-    /// Get all snapshots of a given type.
-    pub fn snapshots_of_type(&self, snapshot_type: SnapshotType) -> Vec<&SnapshotIndexEntry> {
+    /// Get all snapshots with a given tag.
+    pub fn snapshots_of_type(&self, tag: u8) -> Vec<&SnapshotIndexEntry> {
         self.snapshot_index.iter()
-            .filter(|s| s.snapshot_type == snapshot_type as u8)
+            .filter(|s| s.snapshot_type == tag)
             .collect()
     }
 }
@@ -319,7 +324,7 @@ impl TraceStore for GbtraceStore {
 
     fn frame_boundaries(&self) -> Vec<u32> {
         self.snapshot_index.iter()
-            .filter(|s| s.snapshot_type == SnapshotType::Frame as u8)
+            .filter(|s| s.snapshot_type == super::TAG_FRAME)
             .map(|s| s.entry_index as u32)
             .collect()
     }
@@ -452,75 +457,6 @@ fn read_u64(data: &[u8], pos: &mut usize) -> u64 {
     v
 }
 
-/// Derive field groups from field names using standard grouping conventions.
-pub fn derive_groups_pub(fields: &[String]) -> Vec<FieldGroup> {
-    derive_groups(fields)
-}
-
-/// WIRE-FROZEN: traces written before headers recorded `field_groups` carry
-/// no grouping, and their chunk layout is exactly what this function
-/// produced at write time. Readers reconstruct it from here, so any change
-/// silently corrupts every legacy trace. Extend grouping via the header's
-/// `field_groups`, never by editing this.
-fn derive_groups(fields: &[String]) -> Vec<FieldGroup> {
-    let cpu_fields: Vec<String> = fields.iter()
-        .filter(|f| matches!(f.as_str(), "pc"|"op_addr"|"sp"|"a"|"f"|"b"|"c"|"d"|"e"|"h"|"l"|"op"|"ime"|"op_state"|"mcycle_phase"|"halted"|"bus_addr"))
-        .cloned().collect();
-    let ppu_fields: Vec<String> = fields.iter()
-        .filter(|f| matches!(f.as_str(), "lcdc"|"stat"|"ly"|"lyc"|"scy"|"scx"|"wy"|"wx"|"bgp"|"obp0"|"obp1"|"dma"))
-        .cloned().collect();
-    let ppu_int_fields: Vec<String> = fields.iter()
-        .filter(|f| f.starts_with("oam") || matches!(f.as_str(),
-            "bgw_fifo_a"|"bgw_fifo_b"|"spr_fifo_a"|"spr_fifo_b"|
-            "mask_pipe"|"pal_pipe"|"tfetch_state"|"sfetch_state"|
-            "tile_temp_a"|"tile_temp_b"|"pix_count"|"sprite_count"|
-            "scan_count"|"rendering"|"win_mode"))
-        .cloned().collect();
-    let pixel_fields: Vec<String> = fields.iter()
-        .filter(|f| f.as_str() == "pix")
-        .cloned().collect();
-    let vram_fields: Vec<String> = fields.iter()
-        .filter(|f| f.starts_with("vram_"))
-        .cloned().collect();
-    let interrupt_fields: Vec<String> = fields.iter()
-        .filter(|f| matches!(f.as_str(), "if_"|"ie"))
-        .cloned().collect();
-    let timer_fields: Vec<String> = fields.iter()
-        .filter(|f| matches!(f.as_str(), "div"|"tima"|"tma"|"tac"))
-        .cloned().collect();
-    let serial_fields: Vec<String> = fields.iter()
-        .filter(|f| matches!(f.as_str(), "sb"|"sc"))
-        .cloned().collect();
-
-    // Collect all grouped fields to find ungrouped ones
-    let mut grouped: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    for v in [&cpu_fields, &ppu_fields, &ppu_int_fields, &pixel_fields,
-              &vram_fields, &interrupt_fields, &timer_fields, &serial_fields] {
-        for f in v { grouped.insert(f); }
-    }
-    let other_fields: Vec<String> = fields.iter()
-        .filter(|f| !grouped.contains(f.as_str()))
-        .cloned().collect();
-
-    let mut groups = Vec::new();
-    let mut add = |name: &str, fields: Vec<String>| {
-        if !fields.is_empty() {
-            groups.push(FieldGroup { name: name.to_string(), fields });
-        }
-    };
-
-    add("cpu", cpu_fields);
-    add("ppu", ppu_fields);
-    add("ppu_internal", ppu_int_fields);
-    add("pixel", pixel_fields);
-    add("vram", vram_fields);
-    add("interrupt", interrupt_fields);
-    add("timer", timer_fields);
-    add("serial", serial_fields);
-    add("other", other_fields);
-
-    groups
-}
 
 /// Build a mapping from field name → (group_id, column index within group).
 fn build_field_to_group(groups: &[FieldGroup]) -> HashMap<String, (u8, usize)> {

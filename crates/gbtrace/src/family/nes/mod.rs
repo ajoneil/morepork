@@ -42,6 +42,7 @@ pub static NES: Family = Family {
     numbered_phrases: &[],
     labelled_phrases: LABELLED_PHRASES,
     disassemble: Some(disasm::disassemble),
+    snapshot_kinds: &[],
     // The reset vector is ROM-dependent, so there is no fixed entry
     // address; diff falls back to first-common-address alignment.
     entry_addrs: None,

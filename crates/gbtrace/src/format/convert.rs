@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::header::TraceHeader;
 use crate::profile::FieldType;
 
-use super::read::{derive_groups_pub, GbtraceStore};
+use super::read::GbtraceStore;
 use super::write::GbtraceWriter;
 
 /// Convert JSONL bytes to a `GbtraceStore` (in-memory).
@@ -29,16 +29,19 @@ pub fn jsonl_file_to_store(path: &std::path::Path) -> Result<GbtraceStore> {
 
 /// Convert any `TraceEntry` iterator + header into a `GbtraceStore`.
 fn reader_to_store(
-    header: TraceHeader,
+    mut header: TraceHeader,
     entries: impl Iterator<Item = Result<TraceEntry>>,
 ) -> Result<GbtraceStore> {
     let tmp = tempfile::NamedTempFile::new()?;
     let tmp_path = tmp.path().to_path_buf();
 
-    let groups = derive_groups_pub(&header.fields);
+    // JSONL headers are hand-written by emulators; fill in field metadata
+    // before it drives type resolution below. The writer groups storage
+    // by the enriched defs.
+    header.ensure_self_describing();
 
     {
-        let mut writer = GbtraceWriter::create(&tmp_path, &header, &groups)?;
+        let mut writer = GbtraceWriter::create(&tmp_path, &header, &[])?;
 
         for result in entries {
             let entry = result?;

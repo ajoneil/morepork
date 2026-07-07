@@ -418,10 +418,7 @@ fn convert_to_gbtrace(
     use gbtrace::format::write::GbtraceWriter;
     use gbtrace::profile::FieldType;
 
-    // Derive field groups from the header
-    let groups = gbtrace::format::read::derive_groups_pub(&header.fields);
-
-    let mut writer = match GbtraceWriter::create(output, header, &groups) {
+    let mut writer = match GbtraceWriter::create(output, header, &[]) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("Error creating output: {e}");
@@ -582,7 +579,6 @@ fn cmd_downsample(input: &PathBuf, output: Option<PathBuf>, target: &str, keep: 
     // Build the output header by cloning the input's and overriding trigger.
     let mut out_header = store.header().clone();
     out_header.trigger = target_trigger.clone();
-    let groups = gbtrace::format::read::derive_groups_pub(&out_header.fields);
 
     let output = output.unwrap_or_else(|| {
         let mut p = input.clone();
@@ -592,7 +588,7 @@ fn cmd_downsample(input: &PathBuf, output: Option<PathBuf>, target: &str, keep: 
         p
     });
 
-    let mut writer = match GbtraceWriter::create(&output, &out_header, &groups) {
+    let mut writer = match GbtraceWriter::create(&output, &out_header, &[]) {
         Ok(w) => w,
         Err(e) => { eprintln!("Error creating output: {e}"); return 1; }
     };

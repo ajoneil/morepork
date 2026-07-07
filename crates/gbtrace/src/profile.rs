@@ -93,10 +93,10 @@ impl SubsystemDef {
 // Field lookup helpers — the legacy fallback
 // ---------------------------------------------------------------------------
 //
-// These consult the Game Boy catalogue only. They exist for traces whose
-// headers predate `field_defs` — every such trace is a GB trace, so this
-// fallback is permanently GB and deliberately not family-parameterised.
-// New code with a header in hand should use `TraceHeader::resolve_*`.
+// These consult the Game Boy catalogue only — a convenience for GB
+// producers (missingno-gb types its emitters through them). Readers use
+// `TraceHeader::resolve_*`; other families go through their registry
+// entry (`family::Family::lookup_field`).
 
 /// Look up a field definition by name across the GB subsystems.
 pub fn lookup_field(name: &str) -> Option<&'static FieldDef> {
@@ -104,26 +104,6 @@ pub fn lookup_field(name: &str) -> Option<&'static FieldDef> {
         .iter()
         .flat_map(|s| s.all_fields())
         .find(|f| f.name == name)
-}
-
-/// Look up which GB subsystem and layer a field belongs to.
-/// Returns (subsystem_name, layer_name) or None for unknown/memory fields.
-pub fn field_group(name: &str) -> Option<(&'static str, &'static str)> {
-    for subsystem in crate::family::gb::catalogue::SUBSYSTEMS {
-        for (layer, fields) in subsystem.layers {
-            if fields.iter().any(|f| f.name == name) {
-                let layer_name = match layer {
-                    Layer::Registers => "registers",
-                    Layer::Internal => "internal",
-                    Layer::Writes => "writes",
-                    Layer::Output => "output",
-                    Layer::Timing => "timing",
-                };
-                return Some((subsystem.name, layer_name));
-            }
-        }
-    }
-    None
 }
 
 /// Return the native type for a field name.
@@ -135,16 +115,6 @@ pub fn field_type(name: &str) -> FieldType {
 /// Whether a field should be nullable.
 pub fn field_nullable(name: &str) -> bool {
     lookup_field(name).map(|f| f.nullable).unwrap_or(false)
-}
-
-/// Whether a field should use dictionary encoding.
-pub fn field_dictionary(name: &str) -> bool {
-    lookup_field(name).map(|f| f.dictionary).unwrap_or(false)
-}
-
-/// Check if a name is a known built-in field.
-pub fn is_known_field(name: &str) -> bool {
-    lookup_field(name).is_some()
 }
 
 // ---------------------------------------------------------------------------

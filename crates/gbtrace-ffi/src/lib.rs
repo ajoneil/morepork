@@ -1,3 +1,8 @@
+// Safety contracts live in the C header (gbtrace.h), the API's single
+// source of truth for C callers; per-function `# Safety` sections here
+// would just drift from it.
+#![allow(clippy::missing_safety_doc)]
+
 //! C FFI bindings for the gbtrace native format writer.
 //!
 //! Adapters link against libgbtrace_ffi.a and call these functions to write
@@ -25,7 +30,6 @@ use std::os::raw::c_char;
 use std::slice;
 
 use gbtrace::format::write::GbtraceWriter as NativeWriter;
-use gbtrace::format::read::derive_groups_pub;
 use gbtrace::header::TraceHeader;
 use gbtrace::profile::{FieldType, Profile};
 
@@ -135,7 +139,8 @@ pub unsafe extern "C" fn gbtrace_profile_field_name(
     p: *const GbtraceProfile,
     index: usize,
 ) -> *const c_char {
-    match (&(*p).field_cstrings).get(index) {
+    let profile = &*p;
+    match profile.field_cstrings.get(index) {
         Some(cs) => cs.as_ptr(),
         None => std::ptr::null(),
     }
@@ -153,7 +158,8 @@ pub unsafe extern "C" fn gbtrace_profile_memory_name(
     p: *const GbtraceProfile,
     index: usize,
 ) -> *const c_char {
-    match (&(*p).memory_names).get(index) {
+    let profile = &*p;
+    match profile.memory_names.get(index) {
         Some(cs) => cs.as_ptr(),
         None => std::ptr::null(),
     }
@@ -165,7 +171,8 @@ pub unsafe extern "C" fn gbtrace_profile_memory_addr(
     p: *const GbtraceProfile,
     index: usize,
 ) -> u16 {
-    (&(*p).memory_addrs).get(index).copied().unwrap_or(0)
+    let profile = &*p;
+    profile.memory_addrs.get(index).copied().unwrap_or(0)
 }
 
 /// Free a profile handle.
@@ -217,13 +224,12 @@ pub unsafe extern "C" fn gbtrace_writer_new(
         }
     };
 
-    let groups = derive_groups_pub(&header.fields);
     let field_names = header.fields.clone();
     let field_types: Vec<FieldType> = field_names.iter()
         .map(|n| header.resolve_field_type(n))
         .collect();
 
-    let writer = match NativeWriter::create(path_str, &header, &groups) {
+    let writer = match NativeWriter::create(path_str, &header, &[]) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("gbtrace_writer_new: failed to create writer: {e}");
@@ -263,8 +269,9 @@ pub unsafe extern "C" fn gbtrace_writer_field_type(
     w: *const GbtraceWriter,
     field: usize,
 ) -> i32 {
-    if field >= (&(*w).field_types).len() { return -1; }
-    match (&(*w).field_types)[field] {
+    let writer = &*w;
+    if field >= writer.field_types.len() { return -1; }
+    match writer.field_types[field] {
         FieldType::UInt8 => 0,
         FieldType::UInt16 => 1,
         FieldType::UInt64 => 2,

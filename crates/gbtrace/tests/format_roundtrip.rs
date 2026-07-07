@@ -534,3 +534,53 @@ fn test_writer_derives_groups_from_defs_when_none_given() {
     assert_eq!(store.get_numeric(0, 0), 0x0150);
     assert_eq!(store.get_numeric(12, 0), 0);
 }
+
+#[test]
+fn rejects_headers_without_field_metadata() {
+    // Write a valid (empty) trace, then strip field_defs/field_groups from
+    // its header — the shape of every trace written before headers became
+    // self-describing. The reader must refuse it with a clear error.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("legacy.gbtrace");
+    let header = TraceHeader {
+        _header: true,
+        format_version: "0.1.0".into(),
+        emulator: "test".into(),
+        fields: vec!["pc".into(), "a".into()],
+        trigger: Trigger::Instruction,
+        ..Default::default()
+    };
+    {
+        let w = GbtraceWriter::create(&path, &header, &[]).unwrap();
+        w.finish().unwrap();
+    }
+    let data = std::fs::read(&path).unwrap();
+
+    // Rebuild the file with a de-enriched header. The file has no chunks
+    // or snapshots, so the only absolute offset to fix is the trailing
+    // footer pointer.
+    let old_hlen = u32::from_le_bytes(data[5..9].try_into().unwrap()) as usize;
+    let json = zstd::decode_all(&data[9..9 + old_hlen]).unwrap();
+    let mut h: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    h.as_object_mut().unwrap().remove("field_defs");
+    h.as_object_mut().unwrap().remove("field_groups");
+    let new_json = serde_json::to_vec(&h).unwrap();
+    let new_hdr = zstd::encode_all(&new_json[..], 3).unwrap();
+
+    let mut out = data[..5].to_vec();
+    out.extend_from_slice(&(new_hdr.len() as u32).to_le_bytes());
+    out.extend_from_slice(&new_hdr);
+    let body = &data[9 + old_hlen..data.len() - 8];
+    out.extend_from_slice(body);
+    let old_footer_off = u64::from_le_bytes(data[data.len() - 8..].try_into().unwrap());
+    let delta = new_hdr.len() as i64 - old_hlen as i64;
+    out.extend_from_slice(&((old_footer_off as i64 + delta) as u64).to_le_bytes());
+
+    match GbtraceStore::from_bytes(&out) {
+        Ok(_) => panic!("legacy header was accepted"),
+        Err(err) => assert!(
+            err.to_string().contains("regenerate"),
+            "expected a regenerate error, got: {err}"
+        ),
+    }
+}

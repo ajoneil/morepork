@@ -32,72 +32,19 @@ pub const SNAPSHOT_TAG: &[u8; 4] = b"SNAP";
 /// Default maximum entries per chunk.
 pub const DEFAULT_CHUNK_SIZE: usize = 65536;
 
-/// Snapshot type tags.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum SnapshotType {
-    /// Frame boundary. Payload is optional screen data: raw GB pixels in
-    /// the header's pix_format, or a serialized `snapshot::IndexedFrame`.
-    Frame = 0,
-    /// Bulk memory contents (WRAM, VRAM, OAM, HRAM, wave RAM, cartridge RAM).
-    Memory = 1,
-    /// CPU state beyond trace row fields (halt state, EI delay, etc.).
-    CpuState = 2,
-    /// PPU timing state (dot position, window line counter, etc.).
-    PpuTiming = 3,
-    /// APU internal state not derivable from registers.
-    ApuState = 4,
-    /// Timer internals (full 16-bit counter, overflow state).
-    TimerState = 5,
-    /// DMA transfer state.
-    DmaState = 6,
-    /// Serial transfer state.
-    SerialState = 7,
-    /// Cartridge mapper state (MBC type, bank selection, etc.).
-    MbcState = 8,
-}
+/// Snapshot tag for frame boundaries. The payload is optional screen
+/// data: raw GB pixels in the header's pix_format, or a serialized
+/// `snapshot::IndexedFrame`.
+pub const TAG_FRAME: u8 = 0;
 
-impl SnapshotType {
-    /// The kind name written into `TraceHeader::snapshot_kinds`. `frame` and
-    /// `memory` are format-level (the viewer depends on them); the rest are
-    /// Game Boy family state, hence the `gb.` namespace.
-    pub fn kind_name(&self) -> &'static str {
-        match self {
-            Self::Frame => "frame",
-            Self::Memory => "memory",
-            Self::CpuState => "gb.cpu",
-            Self::PpuTiming => "gb.ppu",
-            Self::ApuState => "gb.apu",
-            Self::TimerState => "gb.timer",
-            Self::DmaState => "gb.dma",
-            Self::SerialState => "gb.serial",
-            Self::MbcState => "gb.mbc",
-        }
-    }
+/// Snapshot tag for bulk memory contents.
+pub const TAG_MEMORY: u8 = 1;
 
-    pub fn all() -> &'static [Self] {
-        &[
-            Self::Frame, Self::Memory, Self::CpuState, Self::PpuTiming,
-            Self::ApuState, Self::TimerState, Self::DmaState,
-            Self::SerialState, Self::MbcState,
-        ]
-    }
-
-    pub fn from_u8(v: u8) -> Option<Self> {
-        match v {
-            0 => Some(Self::Frame),
-            1 => Some(Self::Memory),
-            2 => Some(Self::CpuState),
-            3 => Some(Self::PpuTiming),
-            4 => Some(Self::ApuState),
-            5 => Some(Self::TimerState),
-            6 => Some(Self::DmaState),
-            7 => Some(Self::SerialState),
-            8 => Some(Self::MbcState),
-            _ => None,
-        }
-    }
-}
+/// First tag available to console families. `frame` and `memory` are the
+/// only kinds the format itself defines; a family claims tags from here
+/// up (its registry entry lists their kind names, which the writer
+/// records in the header's `snapshot_kinds`).
+pub const FAMILY_TAG_BASE: u8 = 2;
 
 /// A field group definition — maps a group name to its column indices.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

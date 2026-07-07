@@ -284,12 +284,15 @@ impl GbtraceWriter {
     /// pix_format, or a serialized `snapshot::IndexedFrame`).
     pub fn mark_frame(&mut self, framebuffer: Option<&[u8]>) -> Result<()> {
         let payload = framebuffer.unwrap_or(&[]);
-        self.write_snapshot(SnapshotType::Frame, payload)
+        self.write_snapshot(super::TAG_FRAME, payload)
     }
 
     /// Write a typed snapshot record at the current entry position.
-    /// The payload is compressed with zstd and written inline.
-    pub fn write_snapshot(&mut self, snapshot_type: SnapshotType, payload: &[u8]) -> Result<()> {
+    /// The payload is compressed with zstd and written inline. `tag` is a
+    /// format-level tag (`TAG_FRAME`, `TAG_MEMORY`) or one of the family's
+    /// (e.g. `family::gb::snapshot::TAG_CPU`); the header's
+    /// `snapshot_kinds` names it.
+    pub fn write_snapshot(&mut self, tag: u8, payload: &[u8]) -> Result<()> {
         let compressed = if payload.is_empty() {
             Vec::new()
         } else {
@@ -301,7 +304,7 @@ impl GbtraceWriter {
 
         // Write snapshot record: tag + type + entry_index + payload_len + payload
         self.out.write_all(SNAPSHOT_TAG)?;
-        self.out.write_all(&[snapshot_type as u8])?;
+        self.out.write_all(&[tag])?;
         self.out.write_all(&self.total_entries.to_le_bytes())?;
         self.out.write_all(&(compressed.len() as u32).to_le_bytes())?;
         if !compressed.is_empty() {
@@ -309,7 +312,7 @@ impl GbtraceWriter {
         }
 
         self.snapshot_index.push(SnapshotIndexEntry {
-            snapshot_type: snapshot_type as u8,
+            snapshot_type: tag,
             offset,
             entry_index: self.total_entries,
             payload_size: compressed.len() as u32,

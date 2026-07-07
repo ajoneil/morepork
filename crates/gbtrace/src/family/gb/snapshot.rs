@@ -9,6 +9,23 @@
 //! `from_snapshot` constructors restore console state from exactly these
 //! payloads.
 
+/// The GB family's snapshot kind names, in tag order starting at
+/// `format::FAMILY_TAG_BASE`. The writer records these in the header's
+/// `snapshot_kinds`.
+pub static KINDS: &[&str] = &[
+    "gb.cpu", "gb.ppu", "gb.apu", "gb.timer", "gb.dma", "gb.serial", "gb.mbc",
+];
+
+/// Snapshot tags for the `gb.*` kinds (indices into the header's
+/// `snapshot_kinds`).
+pub const TAG_CPU: u8 = 2;
+pub const TAG_PPU: u8 = 3;
+pub const TAG_APU: u8 = 4;
+pub const TAG_TIMER: u8 = 5;
+pub const TAG_DMA: u8 = 6;
+pub const TAG_SERIAL: u8 = 7;
+pub const TAG_MBC: u8 = 8;
+
 /// CPU state: registers + interrupt registers + internal state.
 #[derive(Debug, Clone, Default)]
 pub struct CpuSnapshot {

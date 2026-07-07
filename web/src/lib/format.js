@@ -1,31 +1,18 @@
 /** Field-display metadata, installed per loaded trace via setFieldMeta().
- *  The defaults reproduce the Game Boy vocabulary so legacy traces (headers
- *  without field_defs) render exactly as before. */
-let sixteenBitFields = new Set(['pc', 'op_addr', 'sp']);
-let flagFields = new Map([
-  ['f', [
-    { name: 'Z', bit: 7 },
-    { name: 'N', bit: 6 },
-    { name: 'H', bit: 5 },
-    { name: 'C', bit: 4 },
-  ]],
-]);
+ *  Headers are self-describing, so every trace installs its own. */
+let sixteenBitFields = new Set();
+let flagFields = new Map();
 
 /** Install per-trace field metadata from the wasm store.
- *  fieldDefs: store.fieldDefs() — [{name, type, ...}]; empty for legacy
- *  traces, which keep the current 16-bit set.
+ *  fieldDefs: store.fieldDefs() — [{name, type, ...}].
  *  flagDefs: store.flagDefs() — [{name, field, bit}] in display order. */
 export function setFieldMeta(fieldDefs, flagDefs) {
-  if (fieldDefs && fieldDefs.length) {
-    sixteenBitFields = new Set(
-      fieldDefs.filter((d) => d.type === 'u16').map((d) => d.name));
-  }
-  if (flagDefs && flagDefs.length) {
-    flagFields = new Map();
-    for (const { name, field, bit } of flagDefs) {
-      if (!flagFields.has(field)) flagFields.set(field, []);
-      flagFields.get(field).push({ name: name.toUpperCase(), bit });
-    }
+  sixteenBitFields = new Set(
+    (fieldDefs || []).filter((d) => d.type === 'u16').map((d) => d.name));
+  flagFields = new Map();
+  for (const { name, field, bit } of flagDefs || []) {
+    if (!flagFields.has(field)) flagFields.set(field, []);
+    flagFields.get(field).push({ name: name.toUpperCase(), bit });
   }
 }
 

@@ -180,8 +180,8 @@ pub struct TraceHeader {
     #[serde(default = "default_family")]
     pub family: String,
 
-    /// Hardware model identifier (e.g. "DMG-B", "CGB-E").
-    #[serde(default = "default_model")]
+    /// Hardware model identifier (e.g. "DMG-B", "NTSC").
+    #[serde(default)]
     pub model: String,
 
     /// How the boot ROM was handled.
@@ -233,9 +233,8 @@ pub struct TraceHeader {
 
     /// Kind name for each numeric snapshot tag, indexed by tag value
     /// (`snapshot_kinds[0]` names tag 0). `frame` and `memory` are
-    /// format-level kinds; system-specific state uses namespaced names
-    /// (`gb.cpu`, …). When empty (legacy traces), tags resolve through the
-    /// built-in `SnapshotType` enum.
+    /// format-level kinds; system-specific state uses the family's
+    /// namespaced names (`gb.cpu`, …).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snapshot_kinds: Vec<String>,
 
@@ -247,7 +246,6 @@ pub struct TraceHeader {
 fn default_format_version() -> String { "1.0".to_string() }
 fn default_emulator() -> String { "unknown".to_string() }
 fn default_family() -> String { "gb".to_string() }
-fn default_model() -> String { "DMG".to_string() }
 
 impl TraceHeader {
     /// Validate header invariants. Empty `fields` is permitted at this
@@ -262,7 +260,7 @@ impl TraceHeader {
         // type resolution would be ambiguous (the built-in catalogue and
         // the header would each claim a type, with no clear winner).
         for name in self.extension_fields.keys() {
-            if crate::profile::is_known_field(name) {
+            if self.family_def().lookup_field(name).is_some() {
                 return Err(crate::error::Error::InvalidHeader(format!(
                     "extension field '{name}' shadows a built-in field"
                 )));
@@ -283,45 +281,24 @@ impl TraceHeader {
         crate::family::family(&self.family).unwrap_or(&crate::family::gb::GB)
     }
 
-    /// Resolve a field's type — `field_defs` when the trace is
-    /// self-describing; otherwise the family catalogue, then
-    /// `extension_fields`; unknown names fall back to `UInt8`.
+    /// Resolve a field's type from `field_defs` (headers are
+    /// self-describing; `ensure_self_describing` fills them from the
+    /// family catalogue and `extension_fields` at write time). Unknown
+    /// names fall back to `UInt8`.
     pub fn resolve_field_type(&self, name: &str) -> FieldType {
-        if let Some(def) = self.field_def(name) {
-            return def.field_type;
-        }
-        if let Some(def) = self.family_def().lookup_field(name) {
-            return def.field_type;
-        }
-        if let Some(ext) = self.extension_fields.get(name) {
-            return ext.field_type;
-        }
-        FieldType::UInt8
+        self.field_def(name)
+            .map(|d| d.field_type)
+            .unwrap_or(FieldType::UInt8)
     }
 
-    /// Resolve a field's nullability.
+    /// Resolve a field's nullability from `field_defs`.
     pub fn resolve_field_nullable(&self, name: &str) -> bool {
-        if let Some(def) = self.field_def(name) {
-            return def.nullable;
-        }
-        if let Some(def) = self.family_def().lookup_field(name) {
-            return def.nullable;
-        }
-        if let Some(ext) = self.extension_fields.get(name) {
-            return ext.nullable;
-        }
-        false
+        self.field_def(name).map(|d| d.nullable).unwrap_or(false)
     }
 
     /// Resolve whether a field's column uses dictionary encoding.
     pub fn resolve_field_dictionary(&self, name: &str) -> bool {
-        if let Some(def) = self.field_def(name) {
-            return def.dictionary;
-        }
-        self.family_def()
-            .lookup_field(name)
-            .map(|d| d.dictionary)
-            .unwrap_or(false)
+        self.field_def(name).map(|d| d.dictionary).unwrap_or(false)
     }
 
     /// Fill `field_defs` and `instruction_addr_field` from the built-in
@@ -387,19 +364,16 @@ impl TraceHeader {
                 .map(|n| n.to_string());
         }
         if self.snapshot_kinds.is_empty() {
-            self.snapshot_kinds = crate::format::SnapshotType::all()
+            self.snapshot_kinds = ["frame", "memory"]
                 .iter()
-                .map(|t| t.kind_name().to_string())
+                .chain(self.family_def().snapshot_kinds)
+                .map(|k| k.to_string())
                 .collect();
         }
     }
 
-    /// The kind name for a snapshot tag: from `snapshot_kinds` when the
-    /// trace is self-describing, else the built-in `SnapshotType` names.
+    /// The kind name for a snapshot tag, from the header's `snapshot_kinds`.
     pub fn snapshot_kind_name(&self, tag: u8) -> Option<&str> {
-        if let Some(name) = self.snapshot_kinds.get(tag as usize) {
-            return Some(name);
-        }
-        crate::format::SnapshotType::from_u8(tag).map(|t| t.kind_name())
+        self.snapshot_kinds.get(tag as usize).map(String::as_str)
     }
 }

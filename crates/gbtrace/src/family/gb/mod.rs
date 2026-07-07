@@ -61,5 +61,6 @@ pub static GB: Family = Family {
     numbered_phrases: NUMBERED_PHRASES,
     labelled_phrases: LABELLED_PHRASES,
     disassemble: Some(disasm::disassemble),
+    snapshot_kinds: snapshot::KINDS,
     entry_addrs: Some((0x0100, 0x0101)),
 };

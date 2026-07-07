@@ -45,27 +45,29 @@ Two principles, in tension-free layers:
 
 ### 1. The format is fully self-describing
 
-Readers need **zero family knowledge** for info/query/diff/table/chart. The
-header carries, beyond the ordered `fields` list:
+Readers need **zero family knowledge** for info/query/diff/table/chart, and
+self-description is *required*: the reader rejects a header without field
+metadata (there is no catalogue fallback — old traces get a clear
+"regenerate" error). The header carries, beyond the ordered `fields` list:
 
-- `family: String` — `"gb"`, `"nes"`, … Absent (traces written before the
-  field existed) means `"gb"`.
+- `family: String` — `"gb"`, `"nes"`, … Absent means `"gb"`.
 - `field_defs` — ordered typed declarations `{ name, type, subsystem, layer,
-  nullable, dictionary }`; the source of truth for resolution. The static GB
-  catalogue remains only as the fallback for old traces.
+  nullable, dictionary }`; the source of truth for resolution.
 - `field_groups` — the chunk storage layout actually used for this file (each
-  group is one Arrow IPC block). Legacy traces re-derive it from the
-  wire-frozen `derive_groups`.
+  group is one Arrow IPC block).
 - `instruction_addr_field` — names the column that means "address of the
-  current instruction" (the `op_addr`-then-`pc` preference is the legacy
-  fallback).
-- `snapshot_kinds` — tag-indexed kind names. `frame` and `memory` are
-  format-level kinds the viewer depends on; system state uses namespaced
-  names (`gb.cpu`, …).
+  current instruction" (the writer prefers `op_addr`, which is stable across
+  an instruction's T-cycles, over `pc`).
+- `snapshot_kinds` — tag-indexed kind names. `frame` (tag 0) and `memory`
+  (tag 1) are format-level kinds the viewer depends on; a family's typed
+  state claims tags from `FAMILY_TAG_BASE` up with namespaced names
+  (`gb.cpu`, …) registered on its `Family` entry.
 
-`GbtraceWriter::create` enriches the header itself, so every producer (FFI
-adapters, missingno, `convert`) writes self-describing traces without changes
-on their side.
+`GbtraceWriter::create` enriches the header itself — field defs and the
+instruction-address column from the family catalogue, snapshot kind names
+from the registry, storage groups from the defs when the caller passes none
+— so every producer (FFI adapters, missingno, `convert`) writes
+self-describing traces without changes on their side.
 
 `pix_format` values: `shade2` (DMG greyscale pix stream), `rgb555` (CGB colour
 pix stream), and `indexed8` — the family-agnostic form, one palette index per
@@ -83,7 +85,8 @@ decode table, register catalogue, and flag vocabulary in `mos6502.rs`
 only its CPU-address-to-ROM-offset mapping). A `Family` provides:
 
 - **Default field catalogue** (`subsystems`) — validates profiles and types
-  legacy traces. The GB catalogue lives in `family/gb/catalogue.rs`.
+  their fields at write time. The GB catalogue lives in
+  `family/gb/catalogue.rs`.
 - **Flag vocabulary** (`flags`) — name → (field, bit), driving the query
   engine's `flag …` conditions and the viewer's flag rendering (exported
   through wasm `flagDefs()`).
@@ -105,18 +108,19 @@ only its CPU-address-to-ROM-offset mapping). A `Family` provides:
   on the family id; promote to a function-table hook when a second family
   implements reconstruction.
 - **Typed snapshot payloads** — `family/gb/snapshot.rs` defines the `gb.*`
-  payload layouts (missingno's `from_snapshot` constructors restore console
-  state from them). `memory` and `frame` payloads are family-agnostic
+  payload layouts and their tags (missingno's `from_snapshot` constructors
+  restore console state from them); the family's `snapshot_kinds` names the
+  tags in the header. `memory` and `frame` payloads are family-agnostic
   (`src/snapshot.rs`).
 
 What stays *out* of the registry: everything in the "generic" list. The
 registry is consulted only for disassembly, rendering, semantic query sugar,
 catalogue defaults/validation, and diff alignment hints.
 
-The `profile.rs` free functions (`lookup_field`, `field_group`, …) consult the
-GB catalogue only. They exist for traces whose headers predate `field_defs` —
-every such trace is a GB trace, so this fallback is permanently GB and
-deliberately not family-parameterised.
+The `profile.rs` free functions (`lookup_field`, `field_type`,
+`field_nullable`) consult the GB catalogue only — a write-side convenience
+for GB producers (missingno-gb types its emitters through them). Readers use
+`TraceHeader::resolve_*`; other families go through their registry entry.
 
 ### Profiles
 
@@ -134,18 +138,14 @@ cpu = ["pc", "a", "x", "y", "s", "p"]
 keys are an error), resolved in catalogue order. `[fields.memory]` and
 `[fields.extensions]` are family-independent.
 
-## Compatibility constraints (hard requirements)
+## Compatibility constraints
 
-1. **The existing trace corpus (~20 GB on Spaces) must stay readable without
-   regeneration.** Traces without `family`/`field_defs` imply `family = "gb"`
-   and resolve through the GB catalogue. This fallback is permanent, cheap,
-   and tested by the roundtrip tests. Two pieces of the `format` module are
-   wire-frozen for the same reason: `derive_groups` in `format/read.rs`
-   (pre-`field_groups` traces reconstruct their chunk layout from it), and
-   the GB-specific `SnapshotType` variants with their tag→kind-name mapping
-   (`gb.cpu`…`gb.mbc` — the fallback for headers that predate
-   `snapshot_kinds`). Both stay in `format/` deliberately; only `frame` and
-   `memory` are format-level concepts.
+1. **Trace-file backward compatibility is NOT required.** There is no
+   external userbase and captured traces are regenerable, so the format may
+   evolve freely; prefer deleting legacy fallbacks over freezing them. The
+   reader rejects headers without field metadata with a clear "regenerate"
+   error. After a format change, regenerate the Spaces corpus (`traces.yml`)
+   and any local `build/traces`.
 2. **missingno tracks gbtrace's git HEAD with no pin**
    (`missingno-{gb,gbc,nes,vcs}/Cargo.toml: gbtrace = { git = ... }`).
    Breaking the Rust API on main breaks missingno's `--features gbtrace`
@@ -153,9 +153,11 @@ keys are an error), resolved in catalogue order. `[fields.memory]` and
    missingno update, and push gbtrace first, then missingno immediately
    after. The consumer surface:
    - `gbtrace::format::write::GbtraceWriter` — `create(path, &header,
-     &groups)`, `set_u8/u16/bool/str/null(col, v)`, `finish_entry`,
-     `mark_frame`, `write_snapshot(SnapshotType, &[u8])`, `finish`.
-   - `gbtrace::format::read::derive_groups_pub`, `gbtrace::format::SnapshotType`.
+     &groups)` (usually `&[]`: the writer groups by the header's field
+     defs), `set_u8/u16/bool/str/null(col, v)`, `finish_entry`,
+     `mark_frame`, `write_snapshot(tag, &[u8])`, `finish`.
+   - `gbtrace::format::{TAG_FRAME, TAG_MEMORY}` and
+     `gbtrace::family::gb::snapshot::TAG_*` — snapshot tags.
    - `gbtrace::header::{TraceHeader (all fields), ExtensionField, PixFormat}`.
    - `gbtrace::profile::{FieldType, field_type, field_nullable}`.
    - `gbtrace::{BootRom, Profile (.trigger/.fields/.extensions/.memory/.name),
@@ -222,8 +224,8 @@ The rename ("emutrace"?) is mechanical but wide: crate names, `gbtrace.h` /
 URL, Spaces paths, missingno's git dependency URL, and the `.gbtrace`
 extension. Nothing in the architecture depends on it, so: build everything
 under the current names and rename in one commit once a name is chosen.
-Format note for that day: keep accepting `GBTR` magic forever; a new magic
-(if any) only for traces that require `field_defs`.
+Format note for that day: with back-compat waived, the magic can simply
+change with the name; regenerate traces after.
 
 ## Order of work
 
