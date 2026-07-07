@@ -264,3 +264,39 @@ fn labelled_phrases_parse_in_their_family() {
         }
     }
 }
+
+#[test]
+fn vcs_profile_and_flag_queries() {
+    let toml = r#"
+[profile]
+name = "vcs-smoke"
+description = "6507 + TIA beam + RIOT"
+trigger = "instruction"
+family = "vcs"
+
+[fields]
+cpu = "registers"
+tia = "registers"
+riot = "registers"
+"#;
+    let p = Profile::parse(toml).unwrap();
+    assert_eq!(p.family, "vcs");
+    assert_eq!(
+        p.fields,
+        ["pc", "a", "x", "y", "s", "p", "line", "clock", "timer", "port_a", "port_b"]
+            .map(String::from)
+    );
+
+    // The 6502 flag vocabulary is shared with the NES family.
+    let vcs = gbtrace::family::family("vcs").unwrap();
+    let cond = gbtrace::query::parse_condition("flag c set", vcs).unwrap();
+    match cond {
+        gbtrace::query::Condition::FieldBitMask { field, mask } => {
+            assert_eq!((field.as_str(), mask), ("p", 1));
+        }
+        other => panic!("unexpected condition: {other:?}"),
+    }
+    // Phrases from the other families are not in the VCS vocabulary.
+    assert!(gbtrace::query::parse_condition("lcd on", vcs).is_err());
+    assert!(gbtrace::query::parse_condition("vblank starts", vcs).is_err());
+}

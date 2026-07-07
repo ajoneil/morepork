@@ -1,0 +1,52 @@
+//! The Atari 2600 (VCS) family. NTSC/PAL are models within this family.
+//!
+//! The VCS is the stress test of the per-frame-dimensions model: there is
+//! no hardware frame, only the software's sync pattern, so frame height is
+//! emergent and every `frame` snapshot carries its own dimensions
+//! (`snapshot::IndexedFrame`). The catalogue starts with the state
+//! missingno-vcs exposes publicly (the 6507's register file, the TIA beam
+//! position, RIOT timer and ports); adapters can carry anything else as
+//! extension fields.
+
+use super::{Family, field, mos6502};
+use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
+
+pub mod disasm;
+
+pub static TIA: SubsystemDef = SubsystemDef {
+    name: "tia",
+    layers: &[
+        (Layer::Registers, &[
+            // Scanline within the frame — emergent height, so u16.
+            field!("line", u16),
+            // Colour clock within the line (0-227).
+            field!("clock", u8),
+        ]),
+    ],
+};
+
+pub static RIOT: SubsystemDef = SubsystemDef {
+    name: "riot",
+    layers: &[
+        (Layer::Registers, &[
+            field!("timer", u8),
+            field!("port_a", u8, dict),
+            field!("port_b", u8, dict),
+        ]),
+    ],
+};
+
+pub static SUBSYSTEMS: &[&SubsystemDef] = &[&mos6502::CPU, &TIA, &RIOT];
+
+pub static VCS: Family = Family {
+    id: "vcs",
+    subsystems: SUBSYSTEMS,
+    flags: mos6502::FLAGS,
+    exact_phrases: &[],
+    numbered_phrases: &[],
+    labelled_phrases: &[],
+    disassemble: Some(disasm::disassemble),
+    // The reset vector is ROM-dependent; diff falls back to
+    // first-common-address alignment.
+    entry_addrs: None,
+};

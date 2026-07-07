@@ -11,7 +11,9 @@ use crate::profile::SubsystemDef;
 use crate::query::Condition;
 
 pub mod gb;
+pub mod mos6502;
 pub mod nes;
+pub mod vcs;
 
 /// Field-catalogue construction shorthand shared by the family catalogues.
 macro_rules! field {
@@ -128,7 +130,7 @@ impl Family {
 
 /// Every registered family. GB first — it is also the fallback for traces
 /// whose headers predate the `family` field.
-pub static FAMILIES: &[&Family] = &[&gb::GB, &nes::NES];
+pub static FAMILIES: &[&Family] = &[&gb::GB, &nes::NES, &vcs::VCS];
 
 /// Look up a family by id.
 pub fn family(id: &str) -> Option<&'static Family> {
