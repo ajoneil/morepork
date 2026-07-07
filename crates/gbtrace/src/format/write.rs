@@ -9,7 +9,7 @@
 //! w.set_null(col);
 //! w.finish_entry()?;
 //! // At vblank:
-//! w.mark_frame(framebuffer)?;  // framebuffer is Option<&[u8; 23040]>
+//! w.mark_frame(frame_payload)?;  // Option<&[u8]>, family-defined encoding
 //! // When done:
 //! w.finish()?;
 //! ```
@@ -35,8 +35,6 @@ use super::*;
 enum ColBuf {
     U8(UInt8Builder),
     U16(UInt16Builder),
-    #[allow(dead_code)]
-    U32(UInt32Builder),
     U64(UInt64Builder),
     Bool(BooleanBuilder),
     Str(StringBuilder),
@@ -66,7 +64,6 @@ impl ColBuf {
         match self {
             Self::U8(b) => b.append_value(0),
             Self::U16(b) => b.append_value(0),
-            Self::U32(b) => b.append_value(0),
             Self::U64(b) => b.append_value(0),
             Self::Bool(b) => b.append_value(false),
             Self::Str(b) => b.append_value(""),
@@ -85,13 +82,6 @@ impl ColBuf {
     fn append_u16(&mut self, val: u16) {
         match self {
             Self::U16(b) => b.append_value(val),
-            _ => self.append_mismatched(),
-        }
-    }
-
-    fn append_u32(&mut self, val: u32) {
-        match self {
-            Self::U32(b) => b.append_value(val),
             _ => self.append_mismatched(),
         }
     }
@@ -121,7 +111,6 @@ impl ColBuf {
         match self {
             Self::U8(b) => b.append_null(),
             Self::U16(b) => b.append_null(),
-            Self::U32(b) => b.append_null(),
             Self::U64(b) => b.append_null(),
             Self::Bool(b) => b.append_null(),
             Self::Str(b) => b.append_null(),
@@ -133,7 +122,6 @@ impl ColBuf {
         match self {
             Self::U8(b) => Arc::new(b.finish()),
             Self::U16(b) => Arc::new(b.finish()),
-            Self::U32(b) => Arc::new(b.finish()),
             Self::U64(b) => Arc::new(b.finish()),
             Self::Bool(b) => Arc::new(b.finish()),
             Self::Str(b) => Arc::new(b.finish()),
@@ -141,18 +129,6 @@ impl ColBuf {
         }
     }
 
-    #[allow(dead_code)]
-    fn len(&self) -> usize {
-        match self {
-            Self::U8(b) => b.len(),
-            Self::U16(b) => b.len(),
-            Self::U32(b) => b.len(),
-            Self::U64(b) => b.len(),
-            Self::Bool(b) => b.len(),
-            Self::Str(b) => b.len(),
-            Self::DictU8(b) => b.len(),
-        }
-    }
 }
 
 /// Mapping from field group to its column indices.
@@ -287,7 +263,6 @@ impl GbtraceWriter {
 
     pub fn set_u8(&mut self, col: usize, val: u8) { self.columns[col].append_u8(val); }
     pub fn set_u16(&mut self, col: usize, val: u16) { self.columns[col].append_u16(val); }
-    pub fn set_u32(&mut self, col: usize, val: u32) { self.columns[col].append_u32(val); }
     pub fn set_u64(&mut self, col: usize, val: u64) { self.columns[col].append_u64(val); }
     pub fn set_bool(&mut self, col: usize, val: bool) { self.columns[col].append_bool(val); }
     pub fn set_str(&mut self, col: usize, val: &str) { self.columns[col].append_str(val); }
@@ -304,8 +279,9 @@ impl GbtraceWriter {
         Ok(())
     }
 
-    /// Mark a frame boundary at the current entry position.
-    /// Optionally attach a framebuffer snapshot (23040 shade values).
+    /// Mark a frame boundary at the current entry position, optionally
+    /// attaching the frame's pixel payload (raw GB pixels in the header's
+    /// pix_format, or a serialized `snapshot::IndexedFrame`).
     pub fn mark_frame(&mut self, framebuffer: Option<&[u8]>) -> Result<()> {
         let payload = framebuffer.unwrap_or(&[]);
         self.write_snapshot(SnapshotType::Frame, payload)
