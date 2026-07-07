@@ -23,6 +23,7 @@ export class TraceTimeline extends LitElement {
     entryCountB: { type: Number },
     syncMode: { type: String },
     currentIndex: { type: Number },
+    fields: { type: Array },
     _dragging: { state: true },
   };
 
@@ -266,11 +267,14 @@ export class TraceTimeline extends LitElement {
             <div class="sync-controls">
               <span class="sync-label">sync</span>
               ${[
-                ['ly=0', 'frame'],
-                ['pc', 'PC'],
-                ['lcdc&80', 'LCD on'],
-                ['none', 'none'],
-              ].map(([mode, label]) => html`
+                // Sync chips are store queries; show each only when the
+                // trace has the field it uses.
+                ['ly=0', 'frame', 'ly'],
+                ['pc', 'PC', 'pc'],
+                ['lcdc&80', 'LCD on', 'lcdc'],
+                ['none', 'none', null],
+              ].filter(([, , needs]) => !needs || (this.fields || []).includes(needs))
+               .map(([mode, label]) => html`
                 <button class="sync-btn ${this.syncMode === mode ? 'active' : ''}"
                   @click=${() => this._changeSync(mode)}
                 >${label}</button>

@@ -295,6 +295,7 @@ export class AppShell extends LitElement {
           .compareMode=${!!this._storeB}
           .syncMode=${this._syncMode}
           .currentIndex=${this._currentIndex}
+          .fields=${this._allFields}
         ></trace-timeline>
       ` : ''}
 
