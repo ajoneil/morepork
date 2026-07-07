@@ -25,7 +25,9 @@ pub static CPU: SubsystemDef = SubsystemDef {
             field!("rdy", bool),
         ]),
         (Layer::Timing, &[
-            field!("cycles", u8),
+            // u16: OAM DMA freezes the CPU for 513+ cycles inside one
+            // instruction, overflowing a u8 delta.
+            field!("cycles", u16),
         ]),
     ],
 };

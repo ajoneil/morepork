@@ -88,6 +88,26 @@ impl Family {
             .flat_map(|s| s.all_fields())
             .find(|f| f.name == name)
     }
+
+    /// Which of this family's subsystems and layers a field belongs to.
+    pub fn field_group(&self, name: &str) -> Option<(&'static str, &'static str)> {
+        use crate::profile::Layer;
+        for subsystem in self.subsystems {
+            for (layer, fields) in subsystem.layers {
+                if fields.iter().any(|f| f.name == name) {
+                    let layer_name = match layer {
+                        Layer::Registers => "registers",
+                        Layer::Internal => "internal",
+                        Layer::Writes => "writes",
+                        Layer::Output => "output",
+                        Layer::Timing => "timing",
+                    };
+                    return Some((subsystem.name, layer_name));
+                }
+            }
+        }
+        None
+    }
 }
 
 /// Every registered family. GB first — it is also the fallback for traces

@@ -287,13 +287,13 @@ impl TraceHeader {
     }
 
     /// Resolve a field's type — `field_defs` when the trace is
-    /// self-describing; otherwise the static catalogue, then
+    /// self-describing; otherwise the family catalogue, then
     /// `extension_fields`; unknown names fall back to `UInt8`.
     pub fn resolve_field_type(&self, name: &str) -> FieldType {
         if let Some(def) = self.field_def(name) {
             return def.field_type;
         }
-        if let Some(def) = crate::profile::lookup_field(name) {
+        if let Some(def) = self.family_def().lookup_field(name) {
             return def.field_type;
         }
         if let Some(ext) = self.extension_fields.get(name) {
@@ -307,7 +307,7 @@ impl TraceHeader {
         if let Some(def) = self.field_def(name) {
             return def.nullable;
         }
-        if let Some(def) = crate::profile::lookup_field(name) {
+        if let Some(def) = self.family_def().lookup_field(name) {
             return def.nullable;
         }
         if let Some(ext) = self.extension_fields.get(name) {
@@ -321,7 +321,10 @@ impl TraceHeader {
         if let Some(def) = self.field_def(name) {
             return def.dictionary;
         }
-        crate::profile::field_dictionary(name)
+        self.family_def()
+            .lookup_field(name)
+            .map(|d| d.dictionary)
+            .unwrap_or(false)
     }
 
     /// Fill `field_defs` and `instruction_addr_field` from the built-in
@@ -335,12 +338,14 @@ impl TraceHeader {
             self.family = default_family();
         }
         if self.field_defs.is_empty() {
+            let family = self.family_def();
             self.field_defs = self
                 .fields
                 .iter()
                 .map(|name| {
-                    if let Some(def) = crate::profile::lookup_field(name) {
-                        let (subsystem, layer) = crate::profile::field_group(name)
+                    if let Some(def) = family.lookup_field(name) {
+                        let (subsystem, layer) = family
+                            .field_group(name)
                             .map(|(s, l)| (Some(s.to_string()), Some(l.to_string())))
                             .unwrap_or((None, None));
                         HeaderFieldDef {
