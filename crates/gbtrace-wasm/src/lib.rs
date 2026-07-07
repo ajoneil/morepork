@@ -260,8 +260,9 @@ impl TraceStore {
         self.store.frame_boundaries().len()
     }
 
-    /// Render a complete frame as RGBA pixel data (160×144×4 = 92160 bytes).
-    /// The library handles all internal decoding transparently.
+    /// Render a complete frame as RGBA pixel data (160×144×4 bytes) by
+    /// replaying the GB per-entry pix stream. Indexed-frame traces
+    /// (`hasIndexedFrames()`) use `indexedFrame()` instead.
     #[wasm_bindgen(js_name = renderFrame)]
     pub fn render_frame(&self, frame_index: usize) -> Result<JsValue, JsError> {
         let (start, end) = match self.frame_entry_range(frame_index) {
@@ -277,7 +278,7 @@ impl TraceStore {
         Ok(js_sys::Uint8ClampedArray::from(&frame.to_rgba()[..]).into())
     }
 
-    /// Render a complete frame as raw pixel values (160×144 = 23040 u16s).
+    /// Render a complete frame as raw GB pix values (160×144 u16s).
     /// Values are 2-bit shades (0-3) for DMG or RGB555 (0x0000-0x7FFF) for CGB;
     /// 0xFFFF marks unrendered pixels. See `pixFormat()` for the interpretation.
     #[wasm_bindgen(js_name = renderFrameRaw)]
@@ -645,11 +646,8 @@ impl TraceStore {
             Some(s) => s,
             None => return Ok(JsValue::NULL),
         };
-        const PALETTE: [(u8, u8, u8); 4] = [
-            (0xe0, 0xf8, 0xd0), (0x88, 0xc0, 0x70),
-            (0x34, 0x68, 0x56), (0x08, 0x18, 0x20),
-        ];
-        let rgba = gbtrace::family::gb::vram::render_tile_sheet(&snap.data, &PALETTE);
+        let rgba = gbtrace::family::gb::vram::render_tile_sheet(
+            &snap.data, &gbtrace::family::gb::vram::DMG_PALETTE);
         Ok(js_sys::Uint8ClampedArray::from(&rgba[..]).into())
     }
 
@@ -668,18 +666,11 @@ impl TraceStore {
             None => return Ok(JsValue::NULL),
         };
 
-        let signed_addressing = (lcdc & 0x10) == 0;
-        let tilemap_base = if map_select == 0 {
-            if (lcdc & 0x08) != 0 { 0x1C00 } else { 0x1800 }
-        } else {
-            if (lcdc & 0x40) != 0 { 0x1C00 } else { 0x1800 }
-        };
-
-        const PALETTE: [(u8, u8, u8); 4] = [
-            (0xe0, 0xf8, 0xd0), (0x88, 0xc0, 0x70),
-            (0x34, 0x68, 0x56), (0x08, 0x18, 0x20),
-        ];
-        let rgba = gbtrace::family::gb::vram::render_tilemap(&snap.data, tilemap_base, signed_addressing, &PALETTE);
+        let (tilemap_base, signed_addressing) =
+            gbtrace::family::gb::vram::tilemap_params(lcdc, map_select);
+        let rgba = gbtrace::family::gb::vram::render_tilemap(
+            &snap.data, tilemap_base, signed_addressing,
+            &gbtrace::family::gb::vram::DMG_PALETTE);
         Ok(js_sys::Uint8ClampedArray::from(&rgba[..]).into())
     }
 

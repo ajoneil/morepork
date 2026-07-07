@@ -182,6 +182,24 @@ pub const TILES_PER_ROW: usize = 16;
 pub const TILE_COUNT: usize = 384;
 
 /// Decode a single 8x8 tile from VRAM data.
+/// The BGB-style DMG green display palette, shade 0 (lightest) first.
+pub const DMG_PALETTE: [(u8, u8, u8); 4] = [
+    (0xe0, 0xf8, 0xd0),
+    (0x88, 0xc0, 0x70),
+    (0x34, 0x68, 0x56),
+    (0x08, 0x18, 0x20),
+];
+
+/// Decode LCDC into tilemap-rendering parameters: the VRAM-relative base
+/// of the selected map (`map_select`: 0 = background, 1 = window) and
+/// whether tile indices use signed ($8800-mode) addressing.
+pub fn tilemap_params(lcdc: u8, map_select: u8) -> (usize, bool) {
+    let map_bit = if map_select == 0 { 0x08 } else { 0x40 };
+    let base = if lcdc & map_bit != 0 { 0x1C00 } else { 0x1800 };
+    let signed_addressing = lcdc & 0x10 == 0;
+    (base, signed_addressing)
+}
+
 /// Returns 64 palette indices (0-3), row-major.
 pub fn decode_tile(vram: &[u8; VRAM_SIZE], tile_index: usize) -> [u8; 64] {
     let mut pixels = [0u8; 64];
