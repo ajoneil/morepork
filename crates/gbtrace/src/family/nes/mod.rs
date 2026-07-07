@@ -5,8 +5,9 @@
 //! (CPU registers, PPU control/mask and beam position) and grows with its
 //! tracer; adapters can carry anything else as extension fields.
 
-use super::{Family, FlagDef, field};
+use super::{Family, FlagDef, LabelledPhrase, field};
 use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
+use crate::query::Condition;
 
 pub mod disasm;
 
@@ -57,12 +58,22 @@ static FLAGS: &[FlagDef] = &[
     FlagDef { names: &["c", "carry"], field: "p", bit: 0 },
 ];
 
+/// NTSC vblank begins on scanline 241 (0xF1).
+static EXACT_PHRASES: &[(&str, fn() -> Condition)] = &[
+    ("vblank starts", || Condition::FieldChangesTo { field: "line".into(), value: "0xf1".into() }),
+];
+
+static LABELLED_PHRASES: &[LabelledPhrase] = &[
+    LabelledPhrase { group: "PPU", label: "VBlank", query: "vblank starts", needs: "line" },
+];
+
 pub static NES: Family = Family {
     id: "nes",
     subsystems: SUBSYSTEMS,
     flags: FLAGS,
-    exact_phrases: &[],
+    exact_phrases: EXACT_PHRASES,
     numbered_phrases: &[],
+    labelled_phrases: LABELLED_PHRASES,
     disassemble: Some(disasm::disassemble),
     // The reset vector is ROM-dependent, so there is no fixed entry
     // address; diff falls back to first-common-address alignment.

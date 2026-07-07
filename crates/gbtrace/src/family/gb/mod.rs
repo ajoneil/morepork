@@ -3,7 +3,7 @@
 //! this family (the header's free-form `model` string), not separate
 //! families.
 
-use super::{Family, FlagDef};
+use super::{Family, FlagDef, LabelledPhrase};
 use crate::query::Condition;
 
 pub mod catalogue;
@@ -38,12 +38,28 @@ static NUMBERED_PHRASES: &[(&str, u8, fn(u8) -> Condition)] = &[
     }),
 ];
 
+static LABELLED_PHRASES: &[LabelledPhrase] = &[
+    LabelledPhrase { group: "PPU", label: "HBlank", query: "ppu enters mode 0", needs: "stat" },
+    LabelledPhrase { group: "PPU", label: "VBlank", query: "ppu enters mode 1", needs: "stat" },
+    LabelledPhrase { group: "PPU", label: "OAM Scan", query: "ppu enters mode 2", needs: "stat" },
+    LabelledPhrase { group: "PPU", label: "Drawing", query: "ppu enters mode 3", needs: "stat" },
+    LabelledPhrase { group: "PPU", label: "LCD On", query: "lcd on", needs: "lcdc" },
+    LabelledPhrase { group: "PPU", label: "LCD Off", query: "lcd off", needs: "lcdc" },
+    LabelledPhrase { group: "IRQ", label: "VBlank", query: "interrupt 0", needs: "if_" },
+    LabelledPhrase { group: "IRQ", label: "STAT", query: "interrupt 1", needs: "if_" },
+    LabelledPhrase { group: "IRQ", label: "Timer", query: "interrupt 2", needs: "if_" },
+    LabelledPhrase { group: "IRQ", label: "Serial", query: "interrupt 3", needs: "if_" },
+    LabelledPhrase { group: "IRQ", label: "Joypad", query: "interrupt 4", needs: "if_" },
+    LabelledPhrase { group: "Timer", label: "Overflow", query: "timer overflow", needs: "tima" },
+];
+
 pub static GB: Family = Family {
     id: "gb",
     subsystems: catalogue::SUBSYSTEMS,
     flags: FLAGS,
     exact_phrases: EXACT_PHRASES,
     numbered_phrases: NUMBERED_PHRASES,
+    labelled_phrases: LABELLED_PHRASES,
     disassemble: Some(disasm::disassemble),
     entry_addrs: Some((0x0100, 0x0101)),
 };

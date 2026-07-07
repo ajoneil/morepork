@@ -191,6 +191,25 @@ impl TraceStore {
         Ok(to_js(&flags)?)
     }
 
+    /// Labelled semantic query phrases for this trace's family: array of
+    /// {group, label, query, needs}. UIs show each as a one-click chip
+    /// when the trace carries the `needs` field; `query` feeds `query()`.
+    #[wasm_bindgen(js_name = semanticPhrases)]
+    pub fn semantic_phrases(&self) -> Result<JsValue, JsError> {
+        #[derive(serde::Serialize)]
+        struct JsPhrase {
+            group: &'static str,
+            label: &'static str,
+            query: &'static str,
+            needs: &'static str,
+        }
+        let phrases: Vec<JsPhrase> = self.store.header().family_def().labelled_phrases
+            .iter()
+            .map(|p| JsPhrase { group: p.group, label: p.label, query: p.query, needs: p.needs })
+            .collect();
+        Ok(to_js(&phrases)?)
+    }
+
     /// Whether this trace has pixel data (a `pix` column).
     #[wasm_bindgen(js_name = hasPixels)]
     pub fn has_pixels(&self) -> bool {

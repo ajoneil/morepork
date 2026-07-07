@@ -1,23 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import { displayVal, normalizeInput, flagChips } from '../lib/format.js';
-
-const SEMANTIC_CONDITIONS = [
-  // PPU
-  { group: 'PPU', label: 'HBlank', query: 'ppu enters mode 0', needs: 'stat' },
-  { group: 'PPU', label: 'VBlank', query: 'ppu enters mode 1', needs: 'stat' },
-  { group: 'PPU', label: 'OAM Scan', query: 'ppu enters mode 2', needs: 'stat' },
-  { group: 'PPU', label: 'Drawing', query: 'ppu enters mode 3', needs: 'stat' },
-  { group: 'PPU', label: 'LCD On', query: 'lcd on', needs: 'lcdc' },
-  { group: 'PPU', label: 'LCD Off', query: 'lcd off', needs: 'lcdc' },
-  // Interrupts
-  { group: 'IRQ', label: 'VBlank', query: 'interrupt 0', needs: 'if_' },
-  { group: 'IRQ', label: 'STAT', query: 'interrupt 1', needs: 'if_' },
-  { group: 'IRQ', label: 'Timer', query: 'interrupt 2', needs: 'if_' },
-  { group: 'IRQ', label: 'Serial', query: 'interrupt 3', needs: 'if_' },
-  { group: 'IRQ', label: 'Joypad', query: 'interrupt 4', needs: 'if_' },
-  // Timer
-  { group: 'Timer', label: 'Overflow', query: 'timer overflow', needs: 'tima' },
-];
+import { displayVal, normalizeInput, flagChips, isFlagField } from '../lib/format.js';
 
 // Flag chips cycle: off -> becomes set -> becomes clear -> off
 // (vocabulary comes from the loaded trace's flag metadata)
@@ -227,6 +209,12 @@ export class TraceQuery extends LitElement {
     _flagModes: { state: true },
   };
 
+  willUpdate(changed) {
+    if (changed.has('store')) {
+      try { this._phrases = this.store?.semanticPhrases() || []; } catch { this._phrases = []; }
+    }
+  }
+
   updated(changed) {
     if (changed.has('store') || changed.has('storeB')) {
       this._clear();
@@ -251,13 +239,14 @@ export class TraceQuery extends LitElement {
     this._matchEntries = [];
     this._currentMatch = -1;
     this._error = null;
+    this._phrases = [];
   }
 
   render() {
     const traceFields = this.fields || [];
-    const semanticAvailable = SEMANTIC_CONDITIONS.filter(c =>
-      (this.fields || []).includes(c.needs)
-    );
+    // Labelled phrases come from the trace's family vocabulary; show a
+    // chip only when the trace carries the field it queries.
+    const semanticAvailable = (this._phrases || []).filter(c => traceFields.includes(c.needs));
 
     return html`
       <div class="chip-row">
@@ -277,7 +266,7 @@ export class TraceQuery extends LitElement {
             @click=${() => this._selectField(f)}
           >${f}</span>
         `)}
-        ${(this.fields || []).includes('f') ? html`
+        ${traceFields.some(isFlagField) ? html`
           <span class="section-label" style="margin-left:6px">Flags</span>
           ${flagChips().map(fc => {
             const mode = this._flagModes[fc.flag] || null;

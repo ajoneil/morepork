@@ -245,3 +245,22 @@ ppu = "registers"
     assert!(gbtrace::query::parse_condition("lcd on", nes).is_err());
     assert!(gbtrace::query::parse_condition("flag h set", nes).is_err());
 }
+
+#[test]
+fn labelled_phrases_parse_in_their_family() {
+    for family in gbtrace::family::FAMILIES {
+        for chip in family.labelled_phrases {
+            gbtrace::query::parse_condition(chip.query, family).unwrap_or_else(|e| {
+                panic!(
+                    "family '{}' chip '{}' has unparseable query '{}': {e}",
+                    family.id, chip.label, chip.query
+                )
+            });
+            assert!(
+                family.lookup_field(chip.needs).is_some(),
+                "family '{}' chip '{}' needs unknown field '{}'",
+                family.id, chip.label, chip.needs
+            );
+        }
+    }
+}

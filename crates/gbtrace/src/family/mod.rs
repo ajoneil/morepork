@@ -48,6 +48,17 @@ pub struct FlagDef {
     pub bit: u8,
 }
 
+/// A semantic phrase with display metadata for query-builder UIs.
+/// `query` is the phrase exactly as [`crate::query::parse_condition`]
+/// accepts it; UIs show the chip under `group` with `label` when the
+/// trace carries the `needs` field.
+pub struct LabelledPhrase {
+    pub group: &'static str,
+    pub label: &'static str,
+    pub query: &'static str,
+    pub needs: &'static str,
+}
+
 /// A console family: the system-specific vocabulary and behaviour behind
 /// profiles, queries, disassembly, and diff alignment.
 pub struct Family {
@@ -69,6 +80,11 @@ pub struct Family {
     /// Semantic query phrases of the form `<prefix><number>`
     /// (`"interrupt 2"`), with an inclusive maximum for the number.
     pub numbered_phrases: &'static [(&'static str, u8, fn(u8) -> Condition)],
+
+    /// The subset of semantic phrases worth showing as one-click chips in
+    /// query UIs, with display labels and grouping. Every entry's `query`
+    /// must parse against this family's vocabulary.
+    pub labelled_phrases: &'static [LabelledPhrase],
 
     /// Instruction decoder: (rom, address) → (mnemonic, length).
     pub disassemble: Option<fn(&[u8], u16) -> (String, u8)>,
