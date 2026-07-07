@@ -504,3 +504,36 @@ fn test_header_self_describing_on_write() {
     // No op_addr in this trace, so pc is the instruction-address column.
     assert_eq!(h.instruction_addr_field.as_deref(), Some("pc"));
 }
+
+#[test]
+fn test_writer_derives_groups_from_defs_when_none_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nogroups.gbtrace");
+
+    let header = test_header();
+    {
+        let mut w = GbtraceWriter::create(&path, &header, &[]).unwrap();
+        w.set_u16(0, 0x0150);
+        w.set_u16(1, 0xFFFE);
+        for col in 2..13 {
+            w.set_u8(col, 0);
+        }
+        w.set_null(13);
+        w.set_null(14);
+        w.set_null(15);
+        w.finish_entry().unwrap();
+        w.finish().unwrap();
+    }
+
+    let data = std::fs::read(&path).unwrap();
+    let store = GbtraceStore::from_bytes(&data).unwrap();
+    let h = store.header();
+
+    // Groups derived from the field defs' subsystem/layer.
+    let names: Vec<&str> = h.field_groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(names, ["cpu", "ppu", "ppu_output", "ppu_writes"]);
+    // And the data reads back through them.
+    assert_eq!(store.entry_count(), 1);
+    assert_eq!(store.get_numeric(0, 0), 0x0150);
+    assert_eq!(store.get_numeric(12, 0), 0);
+}

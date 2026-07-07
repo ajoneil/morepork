@@ -169,6 +169,28 @@ pub struct GbtraceWriter {
     snapshot_index: Vec<SnapshotIndexEntry>,
 }
 
+/// Group fields for chunk storage by their header defs: subsystem name for
+/// the registers layer, `<subsystem>_<layer>` otherwise, `other` for fields
+/// without a subsystem (memory watches, extensions).
+fn groups_from_defs(header: &TraceHeader) -> Vec<FieldGroup> {
+    let mut groups: Vec<FieldGroup> = Vec::new();
+    for name in &header.fields {
+        let group_name = match header.field_def(name) {
+            Some(def) => match (&def.subsystem, &def.layer) {
+                (Some(s), Some(l)) if l == "registers" => s.clone(),
+                (Some(s), Some(l)) => format!("{s}_{l}"),
+                _ => "other".to_string(),
+            },
+            None => "other".to_string(),
+        };
+        match groups.iter_mut().find(|g| g.name == group_name) {
+            Some(g) => g.fields.push(name.clone()),
+            None => groups.push(FieldGroup { name: group_name, fields: vec![name.clone()] }),
+        }
+    }
+    groups
+}
+
 impl GbtraceWriter {
     /// Create a new writer.
     pub fn create(
@@ -189,7 +211,14 @@ impl GbtraceWriter {
         let mut header = header.clone();
         header.ensure_self_describing();
         if header.field_groups.is_empty() {
-            header.field_groups = groups.to_vec();
+            header.field_groups = if groups.is_empty() {
+                // No grouping given: group by the field defs' subsystem and
+                // layer. Any grouping is valid — readers follow whatever the
+                // header records — so new producers can just pass `&[]`.
+                groups_from_defs(&header)
+            } else {
+                groups.to_vec()
+            };
         }
 
         // Write header (JSON, zstd-compressed)
