@@ -57,32 +57,64 @@ impl ColBuf {
         }
     }
 
+    /// A type-mismatched append records the column's default so columns
+    /// stay aligned — silently dropping the value would desynchronise the
+    /// chunk's columns and corrupt the file. The debug assertion surfaces
+    /// the producer bug in tests.
+    fn append_mismatched(&mut self) {
+        debug_assert!(false, "trace column setter called with the wrong type");
+        match self {
+            Self::U8(b) => b.append_value(0),
+            Self::U16(b) => b.append_value(0),
+            Self::U32(b) => b.append_value(0),
+            Self::U64(b) => b.append_value(0),
+            Self::Bool(b) => b.append_value(false),
+            Self::Str(b) => b.append_value(""),
+            Self::DictU8(b) => { let _ = b.append_value(0); }
+        }
+    }
+
     fn append_u8(&mut self, val: u8) {
         match self {
             Self::U8(b) => b.append_value(val),
             Self::DictU8(b) => { let _ = b.append_value(val); }
-            _ => {}
+            _ => self.append_mismatched(),
         }
     }
 
     fn append_u16(&mut self, val: u16) {
-        if let Self::U16(b) = self { b.append_value(val); }
+        match self {
+            Self::U16(b) => b.append_value(val),
+            _ => self.append_mismatched(),
+        }
     }
 
     fn append_u32(&mut self, val: u32) {
-        if let Self::U32(b) = self { b.append_value(val); }
+        match self {
+            Self::U32(b) => b.append_value(val),
+            _ => self.append_mismatched(),
+        }
     }
 
     fn append_u64(&mut self, val: u64) {
-        if let Self::U64(b) = self { b.append_value(val); }
+        match self {
+            Self::U64(b) => b.append_value(val),
+            _ => self.append_mismatched(),
+        }
     }
 
     fn append_bool(&mut self, val: bool) {
-        if let Self::Bool(b) = self { b.append_value(val); }
+        match self {
+            Self::Bool(b) => b.append_value(val),
+            _ => self.append_mismatched(),
+        }
     }
 
     fn append_str(&mut self, val: &str) {
-        if let Self::Str(b) = self { b.append_value(val); }
+        match self {
+            Self::Str(b) => b.append_value(val),
+            _ => self.append_mismatched(),
+        }
     }
 
     fn append_null(&mut self) {
