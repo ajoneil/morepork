@@ -387,10 +387,12 @@ export class TraceSelector extends LitElement {
     const newHiddenGroups = new Set(this._hiddenGroups);
     const newHidden = new Set(this.hiddenFields || []);
 
-    if (this._hiddenGroups.has(groupName)) {
+    // Toggle on effective visibility, not just our own bookkeeping —
+    // groups can start hidden from the app's defaults without ever
+    // having been toggled here.
+    const anyVisible = present.some(f => !newHidden.has(f));
+    if (!anyVisible) {
       // Show group — remove group fields from hidden
-      // (restores them all; individual toggles within the group are preserved
-      // because we only added them when hiding the group)
       newHiddenGroups.delete(groupName);
       for (const f of present) {
         newHidden.delete(f);
