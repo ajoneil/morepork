@@ -1,0 +1,9 @@
+# MAME runtime artifacts
+*.gbtrace
+cfg/
+nvram/
+# built Lua/FFI binding
+*.so
+*.o
+# built adapter binary
+gbtrace-mame
