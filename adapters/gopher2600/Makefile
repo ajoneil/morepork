@@ -29,9 +29,9 @@ $(GOPHER_DIR):
 $(FFI_LIB):
 	cd ../.. && cargo build --release -p gbtrace-ffi
 
-$(TARGET): main.go | $(GOPHER_DIR) $(FFI_LIB)
+$(TARGET): main.go ntsc_palette.go | $(GOPHER_DIR) $(FFI_LIB)
 	mkdir -p $(CMD_DIR)
-	cp main.go $(CMD_DIR)/main.go
+	cp main.go ntsc_palette.go $(CMD_DIR)/
 	cd $(GOPHER_DIR) && CGO_ENABLED=1 \
 	  CGO_CFLAGS="-I$(abspath $(FFI_DIR))" \
 	  CGO_LDFLAGS="$(abspath $(FFI_LIB)) -lm -ldl -lpthread" \

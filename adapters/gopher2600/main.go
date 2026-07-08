@@ -118,13 +118,11 @@ func (f *frameCapture) emit(w *C.GbtraceWriter) {
 	if !f.haveSpec || f.width == 0 || f.height == 0 || len(f.pixels) == 0 {
 		return
 	}
-	pal := make([]byte, 256*3)
-	for i := 0; i < 256; i++ {
-		c := f.spec.GetColor(signal.ColorSignal(i))
-		pal[i*3] = c.R
-		pal[i*3+1] = c.G
-		pal[i*3+2] = c.B
-	}
+	// Embed the SUITE's canonical NTSC palette (not Gopher's own), so a golden
+	// PNG rendered from this trace is identical to one rendered from any other
+	// oracle's trace — the pixels are emulator-independent TIA colour codes and
+	// now so is the colour table. See adapters/genpalette.py.
+	pal := canonicalNTSCPalette
 	C.gbtrace_writer_mark_frame_indexed(w,
 		C.uint16_t(f.width), C.uint16_t(f.height), C.float(12.0/7.0),
 		(*C.uint8_t)(unsafe.Pointer(&pal[0])), C.size_t(256),
