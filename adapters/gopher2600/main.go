@@ -30,6 +30,7 @@ import (
 	"github.com/jetsetilly/gopher2600/environment"
 	"github.com/jetsetilly/gopher2600/hardware"
 	"github.com/jetsetilly/gopher2600/hardware/preferences"
+	"github.com/jetsetilly/gopher2600/hardware/riot/ports"
 	"github.com/jetsetilly/gopher2600/hardware/television"
 	"github.com/jetsetilly/gopher2600/hardware/television/frameinfo"
 	"github.com/jetsetilly/gopher2600/hardware/television/signal"
@@ -136,19 +137,20 @@ func main() {
 	spec := flag.String("spec", "NTSC", "TV spec: NTSC, PAL, PAL60, SECAM, AUTO")
 	maxFrames := flag.Int("frames", 30, "cap: stop after this many frames")
 	frame := flag.Bool("frame", true, "embed a final frame pixel snapshot")
+	swchb := flag.Int("swchb", 0x48, "console switches: bit3=colour, bit6=P0 diff-A, bit7=P1 diff-A")
 	flag.Parse()
 
 	if *rom == "" {
 		fmt.Fprintln(os.Stderr, "error: -rom is required")
 		os.Exit(2)
 	}
-	if err := run(*rom, *out, *spec, *maxFrames, *frame); err != nil {
+	if err := run(*rom, *out, *spec, *maxFrames, *frame, uint8(*swchb)); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(romPath, outPath, spec string, maxFrames int, captureFrame bool) error {
+func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb uint8) error {
 	romBytes, err := os.ReadFile(romPath)
 	if err != nil {
 		return err
@@ -182,6 +184,14 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool) error 
 	if err := vcs.AttachCartridge(loader, nil); err != nil {
 		return fmt.Errorf("attach: %w", err)
 	}
+
+	// Set the console panel switches to a known state (the latching colour and
+	// difficulty switches) so SWCHB reads are deterministic. bit3=colour,
+	// bit6=P0 difficulty A, bit7=P1 difficulty A.
+	panel := vcs.RIOT.Ports.Panel
+	panel.HandleEvent(ports.PanelSetColor, swchb&0x08 != 0)
+	panel.HandleEvent(ports.PanelSetPlayer0Pro, swchb&0x40 != 0)
+	panel.HandleEvent(ports.PanelSetPlayer1Pro, swchb&0x80 != 0)
 
 	header := map[string]any{
 		"_header":          true,

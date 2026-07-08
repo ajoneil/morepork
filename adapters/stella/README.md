@@ -41,6 +41,7 @@ static lib (built automatically if missing).
 ```
 
 - `-spec` `NTSC` | `PAL` | `PAL60` | `SECAM` | `AUTO`
+- `-swchb` console switches (bit3=colour, bit6=P0 difficulty-A, bit7=P1 difficulty-A); default `0x48`
 - stops early once RAM `$80` (RESULT) holds a terminal verdict (`$A5`/`$5A`).
 
 ## Captured fields (Tier 1 profile)

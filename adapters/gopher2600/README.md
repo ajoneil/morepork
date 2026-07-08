@@ -32,6 +32,7 @@ FFI via `CGO_CFLAGS`/`CGO_LDFLAGS`.
 - `-out`    output `.gbtrace` (native format)
 - `-spec`   `NTSC` | `PAL` | `PAL60` | `SECAM` | `AUTO`
 - `-frames` frame cap (also stops early once RAM `$80` — the RESULT byte — is non-zero)
+- `-swchb`  console switches (bit3=colour, bit6=P0 difficulty-A, bit7=P1 difficulty-A); default `0x48`
 
 Inspect with the gbtrace CLI:
 

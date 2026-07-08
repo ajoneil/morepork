@@ -23,6 +23,7 @@
 #include "M6502.hxx"
 #include "TIA.hxx"
 #include "M6532.hxx"
+#include "Switches.hxx"
 #include "libretro.h"
 
 #include "gbtrace.h"
@@ -94,6 +95,7 @@ int main(int argc, char** argv) {
   const char* out = "trace.gbtrace";
   std::string spec = "NTSC";
   int maxFrames = 30;
+  int swchb = 0x48;   // bit3=colour, bit6=P0 diff-A, bit7=P1 diff-A
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
     auto next = [&]() { return (i + 1 < argc) ? argv[++i] : ""; };
@@ -101,6 +103,7 @@ int main(int argc, char** argv) {
     else if (a == "-out") out = next();
     else if (a == "-spec") spec = next();
     else if (a == "-frames") maxFrames = std::atoi(next());
+    else if (a == "-swchb") swchb = (int)std::strtol(next(), nullptr, 0);
   }
   if (!rom) { std::fprintf(stderr, "error: -rom is required\n"); return 2; }
 
@@ -126,6 +129,14 @@ int main(int argc, char** argv) {
     return 1;
   }
   Console& console = stella.osystem().console();
+
+  // Set the console panel switches to a known state (latching colour and
+  // difficulty switches) so SWCHB reads are deterministic.
+  Switches& sw = console.switches();
+  sw.setTvColor((swchb & 0x08) != 0);
+  sw.setLeftDifficultyA((swchb & 0x40) != 0);
+  sw.setRightDifficultyA((swchb & 0x80) != 0);
+
   System& system = console.system();
   M6502& cpu = system.m6502();
   TIA& tia = console.tia();
