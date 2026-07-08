@@ -49,11 +49,26 @@ static lib (built automatically if missing).
 instruction. No `timer`/`port_a`/`port_b` yet (reading those safely without the
 debugger subsystem is a TODO), and no frame snapshot yet.
 
+## Trace alignment
+
+The Stella and Gopher2600 per-instruction traces align **100% on the instruction
+stream** (`pc a x y s p`) and **99.9% on `clock`**, so `gbtrace diff` between them
+is clean. Getting there required matching two conventions (both handled in the
+Gopher2600 adapter):
+
+- **One entry per retired instruction.** A WSYNC halt (including WSYNC strobed via
+  `CLEAN_START`'s stack writes to TIA mirrors) stalls the CPU for many cycles;
+  Stella's `execute(1)` absorbs the halt into one instruction, so the Gopher2600
+  adapter skips halt cycles (RDY low) to match.
+- **Canonical `clock` origin** 0..227 with 0 = start of HBLANK.
+
+Residual differences are genuine, not noise:
+- The first few entries differ in `a/x/y` and the `D` flag — power-on state
+  (Stella randomises, Gopher2600 zeros), cleared within a few instructions by
+  `CLEAN_START`/`CLD`.
+- `line` diverges on compute-only SELF ROMs (no real VSYNC → emulator-specific
+  frame detection). It aligns for ROMs that drive proper video.
+
 ## TODO / known gaps
 
-- **Trace alignment for diffing:** the Stella and Gopher2600 traces are not yet
-  instruction-aligned (slightly different reset/startup lengths), so a naive
-  `gbtrace diff` shows offset-driven noise. Needs a common start anchor.
-- **`p` normalization:** the 6502 status byte's bit 4 (B) / bit 5 (unused)
-  convention differs between emulators; normalize before diffing.
 - Add `timer`/ports (via a side-effect-free RIOT read) and frame snapshots.

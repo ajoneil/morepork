@@ -236,6 +236,18 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool) error 
 			C.gbtrace_writer_close(w)
 			return fmt.Errorf("step: %w", err)
 		}
+		// Emit one entry per *retired* instruction. When the CPU is halted
+		// (RDY low after a WSYNC — including WSYNC strobed via stack writes to
+		// TIA mirrors in CLEAN_START), Step spins without retiring an
+		// instruction; skipping those keeps the trace one-entry-per-instruction
+		// and aligned with adapters that step whole instructions (e.g. Stella).
+		if !vcs.CPU.RdyFlg {
+			c := vcs.TV.GetCoords()
+			if c.Frame >= maxFrames {
+				break
+			}
+			continue
+		}
 		setU16("pc", vcs.CPU.PC.Address())
 		setU8("a", vcs.CPU.A.Value())
 		setU8("x", vcs.CPU.X.Value())
@@ -244,7 +256,11 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool) error 
 		setU8("p", vcs.CPU.Status.Value())
 		c := vcs.TV.GetCoords()
 		setU16("line", uint16(c.Scanline))
-		setU8("clock", uint8(c.Clock))
+		// Canonical VCS clock convention: 0..227 with 0 = start of HBLANK.
+		// Gopher's coord origin is visible-start (HBLANK is -68..-1), so shift
+		// by the HBLANK width to match (Stella's clocksThisLine is already
+		// HBLANK-origin). Keeps the `clock` field comparable across adapters.
+		setU8("clock", uint8(c.Clock+68))
 		for _, mf := range memoryFields {
 			v, _ := vcs.Mem.Peek(mf.addr)
 			setU8(mf.name, v)
