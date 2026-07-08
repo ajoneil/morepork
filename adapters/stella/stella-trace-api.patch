@@ -1,0 +1,20 @@
+diff --git a/src/emucore/M6502.hxx b/src/emucore/M6502.hxx
+index d5b8ccf..4cd16a4 100644
+--- a/src/emucore/M6502.hxx
++++ b/src/emucore/M6502.hxx
+@@ -61,6 +61,15 @@ class M6502 : public Serializable
+ 
+     using onHaltCallback = std::function<void()>;
+ 
++    // gbtrace adapter: read-only accessors for the register file (the
++    // registers are otherwise private, exposed only to the debugger).
++    uInt16 gbPC() const { return PC; }
++    uInt8  gbA()  const { return A;  }
++    uInt8  gbX()  const { return X;  }
++    uInt8  gbY()  const { return Y;  }
++    uInt8  gbSP() const { return SP; }
++    uInt8  gbPS() const { return PS(); }
++
+   public:
+     /**
+       Create a new 6502 microprocessor.

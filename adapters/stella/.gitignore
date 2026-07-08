@@ -1,0 +1,5 @@
+# Cloned upstream emulator source (reconstructed by `make`)
+src/
+# Built adapter binary + objects
+gbtrace-stella
+*.o
