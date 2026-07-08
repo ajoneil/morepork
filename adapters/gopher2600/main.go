@@ -93,18 +93,42 @@ func (f *frameCapture) SetPixels(sig []signal.SignalAttributes, last int) error 
 	for i := range px {
 		px[i] = 0xFF
 	}
+	vsync := make([]bool, rows)
 	for i := 0; i <= last && i < len(sig); i++ {
+		row := i / clksScanline
+		if sig[i].VSync {
+			vsync[row] = true
+		}
 		col := i % clksScanline
 		if col < clksHBlank {
 			continue
 		}
-		row := i / clksScanline
 		vc := col - clksHBlank
-		if sig[i].VBlank {
-			px[row*clksVisible+vc] = 0xFF
+		if sig[i].VBlank || sig[i].VSync {
+			px[row*clksVisible+vc] = 0xFF // blanked -> canonical black
 		} else {
 			px[row*clksVisible+vc] = uint8(sig[i].Color)
 		}
+	}
+	// Anchor row 0 at the VSYNC-deassert edge (first non-VSYNC row following a
+	// VSYNC row) and roll, so the full field is comparable across oracles
+	// regardless of where each starts its frame buffer. (Stella anchors the same
+	// point via its YStart offset.)
+	anchor := 0
+	for r := 0; r < rows; r++ {
+		prev := (r - 1 + rows) % rows
+		if vsync[prev] && !vsync[r] {
+			anchor = r
+			break
+		}
+	}
+	if anchor != 0 {
+		rolled := make([]uint8, len(px))
+		for r := 0; r < rows; r++ {
+			src := (anchor + r) % rows
+			copy(rolled[r*clksVisible:(r+1)*clksVisible], px[src*clksVisible:(src+1)*clksVisible])
+		}
+		px = rolled
 	}
 	f.width = clksVisible
 	f.height = rows

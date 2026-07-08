@@ -18,3 +18,20 @@ index d5b8ccf..4cd16a4 100644
    public:
      /**
        Create a new 6502 microprocessor.
+diff --git a/src/emucore/tia/TIA.hxx b/src/emucore/tia/TIA.hxx
+index 124d729..1277840 100644
+--- a/src/emucore/tia/TIA.hxx
++++ b/src/emucore/tia/TIA.hxx
+@@ -278,6 +278,12 @@ class TIA : public Device
+     Int32 maxVcenter() const { return myFrameManager->maxVcenter(); }
+     uInt32 startLine() const { return myFrameManager->startLine(); }
+ 
++    // gbtrace adapter: frame-manager state for VSYNC-anchoring the snapshot.
++    // The framebuffer row being rendered IS getY(); vsync() is the current
++    // VSYNC state — together they locate the VSYNC-deassert row.
++    bool gbVSync() const { return myFrameManager->vsync(); }
++    uInt32 gbY() const { return myFrameManager->getY(); }
++
+     /**
+       Changes the current vcenter property.
+     */

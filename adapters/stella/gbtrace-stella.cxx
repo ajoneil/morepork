@@ -206,9 +206,20 @@ int main(int argc, char** argv) {
     uInt16 width = 160;
     uInt16 height = (uInt16)tia.frameBufferScanlinesLastFrame();
     if (fb && height > 0) {
+      // Roll so row 0 = the top of the field (VSYNC start). Stella's buffer is
+      // YStart-centred: framebuffer row 0 sits startLine() scanlines below the
+      // field top, so rolling up by startLine() restores the field origin. This
+      // makes the full field comparable across oracles.
+      int anchorRow = ((int)height - (int)tia.startLine()) % (int)height;
+      std::vector<uint8_t> rolled((size_t)width * height);
+      int a = anchorRow % height; if (a < 0) a += height;
+      for (int r = 0; r < height; r++) {
+        int src = (a + r) % height;
+        std::memcpy(&rolled[(size_t)r * width], fb + (size_t)src * width, width);
+      }
       gbtrace_writer_mark_frame_indexed(w, width, height, 12.0f / 7.0f,
           canonicalNTSCPalette, 256,
-          fb, (size_t)width * (size_t)height);
+          rolled.data(), (size_t)width * (size_t)height);
     }
   }
 
