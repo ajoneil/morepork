@@ -111,18 +111,19 @@ func main() {
 	maxFrames := flag.Int("frames", 30, "cap: seconds_to_run = max(2, frames/60)")
 	port := flag.Int("port", 23946, "gdbstub port")
 	swchb := flag.Int("swchb", 0x48, "console switches: bit3=colour, bit6=P0 diff-A, bit7=P1 diff-A")
+	frame := flag.Bool("frame", true, "capture a final frame snapshot (a second headless MAME pass)")
 	flag.Parse()
 	if *rom == "" {
 		fmt.Fprintln(os.Stderr, "error: -rom is required")
 		os.Exit(2)
 	}
-	if err := run(*rom, *out, *spec, *maxFrames, *port, *swchb); err != nil {
+	if err := run(*rom, *out, *spec, *maxFrames, *port, *swchb, *frame); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(romPath, outPath, spec string, maxFrames, port, swchb int) error {
+func run(romPath, outPath, spec string, maxFrames, port, swchb int, wantFrame bool) error {
 	romBytes, err := os.ReadFile(romPath)
 	if err != nil {
 		return err
@@ -208,8 +209,153 @@ func run(romPath, outPath, spec string, maxFrames, port, swchb int) error {
 	// format breaks tracelog, so we grab the final verdict here).
 	res, code, obs, exp := parseMem(g.cmd("m80,4"))
 	g.mon("trace off") // flush the trace file
+	_ = syscall.Kill(-mame.Process.Pid, syscall.SIGKILL) // free the port before pass 2
 
-	return writeTrace(outPath, spec, romSha, traceLog.Name(), res, code, obs, exp)
+	// A second, gdbstub-free headless pass captures the final frame via Lua
+	// (gdbstub exposes no pixels). Best-effort: a frame is nice-to-have.
+	var fr *frameData
+	if wantFrame {
+		if f, ferr := captureFrame(romPath, spec, maxFrames); ferr == nil {
+			fr = f
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: frame capture failed: %v\n", ferr)
+		}
+	}
+
+	return writeTrace(outPath, spec, romSha, traceLog.Name(), res, code, obs, exp, fr)
+}
+
+type frameData struct {
+	width, height int
+	pixels        []byte // TIA colour codes (canonical-palette indices)
+}
+
+// frameLuaTemplate runs the ROM for a few frames, then dumps the screen's
+// pixels (ARGB32) to a file and exits. %q = dump path, %d = frame to capture on.
+const frameLuaTemplate = `
+local target = %d
+local n = 0
+emu.register_frame_done(function()
+  n = n + 1
+  if n < target then return end
+  local s = manager.machine.screens:at(1)
+  local ok, px = pcall(function() return s:pixels() end)
+  if ok then
+    local f = io.open(%q, "wb"); f:write(px); f:close()
+    io.stderr:write(string.format("GBFRAME %%d %%d\n", s.width, s.height))
+  end
+  manager.machine:exit()
+end)
+`
+
+// captureFrame launches a second headless MAME, dumps the last frame's pixels,
+// and reverse-maps each RGB to a TIA colour code (nearest canonical palette
+// entry) so the frame is oracle-independent like the other adapters'.
+func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
+	machine := "a2600"
+	if spec == "PAL" {
+		machine = "a2600p"
+	}
+	dump, err := os.CreateTemp("", "gbtrace-mame-px-*.bin")
+	if err != nil {
+		return nil, err
+	}
+	dump.Close()
+	defer os.Remove(dump.Name())
+	luaFile, err := os.CreateTemp("", "gbtrace-mame-frame-*.lua")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(luaFile.Name())
+	target := maxFrames
+	if target < 8 {
+		target = 8 // let a static image settle
+	}
+	luaFile.WriteString(fmt.Sprintf(frameLuaTemplate, target, dump.Name()))
+	luaFile.Close()
+
+	seconds := target/60 + 2
+	cmd := exec.Command("mame", machine, "-cart", romPath,
+		"-video", "none", "-sound", "none", "-nothrottle",
+		"-autoboot_script", luaFile.Name(), "-autoboot_delay", "0",
+		"-seconds_to_run", strconv.Itoa(seconds))
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+	}
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_, _ = cmd.Process.Wait()
+	}
+
+	// parse "GBFRAME <w> <h>" from stderr
+	var w, h int
+	for _, ln := range strings.Split(stderr.String(), "\n") {
+		if strings.HasPrefix(ln, "GBFRAME ") {
+			fmt.Sscanf(ln, "GBFRAME %d %d", &w, &h)
+		}
+	}
+	if w == 0 || h == 0 {
+		return nil, fmt.Errorf("no frame dumped (%s)", firstLine(stderr.String()))
+	}
+	argb, err := os.ReadFile(dump.Name())
+	if err != nil {
+		return nil, err
+	}
+	if len(argb) < w*h*4 {
+		return nil, fmt.Errorf("short pixel dump: %d < %d", len(argb), w*h*4)
+	}
+	pixels := make([]byte, w*h)
+	cache := map[uint32]uint8{}
+	for i := 0; i < w*h; i++ {
+		// MAME pixels() is ARGB32 little-endian: bytes b,g,r,a.
+		b, gg, r := argb[i*4], argb[i*4+1], argb[i*4+2]
+		key := uint32(r)<<16 | uint32(gg)<<8 | uint32(b)
+		idx, ok := cache[key]
+		if !ok {
+			idx = nearestCanonical(r, gg, b)
+			cache[key] = idx
+		}
+		pixels[i] = idx
+	}
+	return &frameData{width: w, height: h, pixels: pixels}, nil
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// nearestCanonical maps an RGB triple to the TIA colour code whose canonical
+// palette entry is closest (squared distance). Only even indices are real
+// colours (odd = black); an exact match is the common case for solid fills.
+func nearestCanonical(r, g, b uint8) uint8 {
+	best := uint8(0)
+	bestD := int32(1<<31 - 1)
+	for i := 0; i < 256; i += 2 {
+		dr := int32(r) - int32(canonicalNTSCPalette[i*3])
+		dg := int32(g) - int32(canonicalNTSCPalette[i*3+1])
+		db := int32(b) - int32(canonicalNTSCPalette[i*3+2])
+		d := dr*dr + dg*dg + db*db
+		if d < bestD {
+			bestD = d
+			best = uint8(i)
+			if d == 0 {
+				break
+			}
+		}
+	}
+	return best
 }
 
 func parseMem(h string) (a, b, c, d uint8) {
@@ -225,7 +371,7 @@ func parseMem(h string) (a, b, c, d uint8) {
 
 // writeTrace parses the MAME trace log (R<pc> <a> <x> <y> <sp> <p> lines) into a
 // native .gbtrace. The RESULT bytes are placed on the final (verdict) entry.
-func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8) error {
+func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8, fr *frameData) error {
 	lf, err := os.Open(logPath)
 	if err != nil {
 		return err
@@ -262,6 +408,9 @@ func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8
 		"emulator": "mame", "emulator_version": "adapter", "rom_sha256": romSha,
 		"family": "vcs", "model": spec, "profile": "tier1",
 		"fields": fields, "trigger": "instruction",
+	}
+	if fr != nil {
+		header["pix_format"] = "indexed8"
 	}
 	hj, _ := json.Marshal(header)
 	cPath := C.CString(outPath)
@@ -300,6 +449,13 @@ func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8
 			setU8("expected", 0)
 		}
 		C.gbtrace_writer_finish_entry(w)
+	}
+	if fr != nil && fr.width > 0 && fr.height > 0 && len(fr.pixels) > 0 {
+		pal := canonicalNTSCPalette
+		C.gbtrace_writer_mark_frame_indexed(w,
+			C.uint16_t(fr.width), C.uint16_t(fr.height), C.float(12.0/7.0),
+			(*C.uint8_t)(unsafe.Pointer(&pal[0])), C.size_t(256),
+			(*C.uint8_t)(unsafe.Pointer(&fr.pixels[0])), C.size_t(len(fr.pixels)))
 	}
 	if C.gbtrace_writer_close(w) != 0 {
 		return fmt.Errorf("writer close failed")
