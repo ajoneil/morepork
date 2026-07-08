@@ -30,6 +30,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 )
@@ -162,10 +163,22 @@ func run(romPath, outPath, spec string, maxFrames, port, swchb int) error {
 		"-debug", "-debugger", "gdbstub", "-debugger_port", strconv.Itoa(port),
 		"-seconds_to_run", strconv.Itoa(seconds))
 	mame.Stdout, mame.Stderr = nil, nil
+	// Own process group so we can reap MAME *and* any child it forks. Killing
+	// only the launcher's PID left the real emulator process lingering.
+	mame.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := mame.Start(); err != nil {
 		return fmt.Errorf("launch mame: %w", err)
 	}
-	defer func() { _ = mame.Process.Kill() }()
+	defer func() {
+		// SIGKILL the whole group (negative PID), then Wait to reap the zombie.
+		// When MAME is paused at the watchpoint it never reaches seconds_to_run,
+		// so it will not exit on its own — this is the only thing that stops it.
+		if mame.Process != nil {
+			_ = syscall.Kill(-mame.Process.Pid, syscall.SIGKILL)
+			_ = mame.Process.Kill()
+			_, _ = mame.Process.Wait()
+		}
+	}()
 
 	var conn net.Conn
 	for i := 0; i < 100; i++ {
