@@ -356,6 +356,50 @@ pub unsafe extern "C" fn gbtrace_writer_mark_frame(w: *mut GbtraceWriter) -> i32
     }
 }
 
+/// Mark a frame boundary carrying an indexed-frame snapshot (palette + pixel
+/// indices), for palette-indexed displays like the VCS. Builds the snapshot
+/// payload from the raw components and attaches it to the frame boundary.
+///   width, height   frame dimensions in pixels
+///   pixel_aspect    display pixel aspect ratio
+///   palette_rgb     palette_len * 3 bytes (R,G,B per entry)
+///   palette_len     number of palette entries
+///   pixels          width*height bytes, each an index into the palette
+///   pixels_len      must equal width*height
+/// Returns 0 on success, -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn gbtrace_writer_mark_frame_indexed(
+    w: *mut GbtraceWriter,
+    width: u16,
+    height: u16,
+    pixel_aspect: f32,
+    palette_rgb: *const u8,
+    palette_len: usize,
+    pixels: *const u8,
+    pixels_len: usize,
+) -> i32 {
+    let palette: Vec<[u8; 3]> = (0..palette_len)
+        .map(|i| {
+            let p = palette_rgb.add(i * 3);
+            [*p, *p.add(1), *p.add(2)]
+        })
+        .collect();
+    let pixels = slice::from_raw_parts(pixels, pixels_len).to_vec();
+    let frame = gbtrace::snapshot::IndexedFrame {
+        width,
+        height,
+        pixel_aspect,
+        palette,
+        pixels,
+    };
+    match (*w).writer.mark_frame(Some(&frame.to_bytes())) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("gbtrace_writer_mark_frame_indexed: {e}");
+            -1
+        }
+    }
+}
+
 /// Finish the current entry (call after setting all fields).
 /// Returns 0 on success, -1 on error.
 #[no_mangle]

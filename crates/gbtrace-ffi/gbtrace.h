@@ -111,6 +111,17 @@ void gbtrace_writer_set_null(GbtraceWriter *w, size_t field);
  * Returns 0 on success, -1 on error. */
 int gbtrace_writer_mark_frame(GbtraceWriter *w);
 
+/* Mark a frame boundary carrying an indexed-frame snapshot (palette + pixel
+ * indices), for palette-indexed displays like the VCS.
+ *   palette_rgb: palette_len*3 bytes (R,G,B per entry)
+ *   pixels:      width*height bytes, each an index into the palette
+ * Returns 0 on success, -1 on error. */
+int gbtrace_writer_mark_frame_indexed(GbtraceWriter *w,
+                                       uint16_t width, uint16_t height,
+                                       float pixel_aspect,
+                                       const uint8_t *palette_rgb, size_t palette_len,
+                                       const uint8_t *pixels, size_t pixels_len);
+
 /* Finish the current entry (after setting all fields).
  * Returns 0 on success, -1 on error. */
 int gbtrace_writer_finish_entry(GbtraceWriter *w);
