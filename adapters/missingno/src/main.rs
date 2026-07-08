@@ -1,4 +1,5 @@
 use std::fs;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::process;
 
@@ -105,8 +106,25 @@ fn rgb555_match(a: &[u8], b: &[u8]) -> bool {
 /// The run loop needs a few operations beyond [`Traceable`]; this trait
 /// abstracts over `GameBoy` (DMG) and `GameBoyColor` (CGB) so a single
 /// generic loop traces both.
+//
+// NOTE: the local trait methods below are deliberately named *differently* from
+// missingno's inherent `Console<M>` methods they delegate to (e.g. `observe_tcycle`
+// → `execute_tcycle_observed`, `step_instr` → `step`). A same-named method (as the
+// former `step_phase` was) resolves to this trait rather than the inherent method
+// the moment upstream renames/removes the inherent one — an infinite self-recursion
+// that release-mode tail-call-optimises into a silent hang. Keeping the names
+// distinct makes that trap impossible.
 trait Console: Traceable {
-    fn step_phase(&mut self) -> PhaseResult;
+    /// Advance one CPU T-cycle, invoking `after` after each master edge (rise
+    /// then fall) with that edge's [`PhaseResult`] — the gbtrace capture hook.
+    /// Returns whether a new frame was produced. A `Break` from the rise's
+    /// observer defers the fall to the next call (double-speed mid-pair retire).
+    fn observe_tcycle(
+        &mut self,
+        after: impl FnMut(&mut Self, &PhaseResult) -> ControlFlow<()>,
+    ) -> bool;
+    /// CPU T-cycles per PPU dot: 1 at normal speed, 2 under CGB double speed.
+    fn steps_per_dot(&self) -> u8;
     fn step_instr(&mut self) -> StepResult;
     fn take_instruction_boundary(&mut self);
     /// RGB555 (each channel 0-31) at a screen coordinate, for screenshot
@@ -119,8 +137,14 @@ trait Console: Traceable {
 }
 
 impl Console for GameBoy {
-    fn step_phase(&mut self) -> PhaseResult {
-        GameBoy::step_phase(self)
+    fn observe_tcycle(
+        &mut self,
+        after: impl FnMut(&mut Self, &PhaseResult) -> ControlFlow<()>,
+    ) -> bool {
+        GameBoy::execute_tcycle_observed(self, after)
+    }
+    fn steps_per_dot(&self) -> u8 {
+        GameBoy::cpu_steps_per_dot(self)
     }
     fn step_instr(&mut self) -> StepResult {
         GameBoy::step(self)
@@ -142,8 +166,14 @@ impl Console for GameBoy {
 }
 
 impl Console for GameBoyColor {
-    fn step_phase(&mut self) -> PhaseResult {
-        GameBoyColor::step_phase(self)
+    fn observe_tcycle(
+        &mut self,
+        after: impl FnMut(&mut Self, &PhaseResult) -> ControlFlow<()>,
+    ) -> bool {
+        GameBoyColor::execute_tcycle_observed(self, after)
+    }
+    fn steps_per_dot(&self) -> u8 {
+        GameBoyColor::cpu_steps_per_dot(self)
     }
     fn step_instr(&mut self) -> StepResult {
         GameBoyColor::step(self)
@@ -406,40 +436,56 @@ fn rgb555_u16<C: Console>(gb: &C, x: u8, y: u8) -> u16 {
 /// Step one instruction via T-cycle phases, capturing at each dot.
 /// Returns `(new_screen, tcycles_captured)`. `cgb` selects the pix encoding:
 /// RGB555 colour (CGB) vs 2-bit shade (DMG).
+///
+/// Mirrors missingno's own `trace::step_instruction_tcycle`: at single speed we
+/// capture once per T-cycle (after the fall, OR-ing both edges' frame flag); at
+/// CGB double speed the CPU runs at 2× the dot clock, so we capture after every
+/// master edge and may retire mid-pair — the `Break` defers the unpaired fall to
+/// the next `observe_tcycle` call.
 fn step_tcycle<C: Console>(gb: &mut C, tracer: &mut Tracer, cgb: bool) -> (bool, u64) {
     let mut new_screen = false;
     let mut tcycles: u64 = 0;
 
     gb.take_instruction_boundary();
+    let double_speed = gb.steps_per_dot() == 2;
 
     loop {
-        let rise = gb.step_phase();
-        new_screen |= rise.new_screen;
-        if let Some(pixel) = rise.pixel {
-            if cgb {
-                tracer.push_pixel_rgb555(rgb555_u16(&*gb, pixel.x, pixel.y));
-            } else {
-                tracer.push_pixel(pixel.shade);
+        let mut first_new_screen = false;
+        let mut is_first = true;
+        gb.observe_tcycle(|gb, result| {
+            new_screen |= result.new_screen;
+            if let Some(pixel) = result.pixel {
+                if cgb {
+                    tracer.push_pixel_rgb555(rgb555_u16(&*gb, pixel.x, pixel.y));
+                } else {
+                    tracer.push_pixel(pixel.shade);
+                }
             }
-        }
-
-        let fall = gb.step_phase();
-        new_screen |= fall.new_screen;
-        if let Some(pixel) = fall.pixel {
-            if cgb {
-                tracer.push_pixel_rgb555(rgb555_u16(&*gb, pixel.x, pixel.y));
+            if double_speed {
+                // Capture after every edge; the pair may retire on the rise.
+                if result.new_screen {
+                    tracer.mark_frame().unwrap();
+                }
+                tracer.capture(&*gb).unwrap();
+                tracer.advance_dot();
+                tcycles += 1;
+                if gb.cpu().at_instruction_boundary() {
+                    return ControlFlow::Break(());
+                }
+            } else if is_first {
+                // Single speed: defer capture to the fall, OR-ing the rise's flag.
+                first_new_screen = result.new_screen;
+                is_first = false;
             } else {
-                tracer.push_pixel(pixel.shade);
+                if first_new_screen || result.new_screen {
+                    tracer.mark_frame().unwrap();
+                }
+                tracer.capture(&*gb).unwrap();
+                tracer.advance_dot();
+                tcycles += 1;
             }
-        }
-
-        if rise.new_screen || fall.new_screen {
-            tracer.mark_frame().unwrap();
-        }
-
-        tracer.capture(&*gb).unwrap();
-        tracer.advance_dot();
-        tcycles += 1;
+            ControlFlow::Continue(())
+        });
 
         if gb.cpu().at_instruction_boundary() {
             break;
