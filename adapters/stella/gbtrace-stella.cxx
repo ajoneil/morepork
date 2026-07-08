@@ -27,6 +27,7 @@
 #include "libretro.h"
 
 #include "gbtrace.h"
+#include "ntsc_palette.h"   // canonical VCS NTSC palette (see genpalette.py)
 
 // --- minimal libretro glue referenced by the Stella core ---
 // We drive the emucore directly (no libretro frontend). FSNodeLIBRETRO needs a
@@ -62,7 +63,8 @@ void post_message(const char*, retro_log_level, unsigned) {}
 void libretro_show_message(const char*) {}
 void update_input() {}
 
-static std::string jsonHeader(const std::string& spec, const std::string& romSha) {
+static std::string jsonHeader(const std::string& spec, const std::string& romSha,
+                              bool withFrame) {
   // fields: pc a x y s p line clock result code observed expected
   std::string h = "{";
   h += "\"_header\":true,";
@@ -75,6 +77,7 @@ static std::string jsonHeader(const std::string& spec, const std::string& romSha
   h += "\"profile\":\"tier1\",";
   h += "\"fields\":[\"pc\",\"a\",\"x\",\"y\",\"s\",\"p\",\"line\",\"clock\","
        "\"result\",\"code\",\"observed\",\"expected\"],";
+  if (withFrame) h += "\"pix_format\":\"indexed8\",";
   h += "\"trigger\":\"instruction\"";
   h += "}";
   return h;
@@ -96,6 +99,7 @@ int main(int argc, char** argv) {
   std::string spec = "NTSC";
   int maxFrames = 30;
   int swchb = 0x48;   // bit3=colour, bit6=P0 diff-A, bit7=P1 diff-A
+  bool wantFrame = true;   // embed a final frame snapshot (GOLD); -frame=false to skip
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
     auto next = [&]() { return (i + 1 < argc) ? argv[++i] : ""; };
@@ -104,6 +108,9 @@ int main(int argc, char** argv) {
     else if (a == "-spec") spec = next();
     else if (a == "-frames") maxFrames = std::atoi(next());
     else if (a == "-swchb") swchb = (int)std::strtol(next(), nullptr, 0);
+    else if (a == "-frame") wantFrame = true;
+    else if (a == "-frame=false" || a == "-frame=0") wantFrame = false;
+    else if (a == "-frame=true" || a == "-frame=1") wantFrame = true;
   }
   if (!rom) { std::fprintf(stderr, "error: -rom is required\n"); return 2; }
 
@@ -143,7 +150,7 @@ int main(int argc, char** argv) {
   const uInt8* ram = system.m6532().getRAM().data();
 
   // --- gbtrace writer ---
-  std::string header = jsonHeader(spec, romId(data));
+  std::string header = jsonHeader(spec, romId(data), wantFrame);
   GbtraceWriter* w = gbtrace_writer_new(out, header.c_str(), header.size());
   if (!w) { std::fprintf(stderr, "error: gbtrace_writer_new failed\n"); return 1; }
 
@@ -182,6 +189,27 @@ int main(int argc, char** argv) {
     if (++instrCount >= instrBudget) break;
     uInt8 r = ram[0x00];
     if (r == 0xA5 || r == 0x5A) break;  // terminal verdict
+  }
+
+  // --- final frame snapshot (GOLD modality) ---
+  // Stella's TIA framebuffer stores raw TIA colour codes (the COLUxx byte),
+  // exactly like the Gopher2600 adapter's pixels, so we embed them directly and
+  // pair them with the SUITE's canonical NTSC palette for an oracle-independent
+  // golden PNG. Width is fixed 160 (H_PIXEL); height is the last full frame's
+  // rendered scanline count.
+  if (wantFrame) {
+    // We drive the CPU directly, so the frontend's frame-render step never
+    // runs; publish the latest completed frame (front buffer) into myFramebuffer
+    // ourselves. onFrameComplete() fills the front buffer during stepping.
+    tia.renderToFrameBuffer();
+    const uInt8* fb = tia.frameBuffer();
+    uInt16 width = 160;
+    uInt16 height = (uInt16)tia.frameBufferScanlinesLastFrame();
+    if (fb && height > 0) {
+      gbtrace_writer_mark_frame_indexed(w, width, height, 12.0f / 7.0f,
+          canonicalNTSCPalette, 256,
+          fb, (size_t)width * (size_t)height);
+    }
   }
 
   if (gbtrace_writer_close(w) != 0) {
