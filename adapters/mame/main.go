@@ -336,6 +336,16 @@ func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
 	if cw > w {
 		cw = w
 	}
+	// Exact reverse map from MAME's own rendered RGB to TIA colour code (built
+	// once from the calibration table). MAME has no anti-aliasing, so its pixels
+	// hit the table exactly; nearestMame is only a safety net.
+	exact := map[uint32]uint8{}
+	for code := 0; code < 256; code++ {
+		k := uint32(mamePaletteRGB[code*3])<<16 | uint32(mamePaletteRGB[code*3+1])<<8 | uint32(mamePaletteRGB[code*3+2])
+		if _, seen := exact[k]; !seen { // prefer the lowest code (code 0 for black)
+			exact[k] = uint8(code)
+		}
+	}
 	pixels := make([]byte, cw*h)
 	cache := map[uint32]uint8{}
 	for y := 0; y < h; y++ {
@@ -346,7 +356,11 @@ func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
 			key := uint32(r)<<16 | uint32(gg)<<8 | uint32(b)
 			idx, ok := cache[key]
 			if !ok {
-				idx = nearestCanonical(r, gg, b)
+				if e, hit := exact[key]; hit {
+					idx = e
+				} else {
+					idx = nearestMame(r, gg, b)
+				}
 				cache[key] = idx
 			}
 			pixels[y*cw+cx] = idx
@@ -362,16 +376,16 @@ func firstLine(s string) string {
 	return s
 }
 
-// nearestCanonical maps an RGB triple to the TIA colour code whose canonical
-// palette entry is closest (squared distance). Only even indices are real
-// colours (odd = black); an exact match is the common case for solid fills.
-func nearestCanonical(r, g, b uint8) uint8 {
+// nearestMame maps an RGB triple to the TIA colour code whose MAME palette
+// entry is closest (squared distance) — a safety net for the exact map. Only
+// even indices are real colours (odd = black).
+func nearestMame(r, g, b uint8) uint8 {
 	best := uint8(0)
 	bestD := int32(1<<31 - 1)
 	for i := 0; i < 256; i += 2 {
-		dr := int32(r) - int32(canonicalNTSCPalette[i*3])
-		dg := int32(g) - int32(canonicalNTSCPalette[i*3+1])
-		db := int32(b) - int32(canonicalNTSCPalette[i*3+2])
+		dr := int32(r) - int32(mamePaletteRGB[i*3])
+		dg := int32(g) - int32(mamePaletteRGB[i*3+1])
+		db := int32(b) - int32(mamePaletteRGB[i*3+2])
 		d := dr*dr + dg*dg + db*db
 		if d < bestD {
 			bestD = d
