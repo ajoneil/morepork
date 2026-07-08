@@ -313,20 +313,36 @@ func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
 	if len(argb) < w*h*4 {
 		return nil, fmt.Errorf("short pixel dump: %d < %d", len(argb), w*h*4)
 	}
-	pixels := make([]byte, w*h)
-	cache := map[uint32]uint8{}
-	for i := 0; i < w*h; i++ {
-		// MAME pixels() is ARGB32 little-endian: bytes b,g,r,a.
-		b, gg, r := argb[i*4], argb[i*4+1], argb[i*4+2]
-		key := uint32(r)<<16 | uint32(gg)<<8 | uint32(b)
-		idx, ok := cache[key]
-		if !ok {
-			idx = nearestCanonical(r, gg, b)
-			cache[key] = idx
-		}
-		pixels[i] = idx
+	// MAME's a2600 screen is 176 wide = the 160 visible pixels + an 8px border
+	// each side. Centre-crop to the canonical 160-wide visible so the frame
+	// matches the other adapters. (Vertical alignment vs the full-field golden
+	// is done in the GOLD compare step — MAME exposes no VSYNC position.)
+	const vis = 160
+	x0 := (w - vis) / 2
+	if x0 < 0 {
+		x0 = 0
 	}
-	return &frameData{width: w, height: h, pixels: pixels}, nil
+	cw := vis
+	if cw > w {
+		cw = w
+	}
+	pixels := make([]byte, cw*h)
+	cache := map[uint32]uint8{}
+	for y := 0; y < h; y++ {
+		for cx := 0; cx < cw; cx++ {
+			i := y*w + (x0 + cx)
+			// MAME pixels() is ARGB32 little-endian: bytes b,g,r,a.
+			b, gg, r := argb[i*4], argb[i*4+1], argb[i*4+2]
+			key := uint32(r)<<16 | uint32(gg)<<8 | uint32(b)
+			idx, ok := cache[key]
+			if !ok {
+				idx = nearestCanonical(r, gg, b)
+				cache[key] = idx
+			}
+			pixels[y*cw+cx] = idx
+		}
+	}
+	return &frameData{width: cw, height: h, pixels: pixels}, nil
 }
 
 func firstLine(s string) string {
