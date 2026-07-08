@@ -37,12 +37,19 @@ all: $(TARGET)
 $(TARGET): gbtrace-sameboy.cpp $(FFI_LIB)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< $(FFI_LIB) $(LDFLAGS) $(LDLIBS)
 
-# Apply the per-T-cycle patch once. The stamp lives inside SameBoy/, so a fresh
-# clone re-applies cleanly. If you edit $(PATCH) after applying, re-clone SameBoy
-# (or git-revert Core/) before re-running, since patch won't re-apply over itself.
+# Apply the per-T-cycle patch, idempotently. The stamp lives inside SameBoy/, so
+# a fresh clone re-applies cleanly. The apply is guarded by a reverse-dry-run:
+# if the patch already reverses cleanly it is already applied, so we skip rather
+# than fail. This matters on CI, where SameBoy/ is restored from cache (already
+# patched) but the fresh git checkout gives $(PATCH) a newer mtime than the
+# cached stamp — so make re-runs this recipe over an already-patched tree.
 $(PATCH_STAMP): $(PATCH)
-	@echo "Applying $(PATCH) to $(SAMEBOY_DIR)/Core ..."
-	cd $(SAMEBOY_DIR) && patch -p1 < ../$(PATCH)
+	@if patch -p1 -d $(SAMEBOY_DIR) -R --dry-run --force < $(PATCH) >/dev/null 2>&1; then \
+		echo "$(PATCH) already applied to $(SAMEBOY_DIR)/Core — skipping"; \
+	else \
+		echo "Applying $(PATCH) to $(SAMEBOY_DIR)/Core ..."; \
+		patch -p1 -d $(SAMEBOY_DIR) --forward < $(PATCH); \
+	fi
 	@touch $@
 
 patch: $(PATCH_STAMP)
