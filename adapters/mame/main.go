@@ -160,7 +160,8 @@ func run(romPath, outPath, spec string, maxFrames, port, swchb int, wantFrame bo
 	mame := exec.Command("mame", machine, "-cart", romPath,
 		"-video", "none", "-sound", "none", "-nothrottle",
 		"-autoboot_script", luaFile.Name(), "-autoboot_delay", "0",
-		"-cfg_directory", cfgDir,
+		"-cfg_directory", cfgDir, "-snapshot_directory", cfgDir,
+		"-nvram_directory", cfgDir,
 		"-debug", "-debugger", "gdbstub", "-debugger_port", strconv.Itoa(port),
 		"-seconds_to_run", strconv.Itoa(seconds))
 	mame.Stdout, mame.Stderr = nil, nil
@@ -267,6 +268,13 @@ func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
 		return nil, err
 	}
 	defer os.Remove(luaFile.Name())
+	// Redirect MAME's cfg/snapshot/nvram output to a temp dir so it never
+	// litters the working directory (cfg/, snap/, nvram/).
+	tmpHome, err := os.MkdirTemp("", "gbtrace-mame-home-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpHome)
 	target := maxFrames
 	if target < 8 {
 		target = 8 // let a static image settle
@@ -278,6 +286,8 @@ func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
 	cmd := exec.Command("mame", machine, "-cart", romPath,
 		"-video", "none", "-sound", "none", "-nothrottle",
 		"-autoboot_script", luaFile.Name(), "-autoboot_delay", "0",
+		"-cfg_directory", tmpHome, "-snapshot_directory", tmpHome,
+		"-nvram_directory", tmpHome,
 		"-seconds_to_run", strconv.Itoa(seconds))
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
