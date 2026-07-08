@@ -54,6 +54,27 @@ instruction stream (synced to the harness anchor), and matching verdicts.
   switch test (t06) is not dependable on MAME. Input tests like this are rarely
   covered by ROM suites anyway; the register/verdict oracle is the point.
 - **Slow** — ~19s/ROM (3 GDB round-trips per instruction). Fine for cross-checks.
+
+## Speeding it up (WIP: ~70× faster path proven)
+
+The slowness is entirely gdbstub's per-instruction round-trips. MAME's own
+debugger `trace` command logs every instruction at *full emulation speed*, and
+it can be driven headlessly over gdbstub via the GDB **`monitor`** (`qRcmd`)
+command — no per-instruction round-trips. Proven so far:
+
+- `monitor trace <file>,maincpu,,{tracelog "...",pc,a,...}` installs a
+  full-speed per-instruction trace with a custom register format.
+- `monitor wpset 0x80,1,w,{(wpdata==0xa5)||(wpdata==0x5a)}` + `c` runs to the
+  RESULT verdict and stops cleanly (**270ms** vs 19s); `m80,4` then reads the
+  correct RESULT. `monitor trace off` flushes the file.
+
+**Open issue:** the `tracelog` register format lands inconsistently — it worked
+in a plain `trace`+`c` run (lines like `R F001 00 80`), but produced only the
+default disassembly in the watchpoint flow. Adding a memory read (`b@0x80`) to
+the format also broke it. Needs nailing down (escaping / arg count / flow), then
+a small log→gbtrace FFI converter (filter the `R` lines; RESULT from the
+watchpoint) replaces the per-instruction gdbstub stepping. This is the intended
+fast adapter; the stepping version above stays as the correctness reference.
 - **`read-tap` was a dead end** — reading `cpu.state[...]` inside a memory-tap
   callback core-dumps MAME; gdbstub is the working path.
 
