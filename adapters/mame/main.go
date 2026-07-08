@@ -2,13 +2,12 @@
 // a third independent-lineage behavioural oracle.
 //
 // MAME is not linkable like the Stella/Gopher2600 adapters, so this drives it
-// headlessly via its gdbstub debugger (MAME's gdbstub supports the m6502): it
-// launches `mame a2600 ... -debug -debugger gdbstub`, speaks the GDB remote
-// protocol to step one instruction at a time and read the 6507 register file +
-// RAM, and writes a native .gbtrace through the FFI (no JSONL).
-//
-// Frame snapshots are not available over gdbstub (the GDB protocol has no screen);
-// those would come from a parallel Lua screen capture when GOLD tests need them.
+// headlessly via its gdbstub debugger (MAME's gdbstub supports the m6502). For
+// speed it does NOT single-step over the wire (that was ~19s/ROM); instead it
+// uses the GDB remote `monitor` command (qRcmd) to install MAME's own debugger
+// `trace` command (which logs every instruction at full emulation speed) plus a
+// watchpoint on the RESULT byte, then `continue`s to the verdict (~250ms/ROM).
+// The trace log is parsed into a native .gbtrace via the FFI (no JSONL).
 //
 //	gbtrace-mame -rom test.bin -out trace.gbtrace -spec NTSC -frames 30
 package main
@@ -30,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -49,7 +49,7 @@ func (g *gdb) send(body string) {
 }
 
 func (g *gdb) recv() string {
-	for { // skip acks/noise until packet start
+	for {
 		b, err := g.r.ReadByte()
 		if err != nil {
 			return ""
@@ -69,33 +69,45 @@ func (g *gdb) recv() string {
 		}
 		body = append(body, b)
 	}
-	g.r.ReadByte() // checksum hi
-	g.r.ReadByte() // checksum lo
+	g.r.ReadByte()
+	g.r.ReadByte()
 	g.conn.Write([]byte("+"))
 	return string(body)
 }
 
 func (g *gdb) cmd(body string) string { g.send(body); return g.recv() }
 
-// parseRegs decodes the `g` response: a x y p (1 byte each) then sp, pc (2 bytes
-// little-endian each). Returns a,x,y,p,s(low byte of sp),pc.
-func parseRegs(h string) (a, x, y, p, s uint8, pc uint16, ok bool) {
-	if len(h) < 16 {
-		return
-	}
-	b := func(i int) uint8 { v, _ := strconv.ParseUint(h[i:i+2], 16, 8); return uint8(v) }
-	a, x, y, p = b(0), b(2), b(4), b(6)
-	s = b(8)                             // sp little-endian: low byte first
-	pc = uint16(b(12)) | uint16(b(14))<<8 // pc little-endian
-	ok = true
-	return
+// mon runs a MAME debugger console command via the GDB `monitor` (qRcmd) escape.
+func (g *gdb) mon(command string) string {
+	resp := g.cmd("qRcmd," + hex.EncodeToString([]byte(command)))
+	dec, _ := hex.DecodeString(resp)
+	return string(dec)
 }
+
+// switchLuaTemplate sets the a2600 console switches (best-effort; see README).
+const switchLuaTemplate = `
+local v = %d
+local function apply()
+  local swb = manager.machine.ioport.ports[":SWB"]
+  if not swb then return end
+  local function set(name, bit)
+    local f = swb.fields[name]
+    if f then f:set_value(((v >> bit) & 1) ~= 0 and f.mask or 0) end
+  end
+  set("TV Type", 3)
+  set("Left Diff. Switch", 6)
+  set("Right Diff. Switch", 7)
+end
+apply()
+emu.register_prestart(apply)
+emu.register_frame_done(apply)
+`
 
 func main() {
 	rom := flag.String("rom", "", "path to the .bin/.a26 ROM")
 	out := flag.String("out", "trace.gbtrace", "output .gbtrace path")
 	spec := flag.String("spec", "NTSC", "TV spec: NTSC or PAL (a2600 vs a2600p)")
-	maxFrames := flag.Int("frames", 30, "cap: ~instructions = frames*30000")
+	maxFrames := flag.Int("frames", 30, "cap: seconds_to_run = max(2, frames/60)")
 	port := flag.Int("port", 23946, "gdbstub port")
 	swchb := flag.Int("swchb", 0x48, "console switches: bit3=colour, bit6=P0 diff-A, bit7=P1 diff-A")
 	flag.Parse()
@@ -109,38 +121,13 @@ func main() {
 	}
 }
 
-// switchLua sets the a2600 console panel switches (colour + P0/P1 difficulty)
-// from $MAME_SWCHB so SWCHB reads are deterministic, matching the other adapters.
-// switchLuaTemplate is formatted with the SWCHB value (MAME's Lua sandbox hides
-// custom env vars, so the value is baked into the script).
-const switchLuaTemplate = `
-local v = %d
-local function apply()
-  local swb = manager.machine.ioport.ports[":SWB"]
-  if not swb then return end
-  -- a set digital field reports its mask; clear reports 0
-  local function set(name, bit)
-    local f = swb.fields[name]
-    if f then f:set_value(((v >> bit) & 1) ~= 0 and f.mask or 0) end
-  end
-  set("TV Type", 3)
-  set("Left Diff. Switch", 6)
-  set("Right Diff. Switch", 7)
-end
-apply()
-emu.register_prestart(apply)    -- before each frame's CPU run (the SWCHB read is in frame 1)
-emu.register_frame_done(apply)  -- MAME re-polls inputs each frame; hold the switches
-`
-
 func run(romPath, outPath, spec string, maxFrames, port, swchb int) error {
 	romBytes, err := os.ReadFile(romPath)
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(romBytes)
-	romSha := hex.EncodeToString(sum[:])
+	romSha := hex.EncodeToString(func() []byte { s := sha256.Sum256(romBytes); return s[:] }())
 
-	// write the switch-setting Lua autoboot script to a temp file
 	luaFile, err := os.CreateTemp("", "gbtrace-mame-*.lua")
 	if err != nil {
 		return err
@@ -148,33 +135,38 @@ func run(romPath, outPath, spec string, maxFrames, port, swchb int) error {
 	defer os.Remove(luaFile.Name())
 	luaFile.WriteString(fmt.Sprintf(switchLuaTemplate, swchb))
 	luaFile.Close()
-
-	// MAME persists switch/DIP state in its machine .cfg; use a throwaway cfg
-	// dir so each run starts from defaults and the Lua switch settings are
-	// authoritative (otherwise the first run's switches stick).
 	cfgDir, err := os.MkdirTemp("", "gbtrace-mame-cfg-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(cfgDir)
+	traceLog, err := os.CreateTemp("", "gbtrace-mame-trace-*.log")
+	if err != nil {
+		return err
+	}
+	traceLog.Close()
+	defer os.Remove(traceLog.Name())
 
 	machine := "a2600"
 	if spec == "PAL" {
 		machine = "a2600p"
 	}
-	// launch MAME headless with the gdbstub debugger + switch-setting script
+	seconds := maxFrames / 60
+	if seconds < 2 {
+		seconds = 2
+	}
 	mame := exec.Command("mame", machine, "-cart", romPath,
 		"-video", "none", "-sound", "none", "-nothrottle",
 		"-autoboot_script", luaFile.Name(), "-autoboot_delay", "0",
 		"-cfg_directory", cfgDir,
-		"-debug", "-debugger", "gdbstub", "-debugger_port", strconv.Itoa(port))
+		"-debug", "-debugger", "gdbstub", "-debugger_port", strconv.Itoa(port),
+		"-seconds_to_run", strconv.Itoa(seconds))
 	mame.Stdout, mame.Stderr = nil, nil
 	if err := mame.Start(); err != nil {
 		return fmt.Errorf("launch mame: %w", err)
 	}
 	defer func() { _ = mame.Process.Kill() }()
 
-	// wait for the gdbstub to listen
 	var conn net.Conn
 	for i := 0; i < 100; i++ {
 		conn, err = net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
@@ -189,19 +181,74 @@ func run(romPath, outPath, spec string, maxFrames, port, swchb int) error {
 	defer conn.Close()
 	g := &gdb{conn: conn, r: bufio.NewReader(conn)}
 	conn.Write([]byte("+"))
-	// Handshake: MAME's gdbstub only answers `g` (read registers) after the
-	// client negotiates features and fetches the target description.
+	// handshake (MAME's gdbstub answers `g`/monitor only after these)
 	g.cmd("qSupported")
 	g.cmd("qXfer:features:read:target.xml:0,3fc")
-	g.cmd("?") // stop reason (machine paused at reset)
 
-	// --- gbtrace writer (native, via FFI) ---
+	// install a full-speed per-instruction trace (noloop = don't collapse loops;
+	// register symbol is `sp` not `s`) and a watchpoint on the RESULT verdict.
+	g.mon(fmt.Sprintf(`trace %s,maincpu,noloop,{tracelog "R%%04X %%02X %%02X %%02X %%02X %%02X\n",pc,a,x,y,sp,p}`, traceLog.Name()))
+	g.mon("wpset 0x80,1,w,{(wpdata==0xa5)||(wpdata==0x5a)}")
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	g.cmd("c") // run full-speed to the verdict (or seconds_to_run)
+	// read the RESULT bytes at the stop (per-instruction memory in the trace
+	// format breaks tracelog, so we grab the final verdict here).
+	res, code, obs, exp := parseMem(g.cmd("m80,4"))
+	g.mon("trace off") // flush the trace file
+
+	return writeTrace(outPath, spec, romSha, traceLog.Name(), res, code, obs, exp)
+}
+
+func parseMem(h string) (a, b, c, d uint8) {
+	bb := func(i int) uint8 {
+		if len(h) < i+2 {
+			return 0
+		}
+		v, _ := strconv.ParseUint(h[i:i+2], 16, 8)
+		return uint8(v)
+	}
+	return bb(0), bb(2), bb(4), bb(6)
+}
+
+// writeTrace parses the MAME trace log (R<pc> <a> <x> <y> <sp> <p> lines) into a
+// native .gbtrace. The RESULT bytes are placed on the final (verdict) entry.
+func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8) error {
+	lf, err := os.Open(logPath)
+	if err != nil {
+		return err
+	}
+	defer lf.Close()
+
+	type entry struct{ pc uint16; a, x, y, s, p uint8 }
+	var entries []entry
+	sc := bufio.NewScanner(lf)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		if len(line) == 0 || line[0] != 'R' {
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) != 6 {
+			continue
+		}
+		hx := func(s string) uint64 { v, _ := strconv.ParseUint(s, 16, 32); return v }
+		entries = append(entries, entry{
+			pc: uint16(hx(f[0][1:])),
+			a:  uint8(hx(f[1])), x: uint8(hx(f[2])), y: uint8(hx(f[3])),
+			s: uint8(hx(f[4])), p: uint8(hx(f[5])),
+		})
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("no trace entries (empty MAME trace log)")
+	}
+
 	fields := []string{"pc", "a", "x", "y", "s", "p", "result", "code", "observed", "expected"}
 	header := map[string]any{
 		"_header": true, "format_version": "0.1.0",
-		"emulator": "mame", "emulator_version": "adapter-mvp",
-		"rom_sha256": romSha, "family": "vcs", "model": spec,
-		"profile": "tier1", "fields": fields, "trigger": "instruction",
+		"emulator": "mame", "emulator_version": "adapter", "rom_sha256": romSha,
+		"family": "vcs", "model": spec, "profile": "tier1",
+		"fields": fields, "trigger": "instruction",
 	}
 	hj, _ := json.Marshal(header)
 	cPath := C.CString(outPath)
@@ -221,35 +268,25 @@ func run(romPath, outPath, spec string, maxFrames, port, swchb int) error {
 	setU8 := func(n string, v uint8) { C.gbtrace_writer_set_u8(w, C.size_t(col[n]), C.uint8_t(v)) }
 	setU16 := func(n string, v uint16) { C.gbtrace_writer_set_u16(w, C.size_t(col[n]), C.uint16_t(v)) }
 
-	// --- drive loop: step, read regs + RESULT bytes, one entry per instruction ---
-	maxInstr := maxFrames * 30000
-	for i := 0; i < maxInstr; i++ {
-		g.cmd("s") // step one instruction
-		regs := g.cmd("g")
-		a, x, y, p, s, pc, ok := parseRegs(regs)
-		if !ok {
-			break
+	for i, e := range entries {
+		setU16("pc", e.pc)
+		setU8("a", e.a)
+		setU8("x", e.x)
+		setU8("y", e.y)
+		setU8("s", e.s)
+		setU8("p", e.p)
+		if i == len(entries)-1 { // RESULT verdict lands on the last entry
+			setU8("result", res)
+			setU8("code", code)
+			setU8("observed", obs)
+			setU8("expected", exp)
+		} else {
+			setU8("result", 0)
+			setU8("code", 0)
+			setU8("observed", 0)
+			setU8("expected", 0)
 		}
-		mem := g.cmd("m80,4") // RESULT/CODE/OBSERVED/EXPECTED at $80-$83
-		var res, code, obs, exp uint8
-		if len(mem) >= 8 {
-			bb := func(i int) uint8 { v, _ := strconv.ParseUint(mem[i:i+2], 16, 8); return uint8(v) }
-			res, code, obs, exp = bb(0), bb(2), bb(4), bb(6)
-		}
-		setU16("pc", pc)
-		setU8("a", a)
-		setU8("x", x)
-		setU8("y", y)
-		setU8("s", s)
-		setU8("p", p)
-		setU8("result", res)
-		setU8("code", code)
-		setU8("observed", obs)
-		setU8("expected", exp)
 		C.gbtrace_writer_finish_entry(w)
-		if res == 0xA5 || res == 0x5A {
-			break
-		}
 	}
 	if C.gbtrace_writer_close(w) != 0 {
 		return fmt.Errorf("writer close failed")
