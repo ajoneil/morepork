@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"unsafe"
 
 	"github.com/jetsetilly/gopher2600/cartridgeloader"
@@ -138,15 +139,14 @@ func (f *frameCapture) SetPixels(sig []signal.SignalAttributes, last int) error 
 func (f *frameCapture) Reset()               {}
 func (f *frameCapture) EndRendering() error  { return nil }
 
-func (f *frameCapture) emit(w *C.GbtraceWriter) {
+func (f *frameCapture) emit(w *C.GbtraceWriter, pal *[768]byte) {
 	if !f.haveSpec || f.width == 0 || f.height == 0 || len(f.pixels) == 0 {
 		return
 	}
-	// Embed the SUITE's canonical NTSC palette (not Gopher's own), so a golden
-	// PNG rendered from this trace is identical to one rendered from any other
-	// oracle's trace — the pixels are emulator-independent TIA colour codes and
-	// now so is the colour table. See adapters/genpalette.py.
-	pal := canonicalNTSCPalette
+	// Embed the SUITE's canonical palette for the region (not Gopher's own), so a
+	// golden PNG rendered from this trace is identical to one rendered from any
+	// other oracle's trace — the pixels are emulator-independent TIA colour codes
+	// and so is the colour table. See adapters/genpalette.py.
 	C.gbtrace_writer_mark_frame_indexed(w,
 		C.uint16_t(f.width), C.uint16_t(f.height), C.float(12.0/7.0),
 		(*C.uint8_t)(unsafe.Pointer(&pal[0])), C.size_t(256),
@@ -324,7 +324,11 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb 
 				}
 			}
 		}
-		fc.emit(w)
+		pal := &canonicalNTSCPalette
+		if strings.HasPrefix(strings.ToUpper(spec), "PAL") {
+			pal = &canonicalPALPalette
+		}
+		fc.emit(w, pal)
 	}
 
 	if C.gbtrace_writer_close(w) != 0 {

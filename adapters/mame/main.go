@@ -348,12 +348,16 @@ func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
 	if cw > w {
 		cw = w
 	}
-	// Exact reverse map from MAME's own rendered RGB to TIA colour code (built
-	// once from the calibration table). MAME has no anti-aliasing, so its pixels
-	// hit the table exactly; nearestMame is only a safety net.
+	// Reverse-map against MAME's calibrated palette FOR THIS REGION (a2600p's
+	// PAL palette differs from a2600's NTSC one). Exact match; nearestMame is a
+	// safety net. MAME has no anti-aliasing, so its pixels hit the table exactly.
+	mamePal := &mamePaletteRGB
+	if strings.HasPrefix(strings.ToUpper(spec), "PAL") {
+		mamePal = &mamePalPaletteRGB
+	}
 	exact := map[uint32]uint8{}
 	for code := 0; code < 256; code++ {
-		k := uint32(mamePaletteRGB[code*3])<<16 | uint32(mamePaletteRGB[code*3+1])<<8 | uint32(mamePaletteRGB[code*3+2])
+		k := uint32(mamePal[code*3])<<16 | uint32(mamePal[code*3+1])<<8 | uint32(mamePal[code*3+2])
 		if _, seen := exact[k]; !seen { // prefer the lowest code (code 0 for black)
 			exact[k] = uint8(code)
 		}
@@ -371,7 +375,7 @@ func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
 				if e, hit := exact[key]; hit {
 					idx = e
 				} else {
-					idx = nearestMame(r, gg, b)
+					idx = nearestMame(mamePal, r, gg, b)
 				}
 				cache[key] = idx
 			}
@@ -391,13 +395,13 @@ func firstLine(s string) string {
 // nearestMame maps an RGB triple to the TIA colour code whose MAME palette
 // entry is closest (squared distance) — a safety net for the exact map. Only
 // even indices are real colours (odd = black).
-func nearestMame(r, g, b uint8) uint8 {
+func nearestMame(pal *[768]byte, r, g, b uint8) uint8 {
 	best := uint8(0)
 	bestD := int32(1<<31 - 1)
 	for i := 0; i < 256; i += 2 {
-		dr := int32(r) - int32(mamePaletteRGB[i*3])
-		dg := int32(g) - int32(mamePaletteRGB[i*3+1])
-		db := int32(b) - int32(mamePaletteRGB[i*3+2])
+		dr := int32(r) - int32(pal[i*3])
+		dg := int32(g) - int32(pal[i*3+1])
+		db := int32(b) - int32(pal[i*3+2])
 		d := dr*dr + dg*dg + db*db
 		if d < bestD {
 			bestD = d
@@ -504,6 +508,9 @@ func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8
 	}
 	if fr != nil && fr.width > 0 && fr.height > 0 && len(fr.pixels) > 0 {
 		pal := canonicalNTSCPalette
+		if strings.HasPrefix(strings.ToUpper(spec), "PAL") {
+			pal = canonicalPALPalette
+		}
 		C.gbtrace_writer_mark_frame_indexed(w,
 			C.uint16_t(fr.width), C.uint16_t(fr.height), C.float(12.0/7.0),
 			(*C.uint8_t)(unsafe.Pointer(&pal[0])), C.size_t(256),

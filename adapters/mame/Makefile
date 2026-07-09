@@ -17,7 +17,7 @@ all: $(TARGET)
 $(FFI_LIB):
 	cd ../.. && cargo build --release -p gbtrace-ffi
 
-$(TARGET): main.go go.mod $(FFI_LIB)
+$(TARGET): $(wildcard *.go) go.mod $(FFI_LIB)
 	CGO_ENABLED=1 \
 	  CGO_CFLAGS="-I$(abspath $(FFI_DIR))" \
 	  CGO_LDFLAGS="$(abspath $(FFI_LIB)) -lm -ldl -lpthread" \
