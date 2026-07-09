@@ -127,6 +127,17 @@ trait Console: Traceable {
     fn steps_per_dot(&self) -> u8;
     fn step_instr(&mut self) -> StepResult;
     fn take_instruction_boundary(&mut self);
+    /// Settle a STOP the CPU has landed on (arm the CGB speed-switch blackout)
+    /// and engage/release a VRAM-DMA CPU hold — `step()` does both at each
+    /// instruction boundary; a tcycle driver must call them there too or a
+    /// KEY1 switch never re-engages (blank screen) and GDMA/HDMA never runs.
+    fn resolve_stop(&mut self, tcycles: u32);
+    fn manage_dma_hold(&mut self);
+    /// True while a CGB double-speed switch holds the CPU in the settling
+    /// blackout. `execute_tcycle_observed` can't advance the blackout — only
+    /// `step()`/`step_blackout_chunk` drains it — so the run loop falls back to
+    /// `step_instr` while this holds.
+    fn speed_switch_in_progress(&self) -> bool;
     /// RGB555 (each channel 0-31) at a screen coordinate, for screenshot
     /// reference matching at the CGB's native colour precision.
     fn rgb555_at(&self, x: usize, y: usize) -> [u8; 3];
@@ -151,6 +162,15 @@ impl Console for GameBoy {
     }
     fn take_instruction_boundary(&mut self) {
         self.cpu_mut().take_instruction_boundary();
+    }
+    fn resolve_stop(&mut self, tcycles: u32) {
+        GameBoy::resolve_stop(self, tcycles);
+    }
+    fn manage_dma_hold(&mut self) {
+        GameBoy::manage_dma_hold(self);
+    }
+    fn speed_switch_in_progress(&self) -> bool {
+        GameBoy::speed_switch_in_progress(self)
     }
     fn rgb555_at(&self, x: usize, y: usize) -> [u8; 3] {
         // DMG screen stores a 2-bit shade index → greyscale RGB555.
@@ -180,6 +200,15 @@ impl Console for GameBoyColor {
     }
     fn take_instruction_boundary(&mut self) {
         self.cpu_mut().take_instruction_boundary();
+    }
+    fn resolve_stop(&mut self, tcycles: u32) {
+        GameBoyColor::resolve_stop(self, tcycles);
+    }
+    fn manage_dma_hold(&mut self) {
+        GameBoyColor::manage_dma_hold(self);
+    }
+    fn speed_switch_in_progress(&self) -> bool {
+        GameBoyColor::speed_switch_in_progress(self)
     }
     fn rgb555_at(&self, x: usize, y: usize) -> [u8; 3] {
         // CGB screen stores a packed RGB555 value → unpack to one byte per 5-bit channel.
@@ -296,14 +325,20 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
         .saturating_mul(CYCLES_PER_FRAME);
     let mut total_tcycles: u64 = 0;
 
+    // Cycle-budget mode (gambatte hex/blank tests): the harness passes a budget
+    // of N × 70224 dots. Sample after N real *frames* (vblanks), not N CPU
+    // T-cycles — matching missingno's own `run_frames(N)`. A raw CPU-T-cycle
+    // budget under-runs CGB double speed (a real frame is 2× the T-cycles), so
+    // the `_ds_` result isn't on screen yet at the budget. At single speed the
+    // two are identical (1 dot = 1 T-cycle).
+    let sample_frames = args.until_tcycle.map(|b| (b / CYCLES_PER_FRAME) as u32);
+
     loop {
-        // Cycle-budget mode (gambatte tests): stop after exactly N T-cycles and
-        // capture the screen at that instant, matching the gambatte testrunner /
-        // missingno harness, which read the framebuffer after a fixed cycle
-        // budget rather than counting vblank events.
-        if let Some(limit) = args.until_tcycle {
-            if total_tcycles >= limit {
-                eprintln!("T-cycle budget reached ({total_tcycles} cycles)");
+        // Cycle-budget mode: stop after the derived number of real frames and
+        // snapshot the screen at that instant (see `sample_frames` above).
+        if let Some(sf) = sample_frames {
+            if frame_count >= sf {
+                eprintln!("Frame budget reached ({frame_count} frames, {total_tcycles} cycles)");
                 break;
             }
         }
@@ -323,9 +358,13 @@ fn run<C: Console>(mut gb: C, args: &Args, model: &str) {
             }
         }
 
-        let (new_screen, tcycles) = if is_tcycle {
+        let (new_screen, tcycles) = if is_tcycle && !gb.speed_switch_in_progress() {
             step_tcycle(&mut gb, &mut tracer, cgb)
         } else {
+            // During a CGB speed-switch blackout the tcycle driver can't advance
+            // the frozen CPU (`execute_tcycle_observed` never re-engages it);
+            // only `step()`/`step_blackout_chunk` drains it. Fall back to
+            // instruction stepping for the blackout, then resume tcycle capture.
             step_instruction(&mut gb, &mut tracer)
         };
         total_tcycles += tcycles;
@@ -491,6 +530,14 @@ fn step_tcycle<C: Console>(gb: &mut C, tracer: &mut Tracer, cgb: bool) -> (bool,
             break;
         }
     }
+
+    // Mirror `step`/missingno's `trace::step_instruction_tcycle`: settle a
+    // landed STOP (arm the CGB speed-switch blackout) and engage/release a
+    // VRAM-DMA CPU hold at the boundary, so traced runs progress past STOP and
+    // run their GDMA/HDMA like untraced ones. Without this, `_ds_` tests never
+    // re-engage (blank screen) and `dma__*` transfers never run.
+    gb.resolve_stop(tcycles as u32);
+    gb.manage_dma_hold();
 
     (new_screen, tcycles)
 }
