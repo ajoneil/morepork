@@ -109,7 +109,7 @@ func main() {
 	out := flag.String("out", "trace.gbtrace", "output .gbtrace path")
 	spec := flag.String("spec", "NTSC", "TV spec: NTSC or PAL (a2600 vs a2600p)")
 	maxFrames := flag.Int("frames", 30, "cap: seconds_to_run = max(2, frames/60)")
-	port := flag.Int("port", 23946, "gdbstub port")
+	port := flag.Int("port", 0, "gdbstub port (0 = auto-pick a free ephemeral port)")
 	swchb := flag.Int("swchb", 0x48, "console switches: bit3=colour, bit6=P0 diff-A, bit7=P1 diff-A")
 	frame := flag.Bool("frame", true, "capture a final frame snapshot (a second headless MAME pass)")
 	flag.Parse()
@@ -129,6 +129,18 @@ func run(romPath, outPath, spec string, maxFrames, port, swchb int, wantFrame bo
 		return err
 	}
 	romSha := hex.EncodeToString(func() []byte { s := sha256.Sum256(romBytes); return s[:] }())
+
+	// Pick a free ephemeral gdbstub port so rapid successive runs don't collide
+	// on a fixed port left in TIME_WAIT (the source of transient "gdbstub never
+	// listened" failures).
+	if port == 0 {
+		l, lerr := net.Listen("tcp", "localhost:0")
+		if lerr != nil {
+			return fmt.Errorf("pick free port: %w", lerr)
+		}
+		port = l.Addr().(*net.TCPAddr).Port
+		l.Close()
+	}
 
 	luaFile, err := os.CreateTemp("", "gbtrace-mame-*.lua")
 	if err != nil {
