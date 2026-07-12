@@ -100,6 +100,9 @@ int main(int argc, char** argv) {
   int maxFrames = 30;
   int swchb = 0x48;   // bit3=colour, bit6=P0 diff-A, bit7=P1 diff-A
   bool wantFrame = true;   // embed a final frame snapshot (GOLD); -frame=false to skip
+  int holdReset = 0;  // hold SWCHB reset (bit0) low for the first N frames
+  int stopFrame = 0;  // stop after N completed frames (0 = use verdict/budget)
+  int watchPc = -1;   // report first frame the CPU PC hits this address (game mode)
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
     auto next = [&]() { return (i + 1 < argc) ? argv[++i] : ""; };
@@ -108,10 +111,15 @@ int main(int argc, char** argv) {
     else if (a == "-spec") spec = next();
     else if (a == "-frames") maxFrames = std::atoi(next());
     else if (a == "-swchb") swchb = (int)std::strtol(next(), nullptr, 0);
+    else if (a == "-holdreset") holdReset = std::atoi(next());
+    else if (a == "-stopframe") stopFrame = std::atoi(next());
+    else if (a == "-watchpc") watchPc = (int)std::strtol(next(), nullptr, 0);
     else if (a == "-frame") wantFrame = true;
     else if (a == "-frame=false" || a == "-frame=0") wantFrame = false;
     else if (a == "-frame=true" || a == "-frame=1") wantFrame = true;
   }
+  // A game (stopframe/holdreset) has no RESULT verdict; don't stop on RAM $80.
+  const bool gameMode = (stopFrame > 0) || (holdReset > 0);
   if (!rom) { std::fprintf(stderr, "error: -rom is required\n"); return 2; }
 
   FILE* f = std::fopen(rom, "rb");
@@ -169,8 +177,18 @@ int main(int argc, char** argv) {
   // real stop is the RESULT verdict.
   const long instrBudget = (long)maxFrames * 30000;
   long instrCount = 0;
+  // Frame accounting via scanline wrap. A completed frame is when the TIA's
+  // running scanline count drops (VSYNC restarts the field).
+  int frameCount = 0;
+  int prevLine = 0;
+  bool resetHeld = holdReset > 0;
+  if (resetHeld) sw.setReset(true);   // push RESET before the first frame
+  int watchPcFrame = -1;              // first frame PC hit watchPc
   for (;;) {
     cpu.execute(1);              // step one instruction (advances TIA/RIOT)
+
+    if (watchPc >= 0 && watchPcFrame < 0 && (int)cpu.gbPC() == watchPc)
+      watchPcFrame = frameCount;
 
     gbtrace_writer_set_u16(w, cPC, cpu.gbPC());
     gbtrace_writer_set_u8(w, cA, cpu.gbA());
@@ -186,10 +204,27 @@ int main(int argc, char** argv) {
     gbtrace_writer_set_u8(w, cExp, ram[0x03]);  // $83 EXPECTED
     gbtrace_writer_finish_entry(w);
 
+    int line = (int)tia.scanlines();
+    if (line < prevLine) {           // scanline count dropped -> new frame
+      ++frameCount;
+      if (resetHeld && frameCount >= holdReset) {
+        sw.setReset(false);          // release RESET
+        resetHeld = false;
+      }
+      if (stopFrame > 0 && frameCount >= stopFrame) break;
+    }
+    prevLine = line;
+
     if (++instrCount >= instrBudget) break;
-    uInt8 r = ram[0x00];
-    if (r == 0xA5 || r == 0x5A) break;  // terminal verdict
+    if (!gameMode) {
+      uInt8 r = ram[0x00];
+      if (r == 0xA5 || r == 0x5A) break;  // terminal verdict
+    }
   }
+  if (watchPc >= 0)
+    std::fprintf(stderr, "watchpc $%04X: %s (frame %d), frames run=%d\n",
+                 watchPc, watchPcFrame >= 0 ? "REACHED" : "not reached",
+                 watchPcFrame, frameCount);
 
   // --- final frame snapshot (GOLD modality) ---
   // Stella's TIA framebuffer stores raw TIA colour codes (the COLUxx byte),
