@@ -8,7 +8,7 @@
 //! position, RIOT timer and ports); adapters can carry anything else as
 //! extension fields.
 
-use super::{Family, field, mos6502};
+use super::{System, field, mos6502};
 use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
 
 pub mod disasm;
@@ -38,10 +38,10 @@ pub static RIOT: SubsystemDef = SubsystemDef {
 
 pub static SUBSYSTEMS: &[&SubsystemDef] = &[&mos6502::CPU, &TIA, &RIOT];
 
-pub static VCS: Family = Family {
+pub static VCS: System = System {
     id: "vcs",
+    isa: &super::MOS6502,
     subsystems: SUBSYSTEMS,
-    flags: mos6502::FLAGS,
     exact_phrases: &[],
     numbered_phrases: &[],
     labelled_phrases: &[],

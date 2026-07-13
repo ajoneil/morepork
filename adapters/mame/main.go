@@ -468,7 +468,7 @@ func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8
 	header := map[string]any{
 		"_header": true, "format_version": "0.1.0",
 		"emulator": "mame", "emulator_version": "adapter", "rom_sha256": romSha,
-		"family": "vcs", "model": spec, "profile": "tier1",
+		"system": "vcs", "model": spec, "profile": "tier1",
 		"fields": fields, "trigger": "instruction",
 	}
 	if fr != nil {

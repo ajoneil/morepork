@@ -221,7 +221,7 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb 
 		"emulator":         "gopher2600",
 		"emulator_version": "adapter-mvp",
 		"rom_sha256":       romSha,
-		"family":           "vcs",
+		"system":           "vcs",
 		"model":            spec,
 		"profile":          "tier1",
 		"fields":           fieldOrder(),

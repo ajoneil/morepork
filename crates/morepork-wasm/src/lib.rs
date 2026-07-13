@@ -1,4 +1,4 @@
-use morepork::family::gb::framebuffer;
+use morepork::system::gb::framebuffer;
 use morepork::profile::FieldType;
 use wasm_bindgen::prelude::*;
 
@@ -32,7 +32,7 @@ pub struct TraceStore {
     /// When set, all accessors use this mapping transparently.
     downsample_map: Option<Vec<usize>>,
     /// Cached VRAM reconstruction state (built lazily on first access).
-    vram_cache: Option<morepork::family::gb::vram::VramCache>,
+    vram_cache: Option<morepork::system::gb::vram::VramCache>,
 }
 
 #[wasm_bindgen]
@@ -179,7 +179,7 @@ impl TraceStore {
             field: &'static str,
             bit: u8,
         }
-        let flags: Vec<JsFlag> = self.store.header().family_def().flags
+        let flags: Vec<JsFlag> = self.store.header().system_def().isa.flags
             .iter()
             .map(|d| JsFlag { name: d.names[0], field: d.field, bit: d.bit })
             .collect();
@@ -198,7 +198,7 @@ impl TraceStore {
             query: &'static str,
             needs: &'static str,
         }
-        let phrases: Vec<JsPhrase> = self.store.header().family_def().labelled_phrases
+        let phrases: Vec<JsPhrase> = self.store.header().system_def().labelled_phrases
             .iter()
             .map(|p| JsPhrase { group: p.group, label: p.label, query: p.query, needs: p.needs })
             .collect();
@@ -584,7 +584,7 @@ impl TraceStore {
     /// Disassemble the instruction at the given PC.
     pub fn disassemble(&self, pc: u16) -> String {
         match &self.rom {
-            Some(rom) => match self.store.header().family_def().disassemble {
+            Some(rom) => match self.store.header().system_def().disassemble {
                 Some(disassemble) => disassemble(rom, pc).0,
                 None => String::new(),
             },
@@ -599,7 +599,7 @@ impl TraceStore {
             Some(r) => r,
             None => return to_js(&Vec::<String>::new()),
         };
-        let disassemble = match self.store.header().family_def().disassemble {
+        let disassemble = match self.store.header().system_def().disassemble {
             Some(f) => f,
             None => return to_js(&Vec::<String>::new()),
         };
@@ -630,7 +630,7 @@ impl TraceStore {
     #[wasm_bindgen(js_name = buildVramCache)]
     pub fn build_vram_cache(&mut self) {
         if self.vram_cache.is_none() {
-            self.vram_cache = morepork::family::gb::vram::VramCache::build(&*self.store);
+            self.vram_cache = morepork::system::gb::vram::VramCache::build(&*self.store);
         }
     }
 
@@ -641,8 +641,8 @@ impl TraceStore {
             Some(s) => s,
             None => return Ok(JsValue::NULL),
         };
-        let rgba = morepork::family::gb::vram::render_tile_sheet(
-            &snap.data, &morepork::family::gb::vram::DMG_PALETTE);
+        let rgba = morepork::system::gb::vram::render_tile_sheet(
+            &snap.data, &morepork::system::gb::vram::DMG_PALETTE);
         Ok(js_sys::Uint8ClampedArray::from(&rgba[..]).into())
     }
 
@@ -662,10 +662,10 @@ impl TraceStore {
         };
 
         let (tilemap_base, signed_addressing) =
-            morepork::family::gb::vram::tilemap_params(lcdc, map_select);
-        let rgba = morepork::family::gb::vram::render_tilemap(
+            morepork::system::gb::vram::tilemap_params(lcdc, map_select);
+        let rgba = morepork::system::gb::vram::render_tilemap(
             &snap.data, tilemap_base, signed_addressing,
-            &morepork::family::gb::vram::DMG_PALETTE);
+            &morepork::system::gb::vram::DMG_PALETTE);
         Ok(js_sys::Uint8ClampedArray::from(&rgba[..]).into())
     }
 
@@ -693,7 +693,7 @@ impl TraceStore {
     /// Entry count respecting downsampling.
     /// Reconstruct VRAM at an entry, handling borrow splitting between
     /// the mutable cache and immutable store.
-    fn vram_at(&mut self, entry: usize) -> Option<morepork::family::gb::vram::VramSnapshot> {
+    fn vram_at(&mut self, entry: usize) -> Option<morepork::system::gb::vram::VramSnapshot> {
         self.build_vram_cache();
         let entry = self.map_row(entry);
         // Split borrows: take cache out, use store, put cache back

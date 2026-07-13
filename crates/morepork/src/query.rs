@@ -66,7 +66,7 @@ pub enum Condition {
 // ---------------------------------------------------------------------------
 //
 // Flag names and semantic phrases desugar to the generic conditions above;
-// only the family's tables (`family::Family`) know register names and bit
+// only the family's tables (`system::System`) know register names and bit
 // meanings.
 
 /// Parse a number from condition syntax. Always treats the digits as hex
@@ -77,18 +77,19 @@ pub fn parse_number(s: &str) -> Option<u64> {
     u64::from_str_radix(hex, 16).ok()
 }
 
-/// Map a CPU flag name to the family's flag definition.
+/// Map a CPU flag name to the system's ISA flag definition.
 fn flag_def<'f>(
-    family: &'f crate::family::Family,
+    system: &'f crate::system::System,
     name: &str,
-) -> Result<&'f crate::family::FlagDef, String> {
+) -> Result<&'f crate::system::FlagDef, String> {
     let name = name.to_lowercase();
-    family
+    system
+        .isa
         .flags
         .iter()
         .find(|d| d.names.contains(&name.as_str()))
         .ok_or_else(|| {
-            let expected: Vec<&str> = family.flags.iter().map(|d| d.names[0]).collect();
+            let expected: Vec<&str> = system.isa.flags.iter().map(|d| d.names[0]).collect();
             format!("unknown flag '{name}': expected {}", expected.join(", "))
         })
 }
@@ -106,7 +107,7 @@ fn flag_def<'f>(
 /// `numbered_phrases`), e.g. the GB's `lcd on` or `ppu enters mode N`.
 pub fn parse_condition(
     s: &str,
-    family: &crate::family::Family,
+    system: &crate::system::System,
 ) -> Result<Condition, String> {
     let s = s.trim();
 
@@ -115,20 +116,20 @@ pub fn parse_condition(
         let rest = rest.trim();
         // "flag z becomes set" / "flag z becomes clear"
         if let Some(inner) = rest.strip_suffix(" becomes set") {
-            let d = flag_def(family, inner.trim())?;
+            let d = flag_def(system, inner.trim())?;
             return Ok(Condition::BitTransition { field: d.field.into(), bit: d.bit, to: true });
         }
         if let Some(inner) = rest.strip_suffix(" becomes clear") {
-            let d = flag_def(family, inner.trim())?;
+            let d = flag_def(system, inner.trim())?;
             return Ok(Condition::BitTransition { field: d.field.into(), bit: d.bit, to: false });
         }
         // "flag z set" / "flag z clear"
         if let Some(inner) = rest.strip_suffix(" set") {
-            let d = flag_def(family, inner.trim())?;
+            let d = flag_def(system, inner.trim())?;
             return Ok(Condition::FieldBitMask { field: d.field.into(), mask: 1 << d.bit });
         }
         if let Some(inner) = rest.strip_suffix(" clear") {
-            let d = flag_def(family, inner.trim())?;
+            let d = flag_def(system, inner.trim())?;
             return Ok(Condition::FieldBitMaskEquals {
                 field: d.field.into(),
                 mask: 1 << d.bit,
@@ -139,12 +140,12 @@ pub fn parse_condition(
     }
 
     // Semantic phrases
-    for (phrase, build) in family.exact_phrases {
+    for (phrase, build) in system.exact_phrases {
         if s == *phrase {
             return Ok(build());
         }
     }
-    for (prefix, max, build) in family.numbered_phrases {
+    for (prefix, max, build) in system.numbered_phrases {
         if let Some(rest) = s.strip_prefix(prefix) {
             let n: u8 = rest.trim().parse()
                 .map_err(|_| format!("invalid number in '{s}': {rest}"))?;

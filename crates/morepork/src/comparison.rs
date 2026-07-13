@@ -105,16 +105,16 @@ impl<'a> TraceComparison<'a> {
             }
             "cartridge" => {
                 if !try_align_cartridge_entry(store_a, store_b, &mut map_a, &mut map_b) {
-                    let msg = match store_a.header().family_def().entry_addrs {
+                    let msg = match store_a.header().system_def().entry_addrs {
                         Some((entry, next)) => format!(
                             "sync=cartridge: both traces must start at \
                              PC=0x{entry:04X} (program entry) and contain a \
                              later PC=0x{next:04X} entry"
                         ),
                         None => format!(
-                            "sync=cartridge: family '{}' has no fixed program \
+                            "sync=cartridge: system '{}' has no fixed program \
                              entry address; use sync=pc or a condition",
-                            store_a.header().family_def().id
+                            store_a.header().system_def().id
                         ),
                     };
                     return Err(Error::Diff(msg));
@@ -734,7 +734,7 @@ fn try_align_cartridge_entry(
     map_a: &mut Vec<usize>,
     map_b: &mut Vec<usize>,
 ) -> bool {
-    let (entry, after_entry) = match store_a.header().family_def().entry_addrs {
+    let (entry, after_entry) = match store_a.header().system_def().entry_addrs {
         Some(addrs) => addrs,
         None => return false,
     };

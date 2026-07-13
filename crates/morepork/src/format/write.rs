@@ -290,7 +290,7 @@ impl MoreporkWriter {
     /// Write a typed snapshot record at the current entry position.
     /// The payload is compressed with zstd and written inline. `tag` is a
     /// format-level tag (`TAG_FRAME`, `TAG_MEMORY`) or one of the family's
-    /// (e.g. `family::gb::snapshot::TAG_CPU`); the header's
+    /// (e.g. `system::gb::snapshot::TAG_CPU`); the header's
     /// `snapshot_kinds` names it.
     pub fn write_snapshot(&mut self, tag: u8, payload: &[u8]) -> Result<()> {
         let compressed = if payload.is_empty() {

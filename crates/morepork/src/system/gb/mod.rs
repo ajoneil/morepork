@@ -1,9 +1,11 @@
-//! The Game Boy family: field catalogue, query vocabulary, SM83
-//! disassembler, and diff-alignment hints. DMG and CGB are models within
-//! this family (the header's free-form `model` string), not separate
-//! families.
+//! The Game Boy: field catalogue, query vocabulary, SM83 disassembler,
+//! frame reconstruction, and diff-alignment hints, shared by the [`DMG`]
+//! and [`CGB`] systems. They are distinct systems on the shared `sm83`
+//! [`Isa`](super::Isa): the CGB adds colour-palette, double-speed, bank,
+//! and HDMA state (the `cgb` subsystem) but disassembles, renders, and
+//! queries identically.
 
-use super::{ExactPhrase, Family, FlagDef, LabelledPhrase, NumberedPhrase};
+use super::{ExactPhrase, FlagDef, LabelledPhrase, NumberedPhrase, System};
 use crate::query::Condition;
 
 pub mod catalogue;
@@ -12,7 +14,7 @@ pub mod framebuffer;
 pub mod snapshot;
 pub mod vram;
 
-static FLAGS: &[FlagDef] = &[
+pub static FLAGS: &[FlagDef] = &[
     FlagDef { names: &["z", "zero"], field: "f", bit: 7 },
     FlagDef { names: &["n", "sub", "subtract"], field: "f", bit: 6 },
     FlagDef { names: &["h", "half", "halfcarry"], field: "f", bit: 5 },
@@ -53,10 +55,28 @@ static LABELLED_PHRASES: &[LabelledPhrase] = &[
     LabelledPhrase { group: "Timer", label: "Overflow", query: "timer overflow", needs: "tima" },
 ];
 
-pub static GB: Family = Family {
-    id: "gb",
-    subsystems: catalogue::SUBSYSTEMS,
-    flags: FLAGS,
+/// The original Game Boy (DMG). 2-bit greyscale; the base catalogue.
+pub static DMG: System = System {
+    id: "dmg",
+    isa: &super::SM83,
+    subsystems: catalogue::SUBSYSTEMS_DMG,
+    exact_phrases: EXACT_PHRASES,
+    numbered_phrases: NUMBERED_PHRASES,
+    labelled_phrases: LABELLED_PHRASES,
+    disassemble: Some(disasm::disassemble),
+    snapshot_kinds: snapshot::KINDS,
+    entry_addrs: Some((0x0100, 0x0101)),
+};
+
+/// The Game Boy Color (CGB): the DMG plus CGB-only state (colour palettes,
+/// KEY1 double-speed, VRAM/WRAM banks, HDMA — the `cgb` subsystem). Shares
+/// the SM83 ISA, disassembler, frame reconstruction, query phrases, and
+/// snapshot kinds with [`DMG`]; `pix_format` (rgb555 vs shade2) is set by
+/// the adapter, not the system.
+pub static CGB: System = System {
+    id: "cgb",
+    isa: &super::SM83,
+    subsystems: catalogue::SUBSYSTEMS_CGB,
     exact_phrases: EXACT_PHRASES,
     numbered_phrases: NUMBERED_PHRASES,
     labelled_phrases: LABELLED_PHRASES,

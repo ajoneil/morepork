@@ -1,6 +1,6 @@
 //! VCS disassembly: the shared 6502 core plus the 6507's cartridge map.
 
-use crate::family::mos6502;
+use crate::system::mos6502;
 
 /// Map a CPU address to a ROM-file offset. The 6507 has 13 address
 /// lines; A12 selects the cartridge (a 4 KiB window at $1000-$1FFF,

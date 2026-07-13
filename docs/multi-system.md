@@ -2,24 +2,40 @@
 
 morepork was built for one machine and has since grown past it, the same way its
 sibling project missingno did — that frontend drives Game Boy, Atari 2600, Master
-System, and NES cores through family-agnostic seams (`docs/adding-a-system.md` in
+System, and NES cores through system-agnostic seams (`docs/adding-a-system.md` in
 the missingno repo, https://github.com/ajoneil/missingno). This document is the
 equivalent map for the trace side: how the format, core library, CLI, FFI, and
-web viewer stay system-agnostic, where family knowledge lives (the registry
-currently hosts gb, nes, and vcs), and what adding a family involves. Trust the
+web viewer stay system-agnostic, where system knowledge lives (the registry
+currently hosts the `dmg`, `cgb`, `nes`, and `vcs` systems, on the `sm83` and
+`6502` ISAs), and what adding a system involves. Trust the
 seams named here, but verify signatures against the source before building on
 them.
 
-## Two different axes (same as missingno)
+## Two orthogonal axes
 
-- **A variant within a family, sharing silicon** — DMG↔CGB. Modelled by the
-  header's free-form `model` string (`"DMG-B"`, `"CGB-E"`), the
-  `systems.{dmg,cgb}` manifest dimension, `SYSTEMS=` build sharding. A variant
-  changes field *values* and display encoding (`pix_format`), never the field
-  catalogue's shape.
-- **A new family entirely** (NES, SMS, VCS, …) — a new field catalogue, ISA,
-  frame geometry, flag semantics, clock vocabulary. This axis is what the
-  header's `family` field and the core's family registry carry.
+The header carries two small strings that, with the existing `pix_format`,
+replace the old monolithic `family` tag:
+
+- **`isa`** (`"sm83"`, `"6502"`) — the instruction-set architecture. Selects
+  the disassembler and flag vocabulary. Systems that share silicon share an
+  ISA: the Game Boy's DMG and CGB are both `sm83`; the NES's 2A03 and the VCS's
+  6507 are both `6502`.
+- **`system`** (`"dmg"`, `"cgb"`, `"nes"`, `"vcs"`) — the machine identity.
+  Selects the concrete disassembler (it closes over a system-specific
+  ROM-offset mapping), the default field catalogue, semantic query phrases,
+  diff-alignment hints, snapshot kinds, and viewer panels. Distinct from
+  `model` (the free-form hardware revision, `"DMG-B"`/`"CGB-C"`).
+
+Frame reconstruction keys off `pix_format` (`shade2`/`rgb555` → the GB pixel
+replay, `indexed8` → the system-agnostic indexed-frame path), not the system.
+
+**DMG↔CGB** are two `system`s on the shared `sm83` ISA + GB render: same
+disassembler, flags, phrases, and reconstruction; the CGB adds a `cgb`
+subsystem (colour palettes, KEY1 double-speed, VRAM/WRAM banks, HDMA). The
+`systems.{dmg,cgb}` manifest dimension and `SYSTEMS=` build sharding already
+carry this split end-to-end. **A new machine** (NES, SMS, VCS, …) adds a
+`system` (and an `isa` if its CPU is new): a new field catalogue, frame
+geometry, and — when the ISA is new — decode table and flag semantics.
 
 ## What is generic (do not "fix" these)
 
@@ -31,7 +47,7 @@ The data plane is system-agnostic and must stay that way:
   columns-by-name; JSONL reading infers fields.
 - `format/` — the container (chunks, Arrow IPC field groups, zstd, footer,
   dictionary encoding) is field-name-driven.
-- `comparison.rs` — the diff engine operates on arbitrary columns; family
+- `comparison.rs` — the diff engine operates on arbitrary columns; system
   specifics enter only through alignment hints.
 - `morepork-ffi` — the C writer API is column-index + field-name driven (the
   adapter builds the header JSON itself and pushes typed values by column).
@@ -45,12 +61,14 @@ Two principles, in tension-free layers:
 
 ### 1. The format is fully self-describing
 
-Readers need **zero family knowledge** for info/query/diff/table/chart, and
+Readers need **zero system-specific knowledge** for info/query/diff/table/chart, and
 self-description is *required*: the reader rejects a header without field
 metadata (there is no catalogue fallback — old traces get a clear
 "regenerate" error). The header carries, beyond the ordered `fields` list:
 
-- `family: String` — `"gb"`, `"nes"`, … Absent means `"gb"`.
+- `system: String` — `"dmg"`, `"cgb"`, `"nes"`, `"vcs"`, … Absent means `"dmg"`.
+- `isa: String` — `"sm83"`, `"6502"`. Empty on construction; the writer derives
+  it from `system` (so disassembly stays self-describing for unknown systems).
 - `field_defs` — ordered typed declarations `{ name, type, subsystem, layer,
   nullable, dictionary }`; the source of truth for resolution.
 - `field_groups` — the chunk storage layout actually used for this file (each
@@ -59,58 +77,62 @@ metadata (there is no catalogue fallback — old traces get a clear
   current instruction" (the writer prefers `op_addr`, which is stable across
   an instruction's T-cycles, over `pc`).
 - `snapshot_kinds` — tag-indexed kind names. `frame` (tag 0) and `memory`
-  (tag 1) are format-level kinds the viewer depends on; a family's typed
+  (tag 1) are format-level kinds the viewer depends on; a system's typed
   state claims tags from `FAMILY_TAG_BASE` up with namespaced names
-  (`gb.cpu`, …) registered on its `Family` entry.
+  (`gb.cpu`, …) registered on its `System` entry.
 
 `MoreporkWriter::create` enriches the header itself — field defs and the
-instruction-address column from the family catalogue, snapshot kind names
+instruction-address column from the system catalogue, snapshot kind names
 from the registry, storage groups from the defs when the caller passes none
 — so every producer (FFI adapters, missingno, `convert`) writes
 self-describing traces without changes on their side.
 
 `pix_format` values: `shade2` (DMG greyscale pix stream), `rgb555` (CGB colour
-pix stream), and `indexed8` — the family-agnostic form, one palette index per
+pix stream), and `indexed8` — the system-agnostic form, one palette index per
 pixel, with per-frame dimensions, the frame-end palette, and the display pixel
 aspect carried in each `frame` snapshot payload (`snapshot::IndexedFrame`,
 mirroring missingno's `IndexedFrame`; VCS frame height is emergent, SMS CRAM
 is mutable, so both ride per-frame). GB traces keep their raw frame payloads.
 
-### 2. Family knowledge lives in one registry in the core
+### 2. System knowledge lives in one registry in the core
 
-`crates/morepork/src/family/` — a static registry (like missingno's `FAMILIES`
-table), one module per family: `gb/`, `nes/`, `vcs/`, with the shared 6502
-decode table, register catalogue, and flag vocabulary in `mos6502.rs`
-(the NES's 2A03 and the VCS's 6507 carry the same core; each family keeps
-only its CPU-address-to-ROM-offset mapping). A `Family` provides:
+`crates/morepork/src/system/` — a static registry (like missingno's `FAMILIES`
+table): `mod.rs` holds the `Isa` and `System` structs plus the `ISAS`/`SYSTEMS`
+registries, and one module per CPU-line — `gb/` (the `dmg` and `cgb` systems,
+which share the SM83 disassembler, catalogue base, and rendering), `nes/`,
+`vcs/` — with the shared 6502 decode table and flag vocabulary in `mos6502.rs`
+(the NES's 2A03 and the VCS's 6507 carry the same core; each system keeps only
+its CPU-address-to-ROM-offset mapping). An `Isa` carries the flag vocabulary; a
+`System` names its `Isa` and provides:
 
 - **Default field catalogue** (`subsystems`) — validates profiles and types
   their fields at write time. The GB catalogue lives in
-  `family/gb/catalogue.rs`.
-- **Flag vocabulary** (`flags`) — name → (field, bit), driving the query
+  `system/gb/catalogue.rs`.
+- **Flag vocabulary** (`isa.flags`) — name → (field, bit), carried by the
+  system's `Isa` (shared across systems on the same ISA), driving the query
   engine's `flag …` conditions and the viewer's flag rendering (exported
   through wasm `flagDefs()`).
 - **Semantic query phrases** (`exact_phrases`, `numbered_phrases`) — named
   conditions (`"lcd on"`, `"ppu enters mode N"`, `"vblank starts"`) that
   desugar to the generic `Condition` variants; `parse_condition` takes the
-  family whose vocabulary it parses. `labelled_phrases` is the UI-facing
+  system whose vocabulary it parses. `labelled_phrases` is the UI-facing
   subset — {group, label, query, needed field} — exported through wasm
   `semanticPhrases()` to drive the query builder's one-click chips.
 - **Disassembler** (`disassemble`) — `fn(&[u8], u16) -> (String, u8)`. SM83
-  lives in `family/gb/disasm.rs`.
+  lives in `system/gb/disasm.rs`.
 - **Diff alignment hint** (`entry_addrs`) — the address every trace of the
   system reaches at program entry plus the entry's second instruction (GB:
-  cartridge entry `0x0100`/`0x0101`); families without a fixed entry use the
+  cartridge entry `0x0100`/`0x0101`); systems without a fixed entry use the
   generic first-common-address alignment.
 - **Frame reconstruction** — the GB `pix`/`ly` replay and VRAM/tile logic
-  (`family/gb/framebuffer.rs`, `family/gb/vram.rs`) are family capabilities,
-  not format features. The generic path is `frame` snapshots. Call sites gate
-  on the family id; promote to a function-table hook when a second family
-  implements reconstruction.
-- **Typed snapshot payloads** — `family/gb/snapshot.rs` defines the `gb.*`
+  (`system/gb/framebuffer.rs`, `system/gb/vram.rs`) are system capabilities,
+  not format features. The generic path is `frame` snapshots. The render gate
+  keys on `pix_format` (`shade2`/`rgb555` → this GB replay); promote to a
+  function-table hook when a second render model implements reconstruction.
+- **Typed snapshot payloads** — `system/gb/snapshot.rs` defines the `gb.*`
   payload layouts and their tags (missingno's `from_snapshot` constructors
-  restore console state from them); the family's `snapshot_kinds` names the
-  tags in the header. `memory` and `frame` payloads are family-agnostic
+  restore console state from them); the system's `snapshot_kinds` names the
+  tags in the header. `memory` and `frame` payloads are system-agnostic
   (`src/snapshot.rs`).
 
 What stays *out* of the registry: everything in the "generic" list. The
@@ -120,23 +142,26 @@ catalogue defaults/validation, and diff alignment hints.
 The `profile.rs` free functions (`lookup_field`, `field_type`,
 `field_nullable`) consult the GB catalogue only — a write-side convenience
 for GB producers (missingno-gb types its emitters through them). Readers use
-`TraceHeader::resolve_*`; other families go through their registry entry.
+`TraceHeader::resolve_*`; other systems go through their registry entry.
 
 ### Profiles
 
 ```toml
 [profile]
 name = "nes-smoke"
-family = "nes"          # absent = "gb"
+system = "nes"          # absent = "dmg"
 trigger = "cycle"
 
 [fields]
 cpu = ["pc", "a", "x", "y", "s", "p"]
 ```
 
-`[fields]` keys are validated against the family catalogue (unknown subsystem
+`[fields]` keys are validated against the system catalogue (unknown subsystem
 keys are an error), resolved in catalogue order. `[fields.memory]` and
-`[fields.extensions]` are family-independent.
+`[fields.extensions]` are system-independent. (A profile's `system` is the
+write-side catalogue baseline; the trace header's `system` is set by the
+adapter from `--model`, so a shared `dmg` profile can be captured as `cgb` —
+the CGB catalogue is a superset, so shared fields still validate.)
 
 ## Compatibility constraints
 
@@ -157,12 +182,12 @@ keys are an error), resolved in catalogue order. `[fields.memory]` and
      defs), `set_u8/u16/bool/str/null(col, v)`, `finish_entry`,
      `mark_frame`, `write_snapshot(tag, &[u8])`, `finish`.
    - `morepork::format::{TAG_FRAME, TAG_MEMORY}` and
-     `morepork::family::gb::snapshot::TAG_*` — snapshot tags.
+     `morepork::system::gb::snapshot::TAG_*` — snapshot tags.
    - `morepork::header::{TraceHeader (all fields), ExtensionField, PixFormat}`.
    - `morepork::profile::{FieldType, field_type, field_nullable}`.
    - `morepork::{BootRom, Profile (.trigger/.fields/.extensions/.memory/.name),
      Trigger, Error::Profile}`.
-   - `morepork::family::gb::snapshot::{CpuSnapshot, PpuSnapshot, ApuSnapshot,
+   - `morepork::system::gb::snapshot::{CpuSnapshot, PpuSnapshot, ApuSnapshot,
      TimerSnapshot, DmaSnapshot, SerialSnapshot, MbcSnapshot}` and
      `morepork::snapshot::{MemoryRegion, build_memory_payload}` — the
      save-state restore path.
@@ -173,14 +198,14 @@ keys are an error), resolved in catalogue order. `[fields.memory]` and
    trace scripts hard-code it. Additions must not disturb existing
    invocations.
 
-## What each family brings
+## What each system brings
 
 | | NES | VCS | SMS |
 |---|---|---|---|
 | CPU state | 6502: `a,x,y,s,p,pc` (+rdy) | same 6502 core (6507) | Z80: full main+shadow set, `ix,iy,sp,pc,wz,i,r,im,iff1/2` |
 | Stepping | `step_cycle` / `step_instruction` / `step_frame` | same + own core-side `Debugger` | `Cpu::step` returns T-states |
 | Frame | 256×240 fixed, 6-bit colour indices | `Vec<[u8; VISIBLE_CLOCKS]>`, **emergent height**, TIA indices | 256×192, CRAM-indexed + per-frame 32-byte CRAM |
-| Disassembler | ✓ shared `family/mos6502` + iNES map | ✓ shared core + 6507 cartridge map | ✗ none exists |
+| Disassembler | ✓ shared `system/mos6502` + iNES map | ✓ shared core + 6507 cartridge map | ✗ none exists |
 | Trace hooks in missingno | ✓ `missingno-nes/src/trace.rs` | ✓ `missingno-vcs/src/trace.rs` | none (its `bus_trace()` is test-only) |
 
 NES went second because it exercises every seam (catalogue, flags, disasm,
@@ -201,20 +226,21 @@ it implements.
 Field display is metadata-driven: the wasm store exposes `fieldDefs()`,
 `flagDefs()`, and `semanticPhrases()`; `web/src/lib/format.js` keeps its GB
 tables only as defaults for legacy traces, and the query builder's chips
-come from the family vocabulary. Frames render through two paths: the GB
+come from the system vocabulary. Frames render through two paths: the GB
 per-entry pix replay (fixed 160×144, partial-frame scrubbing), and indexed
 frame snapshots (`hasIndexedFrames()`/`indexedFrame()`), where each payload
 carries its own dimensions, palette, and pixel aspect. One deliberate
 GB-shaped remainder: the ASM column anchors at the visible `pc` column.
-Every surveyed family names its program counter `pc`, while
+Every surveyed system names its program counter `pc`, while
 `instruction_addr_field` is typically the hidden `op_addr` — anchoring
 there would remove the column from the default GB view.
 
 GB-specific panels (sprite table, APU, FIFO, VRAM, pixel replay) are gated
-on the gb family plus the fields they render; default visible columns come
-from the curated GB register set for gb traces and from the header's field
-defs for any other family. A per-family panel registry keyed on
-`header.family` becomes worthwhile when a second family ships panels of
+on the SM83/gb-render systems (`_isGbLike`, i.e. `isa === 'sm83'`, covering
+`dmg` and `cgb`) plus the fields they render; default visible columns come
+from the curated GB register set for gb-line traces and from the header's
+field defs for any other system. A per-system panel registry keyed on
+`header.system` becomes worthwhile when a non-gb system ships panels of
 its own.
 
 ## Naming
@@ -231,15 +257,15 @@ change with the name; regenerate traces after.
 
 The generalization landed in this order, each step leaving the GB pipeline
 green (`cargo test -p morepork`, spot-check `make traces-<suite>`):
-self-describing format → family registry (GB moved behind it,
+self-describing format → system registry (GB moved behind it,
 `Indexed8`/`IndexedFrame`) → NES (catalogue, flags, 6502 disassembler,
-missingno tracer, viewer) → family-aware web viewer (indexed frames,
+missingno tracer, viewer) → system-aware web viewer (indexed frames,
 labelled phrase chips, panel gating) → VCS (the emergent-height stress
 test, on the shared `mos6502` core). What remains:
 
 1. **SMS** — blocked on a Z80 disassembler (or ships with hex-dump
    disassembly); its missingno core also has no trace hooks yet.
 2. **Non-GB test suites** — the manifest's `systems.{dmg,cgb}` map and the
-   test picker stay GB-only until one exists; they need a family level then
+   test picker stay GB-only until one exists; they need a system level then
    (`scripts/manifest.py`, `web/src/components/test-picker.js`).
 3. **Rename** — blocked on the name decision; deliberately last.

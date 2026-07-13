@@ -174,11 +174,18 @@ pub struct TraceHeader {
     #[serde(default)]
     pub rom_sha256: String,
 
-    /// Console family this trace belongs to ("gb"). Absent (legacy traces)
-    /// ⇒ "gb". Distinct from `model`, which names the variant *within* the
-    /// family.
-    #[serde(default = "default_family")]
-    pub family: String,
+    /// The system this trace was captured on (`"dmg"`, `"cgb"`, `"nes"`,
+    /// `"vcs"`). Absent (legacy traces) ⇒ `"dmg"`. Distinct from `model`,
+    /// which names the hardware revision within a system (`"DMG-B"`).
+    #[serde(default = "default_system")]
+    pub system: String,
+
+    /// The instruction-set architecture (`"sm83"`, `"6502"`). Selects the
+    /// disassembler and flag vocabulary. Empty on construction; the writer
+    /// fills it from `system` in `ensure_self_describing`, so disassembly
+    /// stays self-describing even for a system a reader doesn't know.
+    #[serde(default)]
+    pub isa: String,
 
     /// Hardware model identifier (e.g. "DMG-B", "NTSC").
     #[serde(default)]
@@ -245,7 +252,7 @@ pub struct TraceHeader {
 
 fn default_format_version() -> String { "1.0".to_string() }
 fn default_emulator() -> String { "unknown".to_string() }
-fn default_family() -> String { "gb".to_string() }
+fn default_system() -> String { "dmg".to_string() }
 
 impl TraceHeader {
     /// Validate header invariants. Empty `fields` is permitted at this
@@ -260,7 +267,7 @@ impl TraceHeader {
         // type resolution would be ambiguous (the built-in catalogue and
         // the header would each claim a type, with no clear winner).
         for name in self.extension_fields.keys() {
-            if self.family_def().lookup_field(name).is_some() {
+            if self.system_def().lookup_field(name).is_some() {
                 return Err(crate::error::Error::InvalidHeader(format!(
                     "extension field '{name}' shadows a built-in field"
                 )));
@@ -274,11 +281,11 @@ impl TraceHeader {
         self.field_defs.iter().find(|d| d.name == name)
     }
 
-    /// The family this trace belongs to. Unknown or empty ids resolve to
-    /// GB — every trace written before the `family` field existed is a GB
-    /// trace, and an unknown id still gets working generic tooling.
-    pub fn family_def(&self) -> &'static crate::family::Family {
-        crate::family::family(&self.family).unwrap_or(&crate::family::gb::GB)
+    /// The system this trace was captured on. Unknown or empty ids resolve
+    /// to DMG — every trace written before the `system` field existed is a
+    /// Game Boy trace, and an unknown id still gets working generic tooling.
+    pub fn system_def(&self) -> &'static crate::system::System {
+        crate::system::system(&self.system).unwrap_or(&crate::system::gb::DMG)
     }
 
     /// Resolve a field's type from `field_defs` (headers are
@@ -306,19 +313,22 @@ impl TraceHeader {
     /// calls this, so every new trace is self-describing regardless of
     /// which producer (FFI adapter, missingno, `convert`) built the header.
     pub fn ensure_self_describing(&mut self) {
-        if self.family.is_empty() {
+        if self.system.is_empty() {
             // Struct-literal construction with `..Default::default()`
             // yields "" (the derive ignores serde defaults).
-            self.family = default_family();
+            self.system = default_system();
+        }
+        if self.isa.is_empty() {
+            self.isa = self.system_def().isa.id.to_string();
         }
         if self.field_defs.is_empty() {
-            let family = self.family_def();
+            let system = self.system_def();
             self.field_defs = self
                 .fields
                 .iter()
                 .map(|name| {
-                    if let Some(def) = family.lookup_field(name) {
-                        let (subsystem, layer) = family
+                    if let Some(def) = system.lookup_field(name) {
+                        let (subsystem, layer) = system
                             .field_group(name)
                             .map(|(s, l)| (Some(s.to_string()), Some(l.to_string())))
                             .unwrap_or((None, None));
@@ -366,7 +376,7 @@ impl TraceHeader {
         if self.snapshot_kinds.is_empty() {
             self.snapshot_kinds = ["frame", "memory"]
                 .iter()
-                .chain(self.family_def().snapshot_kinds)
+                .chain(self.system_def().snapshot_kinds)
                 .map(|k| k.to_string())
                 .collect();
         }

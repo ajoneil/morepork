@@ -1,6 +1,6 @@
 //! Family-agnostic snapshot payloads: bulk memory regions and indexed
 //! screen frames. Family-specific typed payloads (the `gb.*` kinds) live
-//! with their family (`family::gb::snapshot`).
+//! with their family (`system::gb::snapshot`).
 
 /// Memory snapshot payload.
 ///

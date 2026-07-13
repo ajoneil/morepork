@@ -6,7 +6,7 @@
 
 use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
 
-use crate::family::field;
+use crate::system::field;
 
 
 
@@ -185,8 +185,35 @@ pub static SERIAL: SubsystemDef = SubsystemDef {
     ],
 };
 
-/// All subsystems in field order.
-pub static SUBSYSTEMS: &[&SubsystemDef] = &[
+/// CGB-only state, layered on top of the shared DMG subsystems. Provisional
+/// — the exact fields should track what missingno-gbc's tracer exposes;
+/// emulators that don't model CGB internals simply don't capture these.
+pub static CGB: SubsystemDef = SubsystemDef {
+    name: "cgb",
+    layers: &[
+        (Layer::Registers, &[
+            field!("key1", u8, dict),   // double-speed: prepared (bit 0) / active (bit 7)
+            field!("vbk", u8),          // VRAM bank select
+            field!("svbk", u8),         // WRAM bank select
+            field!("bcps", u8),         // BG palette index/auto-increment
+            field!("bcpd", u8),         // BG palette data at the current index
+            field!("ocps", u8),         // OBJ palette index/auto-increment
+            field!("ocpd", u8),         // OBJ palette data at the current index
+            field!("opri", u8),         // object priority mode
+            field!("hdma1", u8), field!("hdma2", u8),  // HDMA source hi/lo
+            field!("hdma3", u8), field!("hdma4", u8),  // HDMA dest hi/lo
+            field!("hdma5", u8, dict),  // HDMA length / mode / active status
+        ]),
+    ],
+};
+
+/// The Game Boy (DMG) subsystems in field order.
+pub static SUBSYSTEMS_DMG: &[&SubsystemDef] = &[
     &CPU, &PPU, &APU, &TIMER, &INTERRUPT, &SERIAL,
+];
+
+/// The Game Boy Color subsystems: the DMG set plus the `cgb` extras.
+pub static SUBSYSTEMS_CGB: &[&SubsystemDef] = &[
+    &CPU, &PPU, &APU, &TIMER, &INTERRUPT, &SERIAL, &CGB,
 ];
 

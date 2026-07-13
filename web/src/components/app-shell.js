@@ -202,22 +202,31 @@ export class AppShell extends LitElement {
     return this._hoverIndex ?? this._currentIndex;
   }
 
-  /** True if the trace includes PPU internal fields. */
-  /** The loaded trace's console family ("gb" for legacy traces). */
-  get _family() {
-    return this._header?.family || 'gb';
+  /** The loaded trace's system id ("dmg" for legacy traces). */
+  get _system() {
+    return this._header?.system || 'dmg';
   }
 
-  // The FIFO/sprite/APU/VRAM panels are GB-specific: they gate on the GB
-  // family plus the fields they render, so another family reusing a field
-  // name (e.g. an NES APU's ch1_active) can't trip them. A per-family
-  // panel registry replaces this once a second family ships panels.
+  /** The loaded trace's ISA ("sm83" for legacy traces). */
+  get _isa() {
+    return this._header?.isa || 'sm83';
+  }
+
+  /** True for the Game Boy line (DMG + CGB share the SM83 ISA + gb panels). */
+  get _isGbLike() {
+    return this._isa === 'sm83';
+  }
+
+  // The FIFO/sprite/APU/VRAM panels are Game Boy-specific: they gate on the
+  // SM83/gb line (DMG + CGB) plus the fields they render, so another system
+  // reusing a field name (e.g. an NES APU's ch1_active) can't trip them. A
+  // per-system panel registry replaces this once a non-gb system ships panels.
   get _hasPpuInternals() {
-    return this._family === 'gb' && this._allFields.includes('oam0_x');
+    return this._isGbLike && this._allFields.includes('oam0_x');
   }
 
   get _hasApuFields() {
-    return this._family === 'gb'
+    return this._isGbLike
       && (this._allFields.includes('ch1_sweep') || this._allFields.includes('ch1_active'));
   }
 
@@ -438,7 +447,7 @@ export class AppShell extends LitElement {
               .perEntryPixels=${hasPerEntryPix}
               .currentIndex=${this._effectiveIndex}
             ></pixel-display>
-            ${this._family === 'gb' && this._store?.hasVramData?.() ? html`
+            ${this._isGbLike && this._store?.hasVramData?.() ? html`
               <vram-viewer
                 .store=${this._store}
                 .currentIndex=${this._effectiveIndex ?? 0}
@@ -594,12 +603,12 @@ export class AppShell extends LitElement {
     // Install this trace's display metadata (16-bit widths, flag fields).
     try { setFieldMeta(store.fieldDefs(), store.flagDefs()); } catch { /* legacy wasm */ }
     // Default: show only CPU register fields; the user opts into other
-    // groups. GB traces (and legacy traces, which are all GB) keep the
-    // curated register set; other families derive theirs from the
+    // groups. Game Boy traces — DMG and CGB, plus legacy traces, all SM83 —
+    // keep the curated register set; other systems derive theirs from the
     // header's field defs.
     const fields = this._allFields;
     let cpuFields = new Set(['pc', 'sp', 'a', 'f', 'b', 'c', 'd', 'e', 'h', 'l']);
-    if ((this._header?.family || 'gb') !== 'gb') {
+    if (!this._isGbLike) {
       try {
         cpuFields = new Set(
           store.fieldDefs()

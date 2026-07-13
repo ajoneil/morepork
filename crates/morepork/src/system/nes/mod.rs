@@ -5,7 +5,7 @@
 //! (CPU registers, PPU control/mask and beam position) and grows with its
 //! tracer; adapters can carry anything else as extension fields.
 
-use super::{ExactPhrase, Family, LabelledPhrase, field, mos6502};
+use super::{ExactPhrase, LabelledPhrase, System, field, mos6502};
 use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
 use crate::query::Condition;
 
@@ -34,10 +34,10 @@ static LABELLED_PHRASES: &[LabelledPhrase] = &[
     LabelledPhrase { group: "PPU", label: "VBlank", query: "vblank starts", needs: "line" },
 ];
 
-pub static NES: Family = Family {
+pub static NES: System = System {
     id: "nes",
+    isa: &super::MOS6502,
     subsystems: SUBSYSTEMS,
-    flags: mos6502::FLAGS,
     exact_phrases: EXACT_PHRASES,
     numbered_phrases: &[],
     labelled_phrases: LABELLED_PHRASES,

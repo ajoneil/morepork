@@ -96,11 +96,11 @@ impl SubsystemDef {
 // These consult the Game Boy catalogue only — a convenience for GB
 // producers (missingno-gb types its emitters through them). Readers use
 // `TraceHeader::resolve_*`; other families go through their registry
-// entry (`family::Family::lookup_field`).
+// entry (`system::System::lookup_field`).
 
 /// Look up a field definition by name across the GB subsystems.
 pub fn lookup_field(name: &str) -> Option<&'static FieldDef> {
-    crate::family::gb::catalogue::SUBSYSTEMS
+    crate::system::gb::catalogue::SUBSYSTEMS_DMG
         .iter()
         .flat_map(|s| s.all_fields())
         .find(|f| f.name == name)
@@ -143,8 +143,8 @@ pub fn field_nullable(name: &str) -> bool {
 pub struct Profile {
     pub name: String,
     pub description: String,
-    /// Console family the profile targets ("gb" when the TOML omits it).
-    pub family: String,
+    /// The system the profile targets ("dmg" when the TOML omits it).
+    pub system: String,
     pub trigger: Trigger,
     /// Flattened, ordered list of field names to capture.
     pub fields: Vec<String>,
@@ -175,9 +175,9 @@ struct ProfileMeta {
     name: String,
     description: String,
     trigger: Trigger,
-    /// Console family this profile targets. Absent ⇒ "gb".
+    /// The system this profile targets. Absent ⇒ "dmg".
     #[serde(default)]
-    family: Option<String>,
+    system: Option<String>,
 }
 
 /// Subsystem layer selection in TOML.
@@ -271,23 +271,23 @@ impl Profile {
     pub fn parse(toml_str: &str) -> Result<Self> {
         let raw: ProfileToml = toml::from_str(toml_str)?;
 
-        let family_id = raw.profile.family.as_deref().unwrap_or("gb");
-        let family = crate::family::family(family_id).ok_or_else(|| {
-            let known: Vec<&str> = crate::family::FAMILIES.iter().map(|f| f.id).collect();
+        let system_id = raw.profile.system.as_deref().unwrap_or("dmg");
+        let system = crate::system::system(system_id).ok_or_else(|| {
+            let known: Vec<&str> = crate::system::SYSTEMS.iter().map(|s| s.id).collect();
             Error::Profile(format!(
-                "unknown family '{family_id}': expected one of {}",
+                "unknown system '{system_id}': expected one of {}",
                 known.join(", ")
             ))
         })?;
 
-        // Reject subsystem keys the family doesn't have (previously a typo'd
+        // Reject subsystem keys the system doesn't have (previously a typo'd
         // key was silently ignored).
         for key in raw.fields.subsystems.keys() {
-            if !family.subsystems.iter().any(|s| s.name == key) {
-                let known: Vec<&str> = family.subsystems.iter().map(|s| s.name).collect();
+            if !system.subsystems.iter().any(|s| s.name == key) {
+                let known: Vec<&str> = system.subsystems.iter().map(|s| s.name).collect();
                 return Err(Error::Profile(format!(
-                    "unknown subsystem '{key}' for family '{}': expected one of {}",
-                    family.id,
+                    "unknown subsystem '{key}' for system '{}': expected one of {}",
+                    system.id,
                     known.join(", ")
                 )));
             }
@@ -296,7 +296,7 @@ impl Profile {
         // Resolve each subsystem's layer selection into fields, in the
         // family's catalogue order (not TOML key order).
         let mut fields = Vec::new();
-        for subsystem in family.subsystems {
+        for subsystem in system.subsystems {
             if let Some(sel) = raw.fields.subsystems.get(subsystem.name) {
                 let layers = resolve_layers(sel, subsystem)
                     .map_err(Error::Profile)?;
@@ -315,7 +315,7 @@ impl Profile {
         // Parse memory address fields
         let mut memory = BTreeMap::new();
         for (name, addr_str) in &raw.fields.memory {
-            if fields.contains(name) || family.lookup_field(name).is_some() {
+            if fields.contains(name) || system.lookup_field(name).is_some() {
                 return Err(Error::Profile(format!(
                     "memory field '{name}' conflicts with a built-in field"
                 )));
@@ -332,7 +332,7 @@ impl Profile {
         // shadow built-ins or memory entries.
         for (adapter, ext_fields) in &raw.fields.extensions {
             for name in ext_fields {
-                if family.lookup_field(name).is_some() {
+                if system.lookup_field(name).is_some() {
                     return Err(Error::Profile(format!(
                         "extensions.{adapter}: '{name}' shadows a built-in field"
                     )));
@@ -348,7 +348,7 @@ impl Profile {
         Ok(Profile {
             name: raw.profile.name,
             description: raw.profile.description,
-            family: family.id.to_string(),
+            system: system.id.to_string(),
             trigger: raw.profile.trigger,
             fields,
             memory,

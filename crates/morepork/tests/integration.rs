@@ -146,7 +146,7 @@ fn header_validation() {
 }
 
 #[test]
-fn profile_family_defaults_to_gb() {
+fn profile_system_defaults_to_dmg() {
     let toml = r#"
 [profile]
 name = "t"
@@ -157,24 +157,24 @@ trigger = "instruction"
 cpu = "registers"
 "#;
     let p = Profile::parse(toml).unwrap();
-    assert_eq!(p.family, "gb");
+    assert_eq!(p.system, "dmg");
     assert!(p.fields.contains(&"pc".to_string()));
 }
 
 #[test]
-fn profile_rejects_unknown_family() {
+fn profile_rejects_unknown_system() {
     let toml = r#"
 [profile]
 name = "t"
 description = "t"
 trigger = "instruction"
-family = "n64"
+system = "n64"
 
 [fields]
 cpu = "registers"
 "#;
     let err = Profile::parse(toml).unwrap_err().to_string();
-    assert!(err.contains("unknown family 'n64'"), "{err}");
+    assert!(err.contains("unknown system 'n64'"), "{err}");
 }
 
 #[test]
@@ -204,7 +204,7 @@ fn parse_every_suite_profile() {
         if profile_path.exists() {
             let p = Profile::load(&profile_path)
                 .unwrap_or_else(|e| panic!("{}: {e}", profile_path.display()));
-            assert_eq!(p.family, "gb", "{}", profile_path.display());
+            assert_eq!(p.system, "dmg", "{}", profile_path.display());
             parsed += 1;
         }
     }
@@ -218,14 +218,14 @@ fn nes_profile_and_flag_queries() {
 name = "nes-smoke"
 description = "NES CPU + PPU registers"
 trigger = "instruction"
-family = "nes"
+system = "nes"
 
 [fields]
 cpu = "registers"
 ppu = "registers"
 "#;
     let p = Profile::parse(toml).unwrap();
-    assert_eq!(p.family, "nes");
+    assert_eq!(p.system, "nes");
     assert_eq!(
         p.fields,
         ["pc", "a", "x", "y", "s", "p", "control", "mask", "line", "dot"]
@@ -233,7 +233,7 @@ ppu = "registers"
     );
 
     // Flag vocabulary resolves against P, not the GB F register.
-    let nes = morepork::family::family("nes").unwrap();
+    let nes = morepork::system::system("nes").unwrap();
     let cond = morepork::query::parse_condition("flag n becomes set", nes).unwrap();
     match cond {
         morepork::query::Condition::BitTransition { field, bit, to } => {
@@ -247,19 +247,19 @@ ppu = "registers"
 }
 
 #[test]
-fn labelled_phrases_parse_in_their_family() {
-    for family in morepork::family::FAMILIES {
-        for chip in family.labelled_phrases {
-            morepork::query::parse_condition(chip.query, family).unwrap_or_else(|e| {
+fn labelled_phrases_parse_in_their_system() {
+    for system in morepork::system::SYSTEMS {
+        for chip in system.labelled_phrases {
+            morepork::query::parse_condition(chip.query, system).unwrap_or_else(|e| {
                 panic!(
-                    "family '{}' chip '{}' has unparseable query '{}': {e}",
-                    family.id, chip.label, chip.query
+                    "system '{}' chip '{}' has unparseable query '{}': {e}",
+                    system.id, chip.label, chip.query
                 )
             });
             assert!(
-                family.lookup_field(chip.needs).is_some(),
-                "family '{}' chip '{}' needs unknown field '{}'",
-                family.id, chip.label, chip.needs
+                system.lookup_field(chip.needs).is_some(),
+                "system '{}' chip '{}' needs unknown field '{}'",
+                system.id, chip.label, chip.needs
             );
         }
     }
@@ -272,7 +272,7 @@ fn vcs_profile_and_flag_queries() {
 name = "vcs-smoke"
 description = "6507 + TIA beam + RIOT"
 trigger = "instruction"
-family = "vcs"
+system = "vcs"
 
 [fields]
 cpu = "registers"
@@ -280,7 +280,7 @@ tia = "registers"
 riot = "registers"
 "#;
     let p = Profile::parse(toml).unwrap();
-    assert_eq!(p.family, "vcs");
+    assert_eq!(p.system, "vcs");
     assert_eq!(
         p.fields,
         ["pc", "a", "x", "y", "s", "p", "line", "clock", "timer", "port_a", "port_b"]
@@ -288,7 +288,7 @@ riot = "registers"
     );
 
     // The 6502 flag vocabulary is shared with the NES family.
-    let vcs = morepork::family::family("vcs").unwrap();
+    let vcs = morepork::system::system("vcs").unwrap();
     let cond = morepork::query::parse_condition("flag c set", vcs).unwrap();
     match cond {
         morepork::query::Condition::FieldBitMask { field, mask } => {

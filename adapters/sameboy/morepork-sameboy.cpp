@@ -628,9 +628,10 @@ int main(int argc, char *argv[]) {
 
     // Build header JSON for the FFI writer
     std::string pix_format = g_cgb ? "\"pix_format\":\"rgb555\"," : "";
+    std::string system = g_cgb ? "\"system\":\"cgb\"," : "\"system\":\"dmg\",";
     std::string header_json = "{\"_header\":true,\"format_version\":\"0.1.0\","
         "\"emulator\":\"sameboy\",\"emulator_version\":\"0.16.x\","
-        "\"rom_sha256\":\"" + rom_hash + "\",\"model\":\"" + model + "\","
+        "\"rom_sha256\":\"" + rom_hash + "\"," + system + "\"model\":\"" + model + "\","
         "\"boot_rom\":\"" + boot_rom_info + "\",\"profile\":\"" + g_profile.name + "\","
         + pix_format + "\"fields\":[";
     for (size_t i = 0; i < g_emitters.size(); i++) {

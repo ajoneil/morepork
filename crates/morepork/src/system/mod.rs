@@ -1,11 +1,13 @@
-//! Console-family registry.
+//! System registry.
 //!
 //! Self-describing trace headers carry everything a reader needs for
 //! info/query/diff/table work; what remains system-specific is vocabulary
 //! and behaviour that cannot be data in the file: the default field
 //! catalogue behind profiles, flag names, semantic query phrases, the
-//! instruction decoder, and diff-alignment hints. Each console family
-//! contributes one [`Family`] here (see `docs/multi-system.md`).
+//! instruction decoder, and diff-alignment hints. Each machine contributes
+//! one [`System`] here; systems that share silicon share an [`Isa`] (the
+//! Game Boy's DMG/CGB share `sm83`; the NES and VCS share `6502`). See
+//! `docs/multi-system.md`.
 
 use crate::profile::SubsystemDef;
 use crate::query::Condition;
@@ -50,6 +52,19 @@ pub struct FlagDef {
     pub bit: u8,
 }
 
+/// An instruction-set architecture: the decode/flag vocabulary shared by
+/// every system built on it. The concrete disassembler lives on each
+/// [`System`] (it closes over a system-specific ROM-offset mapping); the
+/// ISA carries the flag vocabulary that `flag …` queries and the viewer use.
+pub struct Isa {
+    /// Identifier stored in the trace header (`"sm83"`, `"6502"`).
+    pub id: &'static str,
+
+    /// Flag vocabulary for `flag …` queries and viewer flag rendering,
+    /// in display order (high bit first).
+    pub flags: &'static [FlagDef],
+}
+
 /// Instruction decoder: (rom, address) → (mnemonic, length).
 pub type Disassemble = fn(&[u8], u16) -> (String, u8);
 
@@ -72,19 +87,21 @@ pub struct LabelledPhrase {
     pub needs: &'static str,
 }
 
-/// A console family: the system-specific vocabulary and behaviour behind
-/// profiles, queries, disassembly, and diff alignment.
-pub struct Family {
-    /// Identifier stored in the trace header and profile (`"gb"`).
+/// A system: the machine-specific vocabulary and behaviour behind
+/// profiles, queries, disassembly, and diff alignment. Its [`Isa`] carries
+/// the decode/flag vocabulary shared with sibling systems.
+pub struct System {
+    /// Identifier stored in the trace header and profile (`"dmg"`, `"cgb"`,
+    /// `"nes"`, `"vcs"`).
     pub id: &'static str,
+
+    /// The instruction-set architecture this system runs. Provides the flag
+    /// vocabulary; the concrete decoder is `disassemble` below.
+    pub isa: &'static Isa,
 
     /// Default field catalogue: validates profiles and types legacy traces
     /// whose headers predate `field_defs`.
     pub subsystems: &'static [&'static SubsystemDef],
-
-    /// Flag vocabulary for `flag …` queries and viewer flag rendering,
-    /// in display order (high bit first).
-    pub flags: &'static [FlagDef],
 
     /// Semantic query phrases that are exactly one fixed string.
     pub exact_phrases: &'static [ExactPhrase],
@@ -112,8 +129,8 @@ pub struct Family {
     pub entry_addrs: Option<(u16, u16)>,
 }
 
-impl Family {
-    /// Look up a field definition by name across this family's subsystems.
+impl System {
+    /// Look up a field definition by name across this system's subsystems.
     pub fn lookup_field(&self, name: &str) -> Option<&'static crate::profile::FieldDef> {
         self.subsystems
             .iter()
@@ -142,11 +159,24 @@ impl Family {
     }
 }
 
-/// Every registered family. GB first — it is also the fallback for traces
-/// whose headers predate the `family` field.
-pub static FAMILIES: &[&Family] = &[&gb::GB, &nes::NES, &vcs::VCS];
+/// The Sharp SM83 (Game Boy) and the NMOS 6502 (the NES's 2A03, the VCS's
+/// 6507). The flag vocabulary lives with each ISA's home module.
+pub static SM83: Isa = Isa { id: "sm83", flags: gb::FLAGS };
+pub static MOS6502: Isa = Isa { id: "6502", flags: mos6502::FLAGS };
 
-/// Look up a family by id.
-pub fn family(id: &str) -> Option<&'static Family> {
-    FAMILIES.iter().copied().find(|f| f.id == id)
+/// Every registered ISA.
+pub static ISAS: &[&Isa] = &[&SM83, &MOS6502];
+
+/// Look up an ISA by id.
+pub fn isa(id: &str) -> Option<&'static Isa> {
+    ISAS.iter().copied().find(|i| i.id == id)
+}
+
+/// Every registered system. `dmg` first — it is also the fallback for
+/// traces whose headers predate the `system` field.
+pub static SYSTEMS: &[&System] = &[&gb::DMG, &gb::CGB, &nes::NES, &vcs::VCS];
+
+/// Look up a system by id.
+pub fn system(id: &str) -> Option<&'static System> {
+    SYSTEMS.iter().copied().find(|s| s.id == id)
 }

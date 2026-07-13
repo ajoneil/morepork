@@ -72,7 +72,7 @@ static std::string jsonHeader(const std::string& spec, const std::string& romSha
   h += "\"emulator\":\"stella\",";
   h += "\"emulator_version\":\"adapter-mvp\",";
   h += "\"rom_sha256\":\"" + romSha + "\",";
-  h += "\"family\":\"vcs\",";
+  h += "\"system\":\"vcs\",";
   h += "\"model\":\"" + spec + "\",";
   h += "\"profile\":\"tier1\",";
   h += "\"fields\":[\"pc\",\"a\",\"x\",\"y\",\"s\",\"p\",\"line\",\"clock\","

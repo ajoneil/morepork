@@ -2,7 +2,7 @@ pub mod store;
 pub mod comparison;
 pub mod downsample;
 pub mod entry;
-pub mod family;
+pub mod system;
 pub mod format;
 pub mod error;
 pub mod header;

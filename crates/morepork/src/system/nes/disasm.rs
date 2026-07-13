@@ -1,6 +1,6 @@
 //! NES disassembly: the shared 6502 core plus the iNES ROM mapping.
 
-use crate::family::mos6502;
+use crate::system::mos6502;
 
 /// Map a CPU address to a ROM-file offset. iNES files (magic "NES\x1a")
 /// map PRG-ROM at 0x8000, mirrored when a single 16 KiB bank (NROM-128);

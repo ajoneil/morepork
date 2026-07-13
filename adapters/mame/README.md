@@ -90,5 +90,5 @@ compute ROMs (t01), synced to the harness anchor, with matching PASS verdicts.
 
 - MAME's `a2600` cartridge slot autodetects the bankswitch type from the `.bin`.
 - TV standard via the `a2600`/`a2600p` machine or a slot option (NTSC vs PAL).
-- The morepork family is `vcs`; emit a JSONL header with `"family":"vcs"` and the
+- The morepork system is `vcs`; emit a JSONL header with `"system":"vcs"` and the
   same field set, then diff against Stella/Gopher2600 via `scripts/compare.sh`.

@@ -10,7 +10,7 @@ Originally built for the Game Boy, morepork now spans multiple systems that shar
 
 ## Supported systems
 
-Each system is a **family**: it brings its own field catalogue, disassembler, flag vocabulary, and query phrases. The binary format, CLI, and web viewer are system-agnostic — the trace header records which family it belongs to.
+Each trace is tagged with a **`system`** (which machine — `dmg`, `cgb`, `vcs`) and an **`isa`** (which CPU — `sm83`, `6502`). The `isa` selects the disassembler and flag vocabulary; the `system` selects the field catalogue, query phrases, and viewer panels. Everything else is self-described by the trace header, so the format, CLI, and web viewer stay system-agnostic.
 
 | System | CPU | Captured state |
 | --- | --- | --- |
@@ -18,7 +18,7 @@ Each system is a **family**: it brings its own field catalogue, disassembler, fl
 | **Game Boy Color** (CGB) | Sharp SM83 | as Game Boy, plus colour PPU state and double-speed timing |
 | **Atari VCS / 2600** | MOS 6507 | 6507 registers & flags, TIA beam position (line/clock), RIOT timer and ports |
 
-The Game Boy and Game Boy Color share the `gb` family (they are modelled as separate but related *systems*); the Atari VCS is the `vcs` family, with NTSC, PAL, and SECAM as models within it.
+The Game Boy and Game Boy Color are **distinct systems that share the `sm83` ISA** — the same disassembler and frame rendering — so the CGB is related to the DMG but not the same machine: it adds colour palettes, double-speed, VRAM/WRAM banks, and HDMA. The Atari VCS runs a `6502` (the 6507), with NTSC, PAL, and SECAM as `model`s within the `vcs` system.
 
 ## Features
 
@@ -44,10 +44,10 @@ morepork convert trace.morepork.jsonl -o trace.morepork
 
 ### JSONL format
 
-The first line is a header describing the trace. It declares the `family` (which system the trace belongs to) and the `fields` captured:
+The first line is a header describing the trace. It declares the `system` (which machine), the `isa` (which CPU; the writer can derive it from `system`), and the `fields` captured:
 
 ```json
-{"_header":true,"format_version":"0.1.0","family":"gb","emulator":"my-emulator","emulator_version":"1.0","rom_sha256":"...","model":"DMG-B","boot_rom":"skip","profile":"gbmicrotest","fields":["pc","sp","a","f","b","c","d","e","h","l","lcdc","stat","ly"],"trigger":"instruction"}
+{"_header":true,"format_version":"0.1.0","system":"dmg","isa":"sm83","emulator":"my-emulator","emulator_version":"1.0","rom_sha256":"...","model":"DMG-B","boot_rom":"skip","profile":"gbmicrotest","fields":["pc","sp","a","f","b","c","d","e","h","l","lcdc","stat","ly"],"trigger":"instruction"}
 ```
 
 Each subsequent line is a trace entry with the fields listed in the header:
@@ -56,7 +56,7 @@ Each subsequent line is a trace entry with the fields listed in the header:
 {"pc":256,"sp":65534,"a":1,"f":176,"b":0,"c":19,"d":0,"e":216,"h":1,"l":77,"lcdc":145,"stat":128,"ly":153}
 ```
 
-The `fields` array defines what's captured, and the valid field names depend on the `family`. Common Game Boy configurations:
+The `fields` array defines what's captured, and the valid field names depend on the `system`. Common Game Boy configurations:
 
 **CPU only:**
 ```json
@@ -68,7 +68,7 @@ The `fields` array defines what's captured, and the valid field names depend on 
 "fields": ["pc", "sp", "a", "f", "b", "c", "d", "e", "h", "l", "lcdc", "stat", "ly", "lyc", "scy", "scx", "if_", "ie", "ime", "div", "tima", "tma", "tac"]
 ```
 
-Other systems declare their own family and field set — an Atari VCS trace (`"family":"vcs"`) exposes the 6507 registers, the TIA beam position (`line`, `clock`), and the RIOT timer and ports.
+Other systems declare their own `system` and field set — an Atari VCS trace (`"system":"vcs"`) exposes the 6507 registers, the TIA beam position (`line`, `clock`), and the RIOT timer and ports.
 
 Values should be numeric (not hex strings). 8-bit fields use 0-255, 16-bit fields (pc, sp) use 0-65535, booleans (ime) use `true`/`false`.
 
