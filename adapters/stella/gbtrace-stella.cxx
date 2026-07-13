@@ -252,8 +252,9 @@ int main(int argc, char** argv) {
         int src = (a + r) % height;
         std::memcpy(&rolled[(size_t)r * width], fb + (size_t)src * width, width);
       }
-      const uint8_t* pal = (spec.rfind("PAL", 0) == 0) ? canonicalPALPalette
-                                                        : canonicalNTSCPalette;
+      const uint8_t* pal = (spec == "SECAM")           ? canonicalSECAMPalette
+                         : (spec.rfind("PAL", 0) == 0) ? canonicalPALPalette
+                                                       : canonicalNTSCPalette;
       gbtrace_writer_mark_frame_indexed(w, width, height, 12.0f / 7.0f,
           pal, 256, rolled.data(), (size_t)width * (size_t)height);
     }

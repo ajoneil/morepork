@@ -325,7 +325,10 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb 
 			}
 		}
 		pal := &canonicalNTSCPalette
-		if strings.HasPrefix(strings.ToUpper(spec), "PAL") {
+		switch {
+		case strings.EqualFold(spec, "SECAM"):
+			pal = &canonicalSECAMPalette
+		case strings.HasPrefix(strings.ToUpper(spec), "PAL"):
 			pal = &canonicalPALPalette
 		}
 		fc.emit(w, pal)

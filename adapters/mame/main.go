@@ -124,6 +124,12 @@ func main() {
 }
 
 func run(romPath, outPath, spec string, maxFrames, port, swchb int, wantFrame bool) error {
+	// MAME has no SECAM Atari 2600 machine (only a2600 / a2600p), so it cannot
+	// capture a real SECAM field. Reject rather than silently emit an a2600
+	// (NTSC-geometry) frame tagged SECAM — use the stella/gopher2600 adapters.
+	if strings.EqualFold(spec, "SECAM") {
+		return fmt.Errorf("MAME has no SECAM 2600 driver; capture -spec SECAM with the stella or gopher2600 adapter")
+	}
 	romBytes, err := os.ReadFile(romPath)
 	if err != nil {
 		return err
