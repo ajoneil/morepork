@@ -1,4 +1,4 @@
-// gbtrace-mame: a gbtrace adapter for MAME's Atari 2600 driver (VCS family),
+// morepork-mame: a morepork adapter for MAME's Atari 2600 driver (VCS family),
 // a third independent-lineage behavioural oracle.
 //
 // MAME is not linkable like the Stella/Gopher2600 adapters, so this drives it
@@ -7,14 +7,14 @@
 // uses the GDB remote `monitor` command (qRcmd) to install MAME's own debugger
 // `trace` command (which logs every instruction at full emulation speed) plus a
 // watchpoint on the RESULT byte, then `continue`s to the verdict (~250ms/ROM).
-// The trace log is parsed into a native .gbtrace via the FFI (no JSONL).
+// The trace log is parsed into a native .morepork via the FFI (no JSONL).
 //
-//	gbtrace-mame -rom test.bin -out trace.gbtrace -spec NTSC -frames 30
+//	morepork-mame -rom test.bin -out trace.morepork -spec NTSC -frames 30
 package main
 
 /*
 #include <stdlib.h>
-#include "gbtrace.h"
+#include "morepork.h"
 */
 import "C"
 
@@ -106,7 +106,7 @@ emu.register_frame_done(apply)
 
 func main() {
 	rom := flag.String("rom", "", "path to the .bin/.a26 ROM")
-	out := flag.String("out", "trace.gbtrace", "output .gbtrace path")
+	out := flag.String("out", "trace.morepork", "output .morepork path")
 	spec := flag.String("spec", "NTSC", "TV spec: NTSC or PAL (a2600 vs a2600p)")
 	maxFrames := flag.Int("frames", 30, "cap: seconds_to_run = max(2, frames/60)")
 	port := flag.Int("port", 0, "gdbstub port (0 = auto-pick a free ephemeral port)")
@@ -148,19 +148,19 @@ func run(romPath, outPath, spec string, maxFrames, port, swchb int, wantFrame bo
 		l.Close()
 	}
 
-	luaFile, err := os.CreateTemp("", "gbtrace-mame-*.lua")
+	luaFile, err := os.CreateTemp("", "morepork-mame-*.lua")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(luaFile.Name())
 	luaFile.WriteString(fmt.Sprintf(switchLuaTemplate, swchb))
 	luaFile.Close()
-	cfgDir, err := os.MkdirTemp("", "gbtrace-mame-cfg-*")
+	cfgDir, err := os.MkdirTemp("", "morepork-mame-cfg-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(cfgDir)
-	traceLog, err := os.CreateTemp("", "gbtrace-mame-trace-*.log")
+	traceLog, err := os.CreateTemp("", "morepork-mame-trace-*.log")
 	if err != nil {
 		return err
 	}
@@ -275,20 +275,20 @@ func captureFrame(romPath, spec string, maxFrames int) (*frameData, error) {
 	if spec == "PAL" {
 		machine = "a2600p"
 	}
-	dump, err := os.CreateTemp("", "gbtrace-mame-px-*.bin")
+	dump, err := os.CreateTemp("", "morepork-mame-px-*.bin")
 	if err != nil {
 		return nil, err
 	}
 	dump.Close()
 	defer os.Remove(dump.Name())
-	luaFile, err := os.CreateTemp("", "gbtrace-mame-frame-*.lua")
+	luaFile, err := os.CreateTemp("", "morepork-mame-frame-*.lua")
 	if err != nil {
 		return nil, err
 	}
 	defer os.Remove(luaFile.Name())
 	// Redirect MAME's cfg/snapshot/nvram output to a temp dir so it never
 	// litters the working directory (cfg/, snap/, nvram/).
-	tmpHome, err := os.MkdirTemp("", "gbtrace-mame-home-*")
+	tmpHome, err := os.MkdirTemp("", "morepork-mame-home-*")
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +432,7 @@ func parseMem(h string) (a, b, c, d uint8) {
 }
 
 // writeTrace parses the MAME trace log (R<pc> <a> <x> <y> <sp> <p> lines) into a
-// native .gbtrace. The RESULT bytes are placed on the final (verdict) entry.
+// native .morepork. The RESULT bytes are placed on the final (verdict) entry.
 func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8, fr *frameData) error {
 	lf, err := os.Open(logPath)
 	if err != nil {
@@ -479,18 +479,18 @@ func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8
 	defer C.free(unsafe.Pointer(cPath))
 	cHdr := C.CString(string(hj))
 	defer C.free(unsafe.Pointer(cHdr))
-	w := C.gbtrace_writer_new(cPath, cHdr, C.size_t(len(hj)))
+	w := C.morepork_writer_new(cPath, cHdr, C.size_t(len(hj)))
 	if w == nil {
-		return fmt.Errorf("gbtrace_writer_new returned NULL")
+		return fmt.Errorf("morepork_writer_new returned NULL")
 	}
 	col := map[string]C.int{}
 	for _, n := range fields {
 		cn := C.CString(n)
-		col[n] = C.gbtrace_writer_find_field(w, cn)
+		col[n] = C.morepork_writer_find_field(w, cn)
 		C.free(unsafe.Pointer(cn))
 	}
-	setU8 := func(n string, v uint8) { C.gbtrace_writer_set_u8(w, C.size_t(col[n]), C.uint8_t(v)) }
-	setU16 := func(n string, v uint16) { C.gbtrace_writer_set_u16(w, C.size_t(col[n]), C.uint16_t(v)) }
+	setU8 := func(n string, v uint8) { C.morepork_writer_set_u8(w, C.size_t(col[n]), C.uint8_t(v)) }
+	setU16 := func(n string, v uint16) { C.morepork_writer_set_u16(w, C.size_t(col[n]), C.uint16_t(v)) }
 
 	for i, e := range entries {
 		setU16("pc", e.pc)
@@ -510,19 +510,19 @@ func writeTrace(outPath, spec, romSha, logPath string, res, code, obs, exp uint8
 			setU8("observed", 0)
 			setU8("expected", 0)
 		}
-		C.gbtrace_writer_finish_entry(w)
+		C.morepork_writer_finish_entry(w)
 	}
 	if fr != nil && fr.width > 0 && fr.height > 0 && len(fr.pixels) > 0 {
 		pal := canonicalNTSCPalette
 		if strings.HasPrefix(strings.ToUpper(spec), "PAL") {
 			pal = canonicalPALPalette
 		}
-		C.gbtrace_writer_mark_frame_indexed(w,
+		C.morepork_writer_mark_frame_indexed(w,
 			C.uint16_t(fr.width), C.uint16_t(fr.height), C.float(12.0/7.0),
 			(*C.uint8_t)(unsafe.Pointer(&pal[0])), C.size_t(256),
 			(*C.uint8_t)(unsafe.Pointer(&fr.pixels[0])), C.size_t(len(fr.pixels)))
 	}
-	if C.gbtrace_writer_close(w) != 0 {
+	if C.morepork_writer_close(w) != 0 {
 		return fmt.Errorf("writer close failed")
 	}
 	return nil

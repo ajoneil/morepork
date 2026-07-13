@@ -1,10 +1,10 @@
-# gbtrace
+# morepork
 
 **Capture and explore detailed execution traces from Game Boy emulators.**
 
-gbtrace records what happens inside a Game Boy — every instruction, register value, CPU flag, and IO state change — and provides tools to explore, query, and compare that data. Use it to understand how the hardware works, debug emulator behaviour, investigate how games use specific features, or verify accuracy against a gate-level reference.
+morepork records what happens inside a Game Boy — every instruction, register value, CPU flag, and IO state change — and provides tools to explore, query, and compare that data. Use it to understand how the hardware works, debug emulator behaviour, investigate how games use specific features, or verify accuracy against a gate-level reference.
 
-**[Try the web viewer](https://ajoneil.github.io/gbtrace/)** — browse pre-captured traces from hundreds of test ROMs across multiple emulators, or upload your own.
+**[Try the web viewer](https://ajoneil.github.io/morepork/)** — browse pre-captured traces from hundreds of test ROMs across multiple emulators, or upload your own.
 
 ## Features
 
@@ -18,14 +18,14 @@ gbtrace records what happens inside a Game Boy — every instruction, register v
 
 ## Trace format
 
-gbtrace uses a compact binary format for efficient storage and querying. There are two ways to produce traces:
+morepork uses a compact binary format for efficient storage and querying. There are two ways to produce traces:
 
-**Native format** — use the `gbtrace` Rust library (or its C FFI bindings) to write `.gbtrace` files directly.
+**Native format** — use the `morepork` Rust library (or its C FFI bindings) to write `.morepork` files directly.
 
-**JSONL format** — for quick integration, emit `.gbtrace.jsonl` files (one JSON object per line). Both the CLI and web viewer can work with JSONL files directly, but you can convert them for smaller file sizes and faster loading:
+**JSONL format** — for quick integration, emit `.morepork.jsonl` files (one JSON object per line). Both the CLI and web viewer can work with JSONL files directly, but you can convert them for smaller file sizes and faster loading:
 
 ```bash
-gbtrace convert trace.gbtrace.jsonl -o trace.gbtrace
+morepork convert trace.morepork.jsonl -o trace.morepork
 ```
 
 ### JSONL format
@@ -62,50 +62,50 @@ Capture profiles define which fields to record, but you don't need to provide al
 
 ## Web viewer
 
-The [web viewer](https://ajoneil.github.io/gbtrace/) provides:
+The [web viewer](https://ajoneil.github.io/morepork/) provides:
 
 - **Test ROM browser** — pre-captured traces from hundreds of test ROMs across multiple emulators, with pass/fail indicators
 - **Trace viewer** — virtual-scrolling table with inline SM83 disassembly, field value charts, and search/filter
 - **Comparison mode** — side-by-side diff with synced scrolling, per-field and per-flag highlighting, and match percentage statistics
 - **Drag-to-zoom charts** — visualise any field over the trace timeline, with dual-trace overlay in comparison mode
-- **Upload your own traces** — drop a `.gbtrace` or `.gbtrace.jsonl` (or gzipped `.gbtrace.jsonl.gz`) file to view or compare
+- **Upload your own traces** — drop a `.morepork` or `.morepork.jsonl` (or gzipped `.morepork.jsonl.gz`) file to view or compare
 
 ### Included traces
 
 The pre-captured traces come from several emulators:
 
 - **[GateBoy](https://github.com/aappleby/metroboy)** — a gate-level simulation of the Game Boy CPU, providing the closest reference to actual hardware. Gate propagation delay and analogue effects mean it doesn't perfectly match real hardware behaviour in all cases.
-- **[Missingno](https://github.com/ajoneil/missingno)** — the author's emulator, with full support for all gbtrace trace features.
+- **[Missingno](https://github.com/ajoneil/missingno)** — the author's emulator, with full support for all morepork trace features.
 - Traces from several well-regarded community emulators ([SameBoy](https://github.com/LIJI32/SameBoy), [gambatte](https://github.com/pokemon-speedrunning/gambatte-speedrun), [mGBA](https://github.com/mgba-emu/mgba)) are also included, though their traces capture less detail than GateBoy and Missingno.
 
 ## CLI
 
-The `gbtrace` tool provides offline trace inspection:
+The `morepork` tool provides offline trace inspection:
 
 ```bash
 # Show trace metadata
-gbtrace info trace.gbtrace
+morepork info trace.morepork
 
 # Find entries matching a condition
-gbtrace query trace.gbtrace -w "pc=0x0150"
-gbtrace query trace.gbtrace -w "a changes"
+morepork query trace.morepork -w "pc=0x0150"
+morepork query trace.morepork -w "a changes"
 
 # Compare two traces
-gbtrace diff gateboy.gbtrace gambatte.gbtrace --fields pc,a,f
+morepork diff gateboy.morepork gambatte.morepork --fields pc,a,f
 
 # Convert JSONL to native format
-gbtrace convert trace.gbtrace.jsonl -o trace.gbtrace
+morepork convert trace.morepork.jsonl -o trace.morepork
 ```
 
-Run `gbtrace --help` for a full list of commands.
+Run `morepork --help` for a full list of commands.
 
 ## Building
 
-gbtrace is a Rust workspace. The crates are not yet published to crates.io — install from git:
+morepork is a Rust workspace. The crates are not yet published to crates.io — install from git:
 
 ```bash
 # CLI
-cargo install --git https://github.com/ajoneil/gbtrace --features cli gbtrace
+cargo install --git https://github.com/ajoneil/morepork --features cli morepork
 
 # Local web viewer (requires wasm-pack)
 make serve

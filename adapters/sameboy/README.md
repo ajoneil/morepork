@@ -1,6 +1,6 @@
 # SameBoy Adapter
 
-Produces `.gbtrace` files using [SameBoy](https://github.com/LIJI32/SameBoy) as a
+Produces `.morepork` files using [SameBoy](https://github.com/LIJI32/SameBoy) as a
 library. SameBoy is used essentially unmodified — a single small patch
 (`sameboy-tcycle.patch`, ~40 lines across `Core/gb.h`, `Core/gb.c`,
 `Core/timing.c`) adds a public `GB_set_tcycle_callback` hook so traces can be
@@ -31,7 +31,7 @@ The adapter:
 1. Loads a ROM via `libsameboy`
 2. Registers the instruction or T-cycle callback per the profile trigger
 3. Runs the emulator for N frames (rendering disabled unless pixels are needed)
-4. Produces a `.gbtrace` file matching the spec
+4. Produces a `.morepork` file matching the spec
 
 ## Prerequisites & build
 
@@ -51,7 +51,7 @@ scripts handle this).
 ## Usage
 
 ```bash
-./gbtrace-sameboy --rom cpu_instrs.gb --profile ../../profiles/cpu_basic.toml --output trace.gbtrace --frames 3000
+./morepork-sameboy --rom cpu_instrs.gb --profile ../../profiles/cpu_basic.toml --output trace.morepork --frames 3000
 ```
 
 Options:

@@ -1,6 +1,6 @@
 # Gambatte-Speedrun Adapter
 
-Produces `.gbtrace` files using [gambatte-speedrun](https://github.com/pokemon-speedrunning/gambatte-speedrun) as a library, with **zero source modifications** to gambatte.
+Produces `.morepork` files using [gambatte-speedrun](https://github.com/pokemon-speedrunning/gambatte-speedrun) as a library, with **zero source modifications** to gambatte.
 
 ## How it works
 
@@ -9,7 +9,7 @@ Uses gambatte's public `setTraceCallback` API, which fires before each CPU instr
 1. Loads a ROM via `libgambatte`
 2. Registers a trace callback that writes JSONL to the output
 3. Runs the emulator for N frames
-4. Produces a `.gbtrace` file matching the spec
+4. Produces a `.morepork` file matching the spec
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ make GAMBATTE_DIR=/path/to/gambatte-speedrun/gambatte_core
 ## Usage
 
 ```bash
-./gbtrace-gambatte --rom cpu_instrs.gb --output trace.gbtrace --frames 3000
+./morepork-gambatte --rom cpu_instrs.gb --output trace.morepork --frames 3000
 ```
 
 Options:

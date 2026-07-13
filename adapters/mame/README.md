@@ -1,6 +1,6 @@
-# gbtrace-mame
+# morepork-mame
 
-A gbtrace adapter for [MAME](https://www.mamedev.org/)'s Atari 2600 driver
+A morepork adapter for [MAME](https://www.mamedev.org/)'s Atari 2600 driver
 (`a2600`), used as a third, **independent-lineage** behavioural oracle for the
 VCS test suite alongside Stella and Gopher2600. (Stella and Gopher2600 both
 descend from shared TIA-core work; MAME's driver is its own, so it's a genuine
@@ -9,31 +9,31 @@ third vote — not just a third copy.)
 ## Approach (differs from the Stella/Gopher2600 adapters)
 
 MAME is far too large to link the way the Stella and Gopher2600 adapters embed
-their emulators. But the output must still be a **native `.gbtrace` file written
-through the gbtrace FFI** — no JSONL. MAME is driven for per-instruction state
+their emulators. But the output must still be a **native `.morepork` file written
+through the morepork FFI** — no JSONL. MAME is driven for per-instruction state
 via its scripting/debugger, and that state is fed to the FFI to write native.
 
 Two candidate mechanisms (finalise against installed MAME):
 
 1. **Lua ⇄ FFI binding (one-step, preferred).** Build a small Lua C module
-   (`gbtrace_lua.so`) that wraps `libgbtrace_ffi.a` (writer_new / set_u8/u16 /
+   (`morepork_lua.so`) that wraps `libmorepork_ffi.a` (writer_new / set_u8/u16 /
    finish_entry / mark_frame_indexed / close). A MAME `-autoboot_script`
    `require`s it, steps the CPU (`devices[":maincpu"].debug:step()`), reads
-   `state[...]` + `spaces["program"]:read_u8()`, and writes native gbtrace
+   `state[...]` + `spaces["program"]:read_u8()`, and writes native morepork
    directly. Risk: MAME's Lua sandbox may restrict `require` of C modules.
 
 2. **Debugger trace-log → FFI converter (two-step fallback).** A `-debugscript`
    emits a per-instruction text log (`tracelog "%04X %02X ...",pc,a,...`); a
    small C/Go converter (linking the FFI, like the other adapters) parses it and
-   writes native gbtrace. The intermediate is MAME's own trace format, not gbtrace
+   writes native morepork. The intermediate is MAME's own trace format, not morepork
    JSONL.
 
-Either way the output is native gbtrace. Fields match the other adapters:
+Either way the output is native morepork. Fields match the other adapters:
 `pc a x y s p line clock` + the RESULT convention RAM bytes (`$80–$83`).
 
 ## How it works (implemented — full-speed)
 
-`gbtrace-mame` (Go + cgo/FFI) launches `mame a2600 -debug -debugger gdbstub`
+`morepork-mame` (Go + cgo/FFI) launches `mame a2600 -debug -debugger gdbstub`
 headless and drives it over the **GDB remote protocol**, but does **not**
 single-step over the wire (that was ~19s/ROM). Instead, after the handshake
 (`qSupported` + fetch `target.xml` — MAME's gdbstub only answers `monitor`/`g`
@@ -46,7 +46,7 @@ debugger commands and then runs the machine at **full emulation speed**:
    RESULT byte, to stop at the verdict.
 3. `c` (continue) — runs full-speed to the verdict (or `-seconds_to_run` cap).
 4. `m80,4` at the stop reads the RESULT bytes; `monitor trace off` flushes the log.
-5. The `R…` lines are parsed into a native `.gbtrace` via the FFI; the RESULT
+5. The `R…` lines are parsed into a native `.morepork` via the FFI; the RESULT
    bytes land on the final (verdict) entry.
 
 **~1s/ROM including MAME launch** (~260ms of actual emulation), vs 19s for the
@@ -90,5 +90,5 @@ compute ROMs (t01), synced to the harness anchor, with matching PASS verdicts.
 
 - MAME's `a2600` cartridge slot autodetects the bankswitch type from the `.bin`.
 - TV standard via the `a2600`/`a2600p` machine or a slot option (NTSC vs PAL).
-- The gbtrace family is `vcs`; emit a JSONL header with `"family":"vcs"` and the
+- The morepork family is `vcs`; emit a JSONL header with `"family":"vcs"` and the
   same field set, then diff against Stella/Gopher2600 via `scripts/compare.sh`.

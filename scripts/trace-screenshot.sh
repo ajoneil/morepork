@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate a trace for a screenshot test: adapter + ROM → .gbtrace
+# Generate a trace for a screenshot test: adapter + ROM → .morepork
 # The adapter compares its framebuffer against the reference and stops
 # when it matches. Pass/fail is determined by whether the adapter
 # reported a reference match.
@@ -15,13 +15,13 @@ OUT_DIR="$5"
 MAX_FRAMES="${6:-200}"
 
 NAME="$(basename "$ROM")"; NAME="${NAME%.gbc}"; NAME="${NAME%.gb}"
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
+ADAPTER="$(basename "$BIN" | sed 's/morepork-//; s/-cgb$//')"
 MODEL="${MODEL:-dmg}"
 source "$(dirname "$0")/ref-lib.sh"
 
-TMP="/tmp/gbtrace_screenshot_${NAME}_${ADAPTER}_$$"
+TMP="/tmp/morepork_screenshot_${NAME}_${ADAPTER}_$$"
 stderr_file="${TMP}.stderr"
-tmp_trace="${TMP}.gbtrace"
+tmp_trace="${TMP}.morepork"
 
 cleanup() { rm -f "$stderr_file" "$tmp_trace"; }
 trap cleanup EXIT
@@ -47,4 +47,4 @@ else
 fi
 
 mkdir -p "$OUT_DIR"
-mv "$tmp_trace" "${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"
+mv "$tmp_trace" "${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.morepork"

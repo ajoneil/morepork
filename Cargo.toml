@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["crates/gbtrace", "crates/gbtrace-wasm", "crates/gbtrace-ffi"]
+members = ["crates/morepork", "crates/morepork-wasm", "crates/morepork-ffi"]
 exclude = ["adapters/missingno"]

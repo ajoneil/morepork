@@ -1,0 +1,342 @@
+//! Trace store trait and loading functions.
+//!
+//! `TraceStore` is the single interface for reading trace data. The primary
+//! implementation is `MoreporkStore` (native .morepork format, chunk-based
+//! lazy loading). `DownsampledStore` wraps a store for instruction-level
+//! views of T-cycle data.
+
+use arrow::array::ArrayRef;
+use crate::error::Result;
+use crate::header::TraceHeader;
+
+/// A contiguous slice of an Arrow column within a single chunk.
+pub struct ColumnSegment {
+    pub array: ArrayRef,
+    /// Offset within the array where this segment starts.
+    pub offset: usize,
+    /// Number of rows in this segment.
+    pub len: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Trait — the single interface for reading trace data
+// ---------------------------------------------------------------------------
+
+/// Read-only access to trace data.
+///
+/// Implementations: `MoreporkStore` (native format), `DownsampledStore` (view wrapper).
+pub trait TraceStore {
+    fn header(&self) -> &TraceHeader;
+    fn entry_count(&self) -> usize;
+    fn field_col(&self, name: &str) -> Option<usize>;
+    fn frame_boundaries(&self) -> Vec<u32>;
+
+    // Column value access by (col_index, row_index)
+    fn get_str(&self, col: usize, row: usize) -> String;
+    fn get_numeric(&self, col: usize, row: usize) -> u64;
+    fn get_bool(&self, col: usize, row: usize) -> bool;
+    /// Whether the value at (col, row) is null.
+    fn is_null(&self, col: usize, row: usize) -> bool;
+
+    // Convenience accessors by field name (default implementations)
+    fn get_numeric_named(&self, name: &str, row: usize) -> Option<u64> {
+        self.field_col(name).map(|col| self.get_numeric(col, row))
+    }
+
+    fn get_str_named(&self, name: &str, row: usize) -> Option<String> {
+        self.field_col(name).map(|col| self.get_str(col, row))
+    }
+
+    fn has_field(&self, name: &str) -> bool {
+        self.field_col(name).is_some()
+    }
+
+    /// Column index of the instruction address, used for sync/collapse and
+    /// disassembly. The header names it (`instruction_addr_field`, filled
+    /// by the writer: `op_addr` when present — stable across an
+    /// instruction's T-cycles — else `pc`).
+    fn addr_col(&self) -> Option<usize> {
+        self.header()
+            .instruction_addr_field
+            .as_ref()
+            .and_then(|name| self.field_col(name))
+    }
+
+    /// Decompressed payload of the Nth frame snapshot, when the format
+    /// carries one (native traces; None for other stores).
+    fn frame_payload(&self, _frame_idx: usize) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Get column segments for a field over a contiguous row range.
+    /// Each segment is a slice of an Arrow array within one chunk.
+    /// Returns None if bulk access is not supported (e.g. downsampled stores).
+    fn get_column_segments(&self, _field: &str, _start: usize, _end: usize) -> Option<Vec<ColumnSegment>> {
+        None
+    }
+
+    /// Evaluate a condition within a range and return matching global indices.
+    fn query_range(&self, condition_str: &str, start: usize, end: usize) -> std::result::Result<Vec<u32>, String> {
+        let condition = crate::query::parse_condition(condition_str, self.header().family_def())?;
+        let total = self.entry_count();
+        let start = start.min(total);
+        let end = end.min(total);
+        let mut indices = Vec::new();
+        for i in start..end {
+            if self.eval_condition_trait(&condition, i) {
+                indices.push(i as u32);
+            }
+        }
+        Ok(indices)
+    }
+
+    /// Evaluate a parsed condition against a single row.
+    /// Default implementation handles stateless conditions via get_numeric/get_str.
+    fn eval_condition_trait(&self, cond: &crate::query::Condition, row: usize) -> bool {
+        use crate::query::Condition;
+        use crate::profile::FieldType;
+        match cond {
+            Condition::FieldEquals { field, value } => {
+                if let Some(col) = self.field_col(field) {
+                    match self.header().resolve_field_type(field) {
+                        FieldType::Bool => {
+                            if let Some(target) = parse_query_bool(value) {
+                                self.get_bool(col, row) == target
+                            } else {
+                                false
+                            }
+                        }
+                        FieldType::Str => {
+                            self.get_str(col, row) == *value
+                        }
+                        _ => {
+                            let v = self.get_numeric(col, row);
+                            if let Some(target) = parse_query_value(value) {
+                                v == target
+                            } else {
+                                let s = self.get_str(col, row);
+                                s == *value
+                            }
+                        }
+                    }
+                } else {
+                    false
+                }
+            }
+            Condition::FieldChanges { field } => {
+                if row == 0 { return false; }
+                if let Some(col) = self.field_col(field) {
+                    match self.header().resolve_field_type(field) {
+                        FieldType::Bool => {
+                            self.get_bool(col, row) != self.get_bool(col, row - 1)
+                        }
+                        FieldType::Str => {
+                            self.get_str(col, row) != self.get_str(col, row - 1)
+                        }
+                        _ => {
+                            self.get_numeric(col, row) != self.get_numeric(col, row - 1)
+                        }
+                    }
+                } else {
+                    false
+                }
+            }
+            Condition::FieldChangesTo { field, value } => {
+                if row == 0 { return false; }
+                if let Some(col) = self.field_col(field) {
+                    match self.header().resolve_field_type(field) {
+                        FieldType::Bool => {
+                            let target = match parse_query_bool(value) { Some(t) => t, None => return false };
+                            let cur = self.get_bool(col, row);
+                            let prev = self.get_bool(col, row - 1);
+                            cur != prev && cur == target
+                        }
+                        FieldType::Str => {
+                            let cur = self.get_str(col, row);
+                            let prev = self.get_str(col, row - 1);
+                            cur != prev && cur == *value
+                        }
+                        _ => {
+                            let cur = self.get_numeric(col, row);
+                            let prev = self.get_numeric(col, row - 1);
+                            if cur == prev { return false; }
+                            if let Some(target) = parse_query_value(value) {
+                                cur == target
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                } else {
+                    false
+                }
+            }
+            Condition::FieldChangesFrom { field, value } => {
+                if row == 0 { return false; }
+                if let Some(col) = self.field_col(field) {
+                    match self.header().resolve_field_type(field) {
+                        FieldType::Bool => {
+                            let target = match parse_query_bool(value) { Some(t) => t, None => return false };
+                            let cur = self.get_bool(col, row);
+                            let prev = self.get_bool(col, row - 1);
+                            cur != prev && prev == target
+                        }
+                        FieldType::Str => {
+                            let cur = self.get_str(col, row);
+                            let prev = self.get_str(col, row - 1);
+                            cur != prev && prev == *value
+                        }
+                        _ => {
+                            let cur = self.get_numeric(col, row);
+                            let prev = self.get_numeric(col, row - 1);
+                            if cur == prev { return false; }
+                            if let Some(target) = parse_query_value(value) {
+                                prev == target
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                } else {
+                    false
+                }
+            }
+            Condition::FieldBitMask { field, mask } => {
+                self.field_col(field)
+                    .is_some_and(|col| (self.get_numeric(col, row) & mask) != 0)
+            }
+            Condition::FieldBitMaskEquals { field, mask, value } => {
+                self.field_col(field)
+                    .is_some_and(|col| (self.get_numeric(col, row) & mask) == *value)
+            }
+            Condition::BitTransition { field, bit, to } => {
+                if row == 0 { return false; }
+                self.field_col(field).is_some_and(|col| {
+                    let cur = (self.get_numeric(col, row) >> bit) & 1 == 1;
+                    let prev = (self.get_numeric(col, row - 1) >> bit) & 1 == 1;
+                    prev != *to && cur == *to
+                })
+            }
+            Condition::MaskedChangesTo { field, mask, value } => {
+                self.field_col(field).is_some_and(|col| {
+                    if self.get_numeric(col, row) & mask != *value { return false; }
+                    row == 0 || (self.get_numeric(col, row - 1) & mask) != *value
+                })
+            }
+            Condition::FieldWraps { field } => {
+                if row == 0 { return false; }
+                self.field_col(field).is_some_and(|col| {
+                    let cur = self.get_numeric(col, row);
+                    let prev = self.get_numeric(col, row - 1);
+                    cur < prev && prev > 0x80
+                })
+            }
+            Condition::All(cs) => cs.iter().all(|c| self.eval_condition_trait(c, row)),
+            Condition::Any(cs) => cs.iter().any(|c| self.eval_condition_trait(c, row)),
+        }
+    }
+
+    /// Downsample a field for chart display. Returns min/max pairs per bucket.
+    fn field_summary(
+        &self,
+        field: &str,
+        start: usize,
+        end: usize,
+        buckets: usize,
+    ) -> std::result::Result<Vec<f64>, String> {
+        let col_idx = self.field_col(field)
+            .ok_or_else(|| format!("unknown field: {field}"))?;
+        let total = self.entry_count();
+        let end = end.min(total);
+        let start = start.min(end);
+        let range = end - start;
+
+        if range == 0 || buckets == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut out = Vec::with_capacity(buckets * 2);
+        for b in 0..buckets {
+            let b_start = start + (b * range) / buckets;
+            let b_end = start + ((b + 1) * range) / buckets;
+            if b_start >= b_end {
+                let v = if b_start > 0 {
+                    self.get_numeric(col_idx, b_start.min(total - 1)) as f64
+                } else { 0.0 };
+                out.push(v);
+                out.push(v);
+                continue;
+            }
+            let mut min = f64::MAX;
+            let mut max = f64::MIN;
+            for i in b_start..b_end {
+                let v = self.get_numeric(col_idx, i) as f64;
+                if v < min { min = v; }
+                if v > max { max = v; }
+            }
+            out.push(min);
+            out.push(max);
+        }
+
+        Ok(out)
+    }
+}
+
+/// Parse a query value as a boolean. Accepts `true`/`false` (case-insensitive)
+/// and `0`/`1`.
+fn parse_query_bool(s: &str) -> Option<bool> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+/// Parse a query value as a number. Supports:
+/// - `0x1A` or `0X1A` (hex with prefix)
+/// - `0d256` or `0D256` (decimal with prefix)
+/// - `1a` (bare hex)
+/// - `256` (decimal fallback)
+fn parse_query_value(s: &str) -> Option<u64> {
+    // Explicit hex prefix
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        return u64::from_str_radix(hex, 16).ok();
+    }
+    // Explicit decimal prefix (RGBDS convention)
+    if let Some(dec) = s.strip_prefix("0d").or_else(|| s.strip_prefix("0D")) {
+        return dec.parse::<u64>().ok();
+    }
+    // Try bare hex first (most values in traces are hex)
+    if let Ok(v) = u64::from_str_radix(s, 16) {
+        return Some(v);
+    }
+    // Fall back to decimal
+    s.parse::<u64>().ok()
+}
+
+// ---------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------
+
+/// Load a trace store from any supported format.
+/// Detects format by magic bytes: MPRK (native), or JSONL (converted on load).
+pub fn open_trace_store(path: impl AsRef<std::path::Path>) -> Result<Box<dyn TraceStore>> {
+    let data = std::fs::read(path.as_ref())?;
+    open_trace_store_from_bytes(&data)
+}
+
+/// Load from in-memory bytes, detecting format by magic.
+pub fn open_trace_store_from_bytes(data: &[u8]) -> Result<Box<dyn TraceStore>> {
+    // Native .morepork format
+    if data.len() >= 4 && &data[..4] == crate::format::MAGIC {
+        let store = crate::format::read::MoreporkStore::from_bytes(data)?;
+        return Ok(Box::new(store));
+    }
+
+    // JSONL — convert to native format on load
+    let store = crate::format::convert::jsonl_to_store(data)?;
+    Ok(Box::new(store))
+}
+
+// Re-export DownsampledStore
+pub use crate::downsample::DownsampledStore;

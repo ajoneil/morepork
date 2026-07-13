@@ -36,17 +36,17 @@ jobs:
       - name: Upload CLI
         uses: actions/upload-artifact@v6
         with:
-          name: gbtrace-bin
-          path: target/release/gbtrace
+          name: morepork-bin
+          path: target/release/morepork
           retention-days: 90
 
       - name: Upload FFI library
         uses: actions/upload-artifact@v6
         with:
-          name: gbtrace-ffi
+          name: morepork-ffi
           path: |
-            target/release/libgbtrace_ffi.a
-            crates/gbtrace-ffi/gbtrace.h
+            target/release/libmorepork_ffi.a
+            crates/morepork-ffi/morepork.h
           retention-days: 90
 
       - name: Upload WASM
@@ -54,8 +54,8 @@ jobs:
         with:
           name: wasm-pkg
           path: |
-            web/pkg/gbtrace_wasm.js
-            web/pkg/gbtrace_wasm_bg.wasm
+            web/pkg/morepork_wasm.js
+            web/pkg/morepork_wasm_bg.wasm
           retention-days: 90
 
   adapter:
@@ -77,17 +77,17 @@ jobs:
       - name: Download FFI library
         uses: actions/download-artifact@v4
         with:
-          name: gbtrace-ffi
+          name: morepork-ffi
           path: _ffi
 
       - name: Install FFI library
         run: |
           mkdir -p target/release
-          cp _ffi/target/release/libgbtrace_ffi.a target/release/ 2>/dev/null || \
-            cp _ffi/libgbtrace_ffi.a target/release/
-          cp _ffi/crates/gbtrace-ffi/gbtrace.h crates/gbtrace-ffi/ 2>/dev/null || \
-            cp _ffi/gbtrace.h crates/gbtrace-ffi/
-          ls -la target/release/libgbtrace_ffi.a crates/gbtrace-ffi/gbtrace.h
+          cp _ffi/target/release/libmorepork_ffi.a target/release/ 2>/dev/null || \
+            cp _ffi/libmorepork_ffi.a target/release/
+          cp _ffi/crates/morepork-ffi/morepork.h crates/morepork-ffi/ 2>/dev/null || \
+            cp _ffi/morepork.h crates/morepork-ffi/
+          ls -la target/release/libmorepork_ffi.a crates/morepork-ffi/morepork.h
 
       # Cache upstream repos only (the expensive clones), not the built binary
       - name: Cache upstream repos
@@ -152,7 +152,7 @@ jobs:
           # missingno-gb + missingno-gbc come from the same git dep (CGB tracer).
           cargo update -p missingno-gb -p missingno-gbc 2>/dev/null || cargo update
           cargo build --release
-          cp target/release/gbtrace-missingno .
+          cp target/release/morepork-missingno .
 
       - name: Clone and build docboy
         if: matrix.emulator == 'docboy'
@@ -163,8 +163,8 @@ jobs:
         with:
           name: adapter-${{ matrix.emulator }}
           path: |
-            adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}
-            adapters/${{ matrix.emulator }}/gbtrace-${{ matrix.emulator }}-cgb
+            adapters/${{ matrix.emulator }}/morepork-${{ matrix.emulator }}
+            adapters/${{ matrix.emulator }}/morepork-${{ matrix.emulator }}-cgb
             adapters/${{ matrix.emulator }}/SameBoy/build/lib/libsameboy.so
             adapters/${{ matrix.emulator }}/boot_roms/
           if-no-files-found: ignore

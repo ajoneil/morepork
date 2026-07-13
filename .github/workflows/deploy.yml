@@ -68,7 +68,7 @@ jobs:
           done < /tmp/artifacts.txt
           echo "Downloaded $(ls _tracelists/*.txt 2>/dev/null | wc -l) trace lists"
 
-      # Recreate build/traces/<suite>/<name>.gbtrace as empty files (manifest.py
+      # Recreate build/traces/<suite>/<name>.morepork as empty files (manifest.py
       # only reads filenames), then regenerate each suite's manifest.json.
       - name: Rebuild manifests
         run: |
@@ -95,17 +95,17 @@ jobs:
           done
 
       # Assemble the Pages site: app + per-suite manifest + ROMs + profiles.
-      # The .gbtrace blobs are NOT copied here — they're served from Spaces.
+      # The .morepork blobs are NOT copied here — they're served from Spaces.
       - name: Assemble site
         run: |
           mkdir -p build/site/pkg build/site/tests
           cp web/index.html build/site/
           cp -r web/src build/site/
-          cp web/pkg/gbtrace_wasm.js web/pkg/gbtrace_wasm_bg.wasm build/site/pkg/
+          cp web/pkg/morepork_wasm.js web/pkg/morepork_wasm_bg.wasm build/site/pkg/
 
           # Tell the viewer where the trace blobs live (DigitalOcean Spaces CDN).
           if [ -n "$TRACE_BASE" ]; then
-            sed -i "s|<script type=\"importmap\">|<script>window.GBTRACE_TRACE_BASE=\"${TRACE_BASE}\";</script>\n  <script type=\"importmap\">|" build/site/index.html
+            sed -i "s|<script type=\"importmap\">|<script>window.MOREPORK_TRACE_BASE=\"${TRACE_BASE}\";</script>\n  <script type=\"importmap\">|" build/site/index.html
           fi
 
           declare -A ROM_DIRS

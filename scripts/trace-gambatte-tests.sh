@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate a single Gambatte test trace: adapter + ROM → .gbtrace
+# Generate a single Gambatte test trace: adapter + ROM → .morepork
 #
 # All Gambatte tests run for exactly 15 LCD frames (1,053,360 T-cycles).
 # Pass/fail is determined by the test type, encoded in the filename:
@@ -14,7 +14,7 @@
 #   `_dmg08_out<H1>_cgb04c_out<H2>` gives H1 for dmg, H2 for cgb.
 #
 # Model is passed via the MODEL env var (dmg|cgb). The adapter binary is
-# passed by the caller (gen-rules resolves docboy+cgb → gbtrace-docboy-cgb).
+# passed by the caller (gen-rules resolves docboy+cgb → morepork-docboy-cgb).
 #
 # Usage: MODEL=dmg trace-gambatte-tests.sh <adapter-binary> <rom> <profile> <output-dir> <rom-dir>
 set -euo pipefail
@@ -26,10 +26,10 @@ OUT_DIR="$4"
 ROM_DIR="${5:-$(dirname "$ROM")}"
 MODEL="${MODEL:-dmg}"
 source "$(dirname "$0")/ref-lib.sh"
-CLI="${CLI:-target/release/gbtrace}"
+CLI="${CLI:-target/release/morepork}"
 
-# Emulator name: strip gbtrace- prefix and any -cgb build suffix.
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
+# Emulator name: strip morepork- prefix and any -cgb build suffix.
+ADAPTER="$(basename "$BIN" | sed 's/morepork-//; s/-cgb$//')"
 
 TEST_TIMEOUT=120
 MAX_FRAMES=15
@@ -70,9 +70,9 @@ extract_marker() {  # $1=marker suffix (out|outaudio)
 # Model-aware screenshot reference (gambatte uses {stem}_dmg08 / _cgb04c).
 PIX_REF="$(find_ref "$ROM" "$MODEL")"
 
-TMP="/tmp/gbtrace_gambatte_${NAME}_${ADAPTER}_${MODEL}_$$"
+TMP="/tmp/morepork_gambatte_${NAME}_${ADAPTER}_${MODEL}_$$"
 stderr_file="${TMP}.stderr"
-tmp_trace="${TMP}.gbtrace"
+tmp_trace="${TMP}.morepork"
 cleanup() { rm -f "$stderr_file" "$tmp_trace" "${ROM%.gb}.sav" "${ROM%.gbc}.sav"; rm -rf "${TMP}_render"; }
 trap cleanup EXIT
 
@@ -143,7 +143,7 @@ esac
 
 # --- Output ---
 mkdir -p "$OUT_DIR"
-out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"
+out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.morepork"
 mv "$tmp_trace" "$out"
 
 entries=$("$CLI" info "$out" 2>/dev/null | grep Entries | awk '{print $2}')

@@ -527,44 +527,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
-name = "gbtrace"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "clap",
- "flate2",
- "png",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "toml",
- "zstd",
-]
-
-[[package]]
-name = "gbtrace-ffi"
-version = "0.1.0"
-dependencies = [
- "gbtrace",
- "serde_json",
-]
-
-[[package]]
-name = "gbtrace-wasm"
-version = "0.1.0"
-dependencies = [
- "flate2",
- "gbtrace",
- "js-sys",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -818,6 +780,44 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "morepork"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "clap",
+ "flate2",
+ "png",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "zstd",
+]
+
+[[package]]
+name = "morepork-ffi"
+version = "0.1.0"
+dependencies = [
+ "morepork",
+ "serde_json",
+]
+
+[[package]]
+name = "morepork-wasm"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "js-sys",
+ "morepork",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

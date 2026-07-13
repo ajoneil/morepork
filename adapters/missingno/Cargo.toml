@@ -1,14 +1,16 @@
 [package]
-name = "gbtrace-missingno"
+name = "morepork-missingno"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "gbtrace-missingno"
+name = "morepork-missingno"
 path = "src/main.rs"
 
 [dependencies]
 # Track the latest missingno (no rev pin) — CI resolves it fresh on each build.
+# `gbtrace` is missingno's own trace feature; it keeps that name until the
+# sister project renames it to `morepork` too — update both lines then.
 missingno-gb = { git = "https://github.com/ajoneil/missingno", features = ["gbtrace"] }
 missingno-gbc = { git = "https://github.com/ajoneil/missingno", features = ["gbtrace"] }
 clap = { version = "4", features = ["derive"] }

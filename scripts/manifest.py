@@ -3,7 +3,7 @@
 
 Usage: manifest.py <trace-dir> <rom-dir>
 
-Scans trace-dir for `<test>_<emu>_<system>_<status>.gbtrace` files and rom-dir
+Scans trace-dir for `<test>_<emu>_<system>_<status>.morepork` files and rom-dir
 for `*.gb`/`*.gbc` ROMs, then writes manifest.json. DMG and CGB are modelled as
 separate but related systems; each test entry carries a per-system coverage map:
 
@@ -45,9 +45,9 @@ def generate_manifest(trace_dir, rom_dir):
     traces = {}
     for dirpath, _, filenames in sorted(os.walk(trace_dir)):
         for fname in sorted(filenames):
-            if not fname.endswith('.gbtrace'):
+            if not fname.endswith('.morepork'):
                 continue
-            base = fname[:-len('.gbtrace')]
+            base = fname[:-len('.morepork')]
             parts = base.rsplit('_', 3)  # test, emu, system, status
             if len(parts) != 4:
                 continue

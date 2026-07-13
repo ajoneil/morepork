@@ -1,4 +1,4 @@
-# gbtrace-sameboy adapter
+# morepork-sameboy adapter
 #
 # SameBoy is used as a library with a single small patch (sameboy-tcycle.patch)
 # that adds a per-T-cycle callback, enabling T-cycle granularity traces. Set it
@@ -18,23 +18,23 @@ SAMEBOY_DIR ?= SameBoy
 
 CXX ?= g++
 CXXFLAGS = -O2 -std=c++17 -Wall -Wextra
-FFI_DIR  ?= ../../crates/gbtrace-ffi
-FFI_LIB  ?= ../../target/release/libgbtrace_ffi.a
+FFI_DIR  ?= ../../crates/morepork-ffi
+FFI_LIB  ?= ../../target/release/libmorepork_ffi.a
 # Include Core/ directly (we define GB_INTERNAL for full struct access)
 INCLUDES = -I$(SAMEBOY_DIR)/Core -I$(FFI_DIR)
 LDFLAGS = -L$(SAMEBOY_DIR)/build/lib
 LDLIBS = -lsameboy -lm -ldl -lpthread
 
-TARGET = gbtrace-sameboy
+TARGET = morepork-sameboy
 
 PATCH = sameboy-tcycle.patch
-PATCH_STAMP = $(SAMEBOY_DIR)/.gbtrace-tcycle-patched
+PATCH_STAMP = $(SAMEBOY_DIR)/.morepork-tcycle-patched
 
 .PHONY: all clean patch lib
 
 all: $(TARGET)
 
-$(TARGET): gbtrace-sameboy.cpp $(FFI_LIB)
+$(TARGET): morepork-sameboy.cpp $(FFI_LIB)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< $(FFI_LIB) $(LDFLAGS) $(LDLIBS)
 
 # Apply the per-T-cycle patch, idempotently. The stamp lives inside SameBoy/, so

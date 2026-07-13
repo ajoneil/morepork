@@ -6,7 +6,7 @@ index d5b8ccf..4cd16a4 100644
  
      using onHaltCallback = std::function<void()>;
  
-+    // gbtrace adapter: read-only accessors for the register file (the
++    // morepork adapter: read-only accessors for the register file (the
 +    // registers are otherwise private, exposed only to the debugger).
 +    uInt16 gbPC() const { return PC; }
 +    uInt8  gbA()  const { return A;  }
@@ -26,7 +26,7 @@ index 124d729..1277840 100644
      Int32 maxVcenter() const { return myFrameManager->maxVcenter(); }
      uInt32 startLine() const { return myFrameManager->startLine(); }
  
-+    // gbtrace adapter: frame-manager state for VSYNC-anchoring the snapshot.
++    // morepork adapter: frame-manager state for VSYNC-anchoring the snapshot.
 +    // The framebuffer row being rendered IS getY(); vsync() is the current
 +    // VSYNC state — together they locate the VSYNC-deassert row.
 +    bool gbVSync() const { return myFrameManager->vsync(); }

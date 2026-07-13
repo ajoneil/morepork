@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate the canonical VCS NTSC/PAL/SECAM palettes for every gbtrace VCS adapter.
+"""Generate the canonical VCS NTSC/PAL/SECAM palettes for every morepork VCS adapter.
 
 A GOLD (frame) test's verdict is a captured frame compared against a golden
 reference. The pixels a VCS adapter stores are TIA colour codes (the COLUxx
 byte, 0..254 even) — emulator-independent. The palette (colour code -> RGB) is
 NOT: each emulator ships slightly different RGB. So the SUITE declares ONE
-canonical palette per TV standard and every adapter embeds it, so `gbtrace
+canonical palette per TV standard and every adapter embeds it, so `morepork
 render` produces the identical golden PNG no matter which oracle captured the
 trace.
 

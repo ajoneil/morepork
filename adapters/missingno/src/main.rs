@@ -11,7 +11,7 @@ use missingno_gb::GameBoy;
 use missingno_gbc::GameBoyColor;
 
 #[derive(Parser)]
-#[command(name = "gbtrace-missingno")]
+#[command(name = "morepork-missingno")]
 struct Args {
     #[arg(long)]
     rom: PathBuf,
@@ -116,7 +116,7 @@ fn rgb555_match(a: &[u8], b: &[u8]) -> bool {
 // distinct makes that trap impossible.
 trait Console: Traceable {
     /// Advance one CPU T-cycle, invoking `after` after each master edge (rise
-    /// then fall) with that edge's [`PhaseResult`] — the gbtrace capture hook.
+    /// then fall) with that edge's [`PhaseResult`] — the morepork capture hook.
     /// Returns whether a new frame was produced. A `Break` from the rise's
     /// observer defers the fall to the next call (double-speed mid-pair retire).
     fn observe_tcycle(

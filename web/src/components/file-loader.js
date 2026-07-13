@@ -66,9 +66,9 @@ export class FileLoader extends LitElement {
         @drop=${this._onDrop}
       >
         <h2>Load a trace file</h2>
-        <p>Drop a .gbtrace, .gbtrace.jsonl, or .gbtrace.jsonl.gz file here, or click to browse</p>
+        <p>Drop a .morepork, .morepork.jsonl, or .morepork.jsonl.gz file here, or click to browse</p>
       </div>
-      <input type="file" accept=".gbtrace,.jsonl,.gz" @change=${this._onFileChange}>
+      <input type="file" accept=".morepork,.jsonl,.gz" @change=${this._onFileChange}>
       ${this._loading ? html`<p class="loading">Loading...</p>` : ''}
       ${this._error ? html`<p class="error">${this._error}</p>` : ''}
     `;

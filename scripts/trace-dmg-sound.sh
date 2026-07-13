@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate a single dmg_sound trace: adapter + ROM → .gbtrace
+# Generate a single dmg_sound trace: adapter + ROM → .morepork
 #
 # Pass/fail: screenshot comparison against reference .pix files,
 # same as the regular blargg trace script.
@@ -12,9 +12,9 @@ ROM="$2"
 PROFILE="$3"
 OUT_DIR="$4"
 ROM_DIR="${5:-$(dirname "$ROM")}"
-CLI="${CLI:-target/release/gbtrace}"
+CLI="${CLI:-target/release/morepork}"
 
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
+ADAPTER="$(basename "$BIN" | sed 's/morepork-//; s/-cgb$//')"
 MODEL="${MODEL:-dmg}"
 source "$(dirname "$0")/ref-lib.sh"
 
@@ -34,8 +34,8 @@ PIX_REF="$(find_ref "$ROM" "$MODEL")"
 # early-exits on reference match, so a higher cap never lengthens a passing run.
 MAX_FRAMES="${6:-1200}"
 
-TMP="/tmp/gbtrace_dmg_sound_${NAME}_${ADAPTER}_$$"
-TRACE="${TMP}.gbtrace"
+TMP="/tmp/morepork_dmg_sound_${NAME}_${ADAPTER}_$$"
+TRACE="${TMP}.morepork"
 stderr_file="${TMP}.stderr"
 
 cleanup() { rm -f "$TRACE" "$stderr_file" "${ROM%.gb}.sav" "${ROM%.gbc}.sav"; }
@@ -69,7 +69,7 @@ fi
 
 # Move to output
 mkdir -p "$OUT_DIR"
-out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"
+out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.morepork"
 mv "$TRACE" "$out"
 
 entries=$("$CLI" info "$out" 2>/dev/null | grep Entries | awk '{print $2}')

@@ -309,7 +309,7 @@ export class TraceSelector extends LitElement {
           @click=${this._clickUpload}
           title="upload a trace file"
         >+ upload</button>
-        <input type="file" accept=".gbtrace,.jsonl,.gz" @change=${this._onFileChange}>
+        <input type="file" accept=".morepork,.jsonl,.gz" @change=${this._onFileChange}>
 
         ${this.allFields.length ? html`
           <div class="fields-row">

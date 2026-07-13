@@ -1,19 +1,19 @@
-// gbtrace-gopher2600: a gbtrace adapter for the Gopher2600 emulator (VCS family).
+// morepork-gopher2600: a morepork adapter for the Gopher2600 emulator (VCS family).
 //
 // Drives Gopher2600 headlessly one CPU instruction at a time and writes a
-// native .gbtrace file (via the gbtrace FFI): per-instruction 6507 registers,
+// native .morepork file (via the morepork FFI): per-instruction 6507 registers,
 // TIA beam position, RIOT timer/ports, a set of memory addresses (the
 // test-suite RESULT convention bytes + collisions, etc), and a final frame
 // pixel snapshot (embedded in the trace like the Game Boy framebuffer).
 //
-//	gbtrace-gopher2600 -rom test.bin -out trace.gbtrace -spec NTSC -frames 30
+//	morepork-gopher2600 -rom test.bin -out trace.morepork -spec NTSC -frames 30
 package main
 
 /*
-// Include path and the libgbtrace_ffi.a link are supplied by the Makefile via
+// Include path and the libmorepork_ffi.a link are supplied by the Makefile via
 // CGO_CFLAGS / CGO_LDFLAGS, so this file stays location-independent.
 #include <stdlib.h>
-#include "gbtrace.h"
+#include "morepork.h"
 */
 import "C"
 
@@ -139,7 +139,7 @@ func (f *frameCapture) SetPixels(sig []signal.SignalAttributes, last int) error 
 func (f *frameCapture) Reset()               {}
 func (f *frameCapture) EndRendering() error  { return nil }
 
-func (f *frameCapture) emit(w *C.GbtraceWriter, pal *[768]byte) {
+func (f *frameCapture) emit(w *C.MoreporkWriter, pal *[768]byte) {
 	if !f.haveSpec || f.width == 0 || f.height == 0 || len(f.pixels) == 0 {
 		return
 	}
@@ -147,7 +147,7 @@ func (f *frameCapture) emit(w *C.GbtraceWriter, pal *[768]byte) {
 	// golden PNG rendered from this trace is identical to one rendered from any
 	// other oracle's trace — the pixels are emulator-independent TIA colour codes
 	// and so is the colour table. See adapters/genpalette.py.
-	C.gbtrace_writer_mark_frame_indexed(w,
+	C.morepork_writer_mark_frame_indexed(w,
 		C.uint16_t(f.width), C.uint16_t(f.height), C.float(12.0/7.0),
 		(*C.uint8_t)(unsafe.Pointer(&pal[0])), C.size_t(256),
 		(*C.uint8_t)(unsafe.Pointer(&f.pixels[0])), C.size_t(len(f.pixels)))
@@ -155,7 +155,7 @@ func (f *frameCapture) emit(w *C.GbtraceWriter, pal *[768]byte) {
 
 func main() {
 	rom := flag.String("rom", "", "path to the .bin/.a26 ROM")
-	out := flag.String("out", "trace.gbtrace", "output .gbtrace path")
+	out := flag.String("out", "trace.morepork", "output .morepork path")
 	spec := flag.String("spec", "NTSC", "TV spec: NTSC, PAL, PAL60, SECAM, AUTO")
 	maxFrames := flag.Int("frames", 30, "cap: stop after this many frames")
 	frame := flag.Bool("frame", true, "embed a final frame pixel snapshot")
@@ -195,7 +195,7 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb 
 		tv.AddPixelRenderer(fc)
 	}
 
-	vcs, err := hardware.NewVCS(environment.Label("gbtrace"), tv, nil, prefs)
+	vcs, err := hardware.NewVCS(environment.Label("morepork"), tv, nil, prefs)
 	if err != nil {
 		return fmt.Errorf("vcs: %w", err)
 	}
@@ -238,34 +238,34 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb 
 	cHeader := C.CString(string(headerJSON))
 	defer C.free(unsafe.Pointer(cHeader))
 
-	w := C.gbtrace_writer_new(cPath, cHeader, C.size_t(len(headerJSON)))
+	w := C.morepork_writer_new(cPath, cHeader, C.size_t(len(headerJSON)))
 	if w == nil {
-		return fmt.Errorf("gbtrace_writer_new returned NULL (bad header/profile?)")
+		return fmt.Errorf("morepork_writer_new returned NULL (bad header/profile?)")
 	}
 
 	cols := map[string]C.int{}
 	for _, name := range fieldOrder() {
 		cn := C.CString(name)
-		col := C.gbtrace_writer_find_field(w, cn)
+		col := C.morepork_writer_find_field(w, cn)
 		C.free(unsafe.Pointer(cn))
 		if col < 0 {
-			C.gbtrace_writer_close(w)
+			C.morepork_writer_close(w)
 			return fmt.Errorf("field %q not in trace", name)
 		}
 		cols[name] = col
 	}
 	setU8 := func(name string, v uint8) {
-		C.gbtrace_writer_set_u8(w, C.size_t(cols[name]), C.uint8_t(v))
+		C.morepork_writer_set_u8(w, C.size_t(cols[name]), C.uint8_t(v))
 	}
 	setU16 := func(name string, v uint16) {
-		C.gbtrace_writer_set_u16(w, C.size_t(cols[name]), C.uint16_t(v))
+		C.morepork_writer_set_u16(w, C.size_t(cols[name]), C.uint16_t(v))
 	}
 
 	noop := func(bool) error { return nil }
 	verdict := false
 	for {
 		if err := vcs.Step(noop); err != nil {
-			C.gbtrace_writer_close(w)
+			C.morepork_writer_close(w)
 			return fmt.Errorf("step: %w", err)
 		}
 		// Emit one entry per *retired* instruction. When the CPU is halted
@@ -297,8 +297,8 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb 
 			v, _ := vcs.Mem.Peek(mf.addr)
 			setU8(mf.name, v)
 		}
-		if C.gbtrace_writer_finish_entry(w) != 0 {
-			C.gbtrace_writer_close(w)
+		if C.morepork_writer_finish_entry(w) != 0 {
+			C.morepork_writer_close(w)
 			return fmt.Errorf("finish_entry failed")
 		}
 		if c.Frame >= maxFrames {
@@ -334,7 +334,7 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb 
 		fc.emit(w, pal)
 	}
 
-	if C.gbtrace_writer_close(w) != 0 {
+	if C.morepork_writer_close(w) != 0 {
 		return fmt.Errorf("writer close failed")
 	}
 	return nil

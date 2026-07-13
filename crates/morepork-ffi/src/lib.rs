@@ -1,0 +1,429 @@
+// Safety contracts live in the C header (morepork.h), the API's single
+// source of truth for C callers; per-function `# Safety` sections here
+// would just drift from it.
+#![allow(clippy::missing_safety_doc)]
+
+//! C FFI bindings for the morepork native format writer.
+//!
+//! Adapters link against libmorepork_ffi.a and call these functions to write
+//! .morepork files directly, bypassing JSONL serialization entirely.
+//!
+//! Typical usage from C:
+//! ```c
+//! MoreporkWriter *w = morepork_writer_new("out.morepork", header_json, len);
+//! int ly_col = morepork_writer_find_field(w, "ly");
+//! int pc_col = morepork_writer_find_field(w, "pc");
+//! // ...
+//! // For each trace entry:
+//! morepork_writer_set_u16(w, pc_col, pc_val);
+//! morepork_writer_set_u8(w, ly_col, ly_val);
+//! // ... set all fields ...
+//! morepork_writer_finish_entry(w);
+//! // At vblank:
+//! morepork_writer_mark_frame(w);
+//! // When done:
+//! morepork_writer_close(w);
+//! ```
+
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
+use std::slice;
+
+use morepork::format::write::MoreporkWriter as NativeWriter;
+use morepork::header::TraceHeader;
+use morepork::profile::{FieldType, Profile};
+
+// ---------------------------------------------------------------------------
+// Profile handle
+// ---------------------------------------------------------------------------
+
+/// Opaque profile handle exposed to C.
+pub struct MoreporkProfile {
+    profile: Profile,
+    /// Cached CStrings for field names (kept alive for pointer stability).
+    field_cstrings: Vec<CString>,
+    /// Cached CStrings for memory field names.
+    memory_names: Vec<CString>,
+    /// Memory addresses in the same order as memory_names.
+    memory_addrs: Vec<u16>,
+    /// Cached trigger string.
+    trigger_cstring: CString,
+    /// Cached name string.
+    name_cstring: CString,
+    /// Cached description string.
+    description_cstring: CString,
+}
+
+/// Load a profile from a TOML file.
+/// Returns an opaque pointer, or null on error.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_load(path: *const c_char) -> *mut MoreporkProfile {
+    let path_str = match CStr::from_ptr(path).to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let profile = match Profile::load(path_str) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("morepork_profile_load: {e}");
+            return std::ptr::null_mut();
+        }
+    };
+
+    let field_cstrings: Vec<CString> = profile
+        .fields
+        .iter()
+        .map(|f| CString::new(f.as_str()).unwrap())
+        .collect();
+
+    let memory_names: Vec<CString> = profile
+        .memory
+        .keys()
+        .map(|k| CString::new(k.as_str()).unwrap())
+        .collect();
+
+    let memory_addrs: Vec<u16> = profile.memory.values().copied().collect();
+
+    let trigger_str = match profile.trigger {
+        morepork::header::Trigger::Instruction => "instruction",
+        morepork::header::Trigger::Mcycle => "mcycle",
+        morepork::header::Trigger::Tcycle => "tcycle",
+        morepork::header::Trigger::Cycle => "cycle",
+        morepork::header::Trigger::Scanline => "scanline",
+        morepork::header::Trigger::Frame => "frame",
+        morepork::header::Trigger::Custom => "custom",
+    };
+    let trigger_cstring = CString::new(trigger_str).unwrap();
+    let name_cstring = CString::new(profile.name.as_str()).unwrap();
+    let description_cstring = CString::new(profile.description.as_str()).unwrap();
+
+    Box::into_raw(Box::new(MoreporkProfile {
+        profile,
+        field_cstrings,
+        memory_names,
+        memory_addrs,
+        trigger_cstring,
+        name_cstring,
+        description_cstring,
+    }))
+}
+
+/// Get the profile name.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_name(p: *const MoreporkProfile) -> *const c_char {
+    (*p).name_cstring.as_ptr()
+}
+
+/// Get the profile description.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_description(p: *const MoreporkProfile) -> *const c_char {
+    (*p).description_cstring.as_ptr()
+}
+
+/// Get the trigger string (e.g. "instruction", "tcycle").
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_trigger(p: *const MoreporkProfile) -> *const c_char {
+    (*p).trigger_cstring.as_ptr()
+}
+
+/// Get the number of fields in the profile.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_num_fields(p: *const MoreporkProfile) -> usize {
+    (*p).profile.fields.len()
+}
+
+/// Get a field name by index. Returns null if out of bounds.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_field_name(
+    p: *const MoreporkProfile,
+    index: usize,
+) -> *const c_char {
+    let profile = &*p;
+    match profile.field_cstrings.get(index) {
+        Some(cs) => cs.as_ptr(),
+        None => std::ptr::null(),
+    }
+}
+
+/// Get the number of memory address fields.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_num_memory(p: *const MoreporkProfile) -> usize {
+    (*p).memory_names.len()
+}
+
+/// Get a memory field name by index. Returns null if out of bounds.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_memory_name(
+    p: *const MoreporkProfile,
+    index: usize,
+) -> *const c_char {
+    let profile = &*p;
+    match profile.memory_names.get(index) {
+        Some(cs) => cs.as_ptr(),
+        None => std::ptr::null(),
+    }
+}
+
+/// Get a memory field address by index. Returns 0 if out of bounds.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_memory_addr(
+    p: *const MoreporkProfile,
+    index: usize,
+) -> u16 {
+    let profile = &*p;
+    profile.memory_addrs.get(index).copied().unwrap_or(0)
+}
+
+/// Free a profile handle.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_free(p: *mut MoreporkProfile) {
+    if !p.is_null() {
+        drop(Box::from_raw(p));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Writer handle
+// ---------------------------------------------------------------------------
+
+/// Opaque writer handle exposed to C.
+pub struct MoreporkWriter {
+    writer: NativeWriter,
+    field_names: Vec<String>,
+    field_types: Vec<FieldType>,
+}
+
+/// Create a new native format writer.
+///
+/// `path` is a null-terminated C string for the output file path.
+/// `header_json` + `header_len` describe the header JSON (not null-terminated).
+/// Returns an opaque pointer, or null on error.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_new(
+    path: *const c_char,
+    header_json: *const c_char,
+    header_len: usize,
+) -> *mut MoreporkWriter {
+    let path_str = match CStr::from_ptr(path).to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let json_bytes = slice::from_raw_parts(header_json as *const u8, header_len);
+    let json_str = match std::str::from_utf8(json_bytes) {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let header: TraceHeader = match serde_json::from_str(json_str) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("morepork_writer_new: failed to parse header: {e}");
+            return std::ptr::null_mut();
+        }
+    };
+
+    let field_names = header.fields.clone();
+    let field_types: Vec<FieldType> = field_names.iter()
+        .map(|n| header.resolve_field_type(n))
+        .collect();
+
+    let writer = match NativeWriter::create(path_str, &header, &[]) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("morepork_writer_new: failed to create writer: {e}");
+            return std::ptr::null_mut();
+        }
+    };
+
+    Box::into_raw(Box::new(MoreporkWriter { writer, field_names, field_types }))
+}
+
+/// Return the number of fields.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_num_fields(w: *const MoreporkWriter) -> usize {
+    (*w).field_names.len()
+}
+
+/// Find the column index of a field by name. Returns -1 if not found.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_find_field(
+    w: *const MoreporkWriter,
+    name: *const c_char,
+) -> i32 {
+    let name_str = match CStr::from_ptr(name).to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    match (*w).field_names.iter().position(|n| n == name_str) {
+        Some(i) => i as i32,
+        None => -1,
+    }
+}
+
+/// Get the field type for a column index.
+/// Returns: 0=u8, 1=u16, 2=u64, 3=bool, 4=str, -1=invalid
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_field_type(
+    w: *const MoreporkWriter,
+    field: usize,
+) -> i32 {
+    let writer = &*w;
+    if field >= writer.field_types.len() { return -1; }
+    match writer.field_types[field] {
+        FieldType::UInt8 => 0,
+        FieldType::UInt16 => 1,
+        FieldType::UInt64 => 2,
+        FieldType::Bool => 3,
+        FieldType::Str => 4,
+    }
+}
+
+/// Set a u8 field value.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_set_u8(
+    w: *mut MoreporkWriter,
+    field: usize,
+    value: u8,
+) {
+    (*w).writer.set_u8(field, value);
+}
+
+/// Set a u16 field value.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_set_u16(
+    w: *mut MoreporkWriter,
+    field: usize,
+    value: u16,
+) {
+    (*w).writer.set_u16(field, value);
+}
+
+/// Set a u64 field value.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_set_u64(
+    w: *mut MoreporkWriter,
+    field: usize,
+    value: u64,
+) {
+    (*w).writer.set_u64(field, value);
+}
+
+/// Set a bool field value.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_set_bool(
+    w: *mut MoreporkWriter,
+    field: usize,
+    value: bool,
+) {
+    (*w).writer.set_bool(field, value);
+}
+
+/// Append a null value for a nullable field.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_set_null(
+    w: *mut MoreporkWriter,
+    field: usize,
+) {
+    (*w).writer.set_null(field);
+}
+
+/// Set a string field value.
+/// `ptr` and `len` describe the UTF-8 string (not null-terminated).
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_set_str(
+    w: *mut MoreporkWriter,
+    field: usize,
+    ptr: *const c_char,
+    len: usize,
+) {
+    let bytes = slice::from_raw_parts(ptr as *const u8, len);
+    let s = std::str::from_utf8_unchecked(bytes);
+    (*w).writer.set_str(field, s);
+}
+
+/// Mark a frame boundary at the current entry position.
+/// Call at vblank. Returns 0 on success, -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_mark_frame(w: *mut MoreporkWriter) -> i32 {
+    match (*w).writer.mark_frame(None) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("morepork_writer_mark_frame: {e}");
+            -1
+        }
+    }
+}
+
+/// Mark a frame boundary carrying an indexed-frame snapshot (palette + pixel
+/// indices), for palette-indexed displays like the VCS. Builds the snapshot
+/// payload from the raw components and attaches it to the frame boundary.
+///   width, height   frame dimensions in pixels
+///   pixel_aspect    display pixel aspect ratio
+///   palette_rgb     palette_len * 3 bytes (R,G,B per entry)
+///   palette_len     number of palette entries
+///   pixels          width*height bytes, each an index into the palette
+///   pixels_len      must equal width*height
+/// Returns 0 on success, -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_mark_frame_indexed(
+    w: *mut MoreporkWriter,
+    width: u16,
+    height: u16,
+    pixel_aspect: f32,
+    palette_rgb: *const u8,
+    palette_len: usize,
+    pixels: *const u8,
+    pixels_len: usize,
+) -> i32 {
+    let palette: Vec<[u8; 3]> = (0..palette_len)
+        .map(|i| {
+            let p = palette_rgb.add(i * 3);
+            [*p, *p.add(1), *p.add(2)]
+        })
+        .collect();
+    let pixels = slice::from_raw_parts(pixels, pixels_len).to_vec();
+    let frame = morepork::snapshot::IndexedFrame {
+        width,
+        height,
+        pixel_aspect,
+        palette,
+        pixels,
+    };
+    match (*w).writer.mark_frame(Some(&frame.to_bytes())) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("morepork_writer_mark_frame_indexed: {e}");
+            -1
+        }
+    }
+}
+
+/// Finish the current entry (call after setting all fields).
+/// Returns 0 on success, -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_finish_entry(w: *mut MoreporkWriter) -> i32 {
+    match (*w).writer.finish_entry() {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("morepork_writer_finish_entry: {e}");
+            -1
+        }
+    }
+}
+
+/// Close the writer and finalize the file.
+/// Consumes the writer — do not use it after this call.
+/// Returns 0 on success, -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_writer_close(w: *mut MoreporkWriter) -> i32 {
+    let w = Box::from_raw(w);
+    match w.writer.finish() {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("morepork_writer_close: {e}");
+            -1
+        }
+    }
+}

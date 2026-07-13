@@ -1,3 +1,3 @@
-module gbtrace-mame
+module morepork-mame
 
 go 1.25

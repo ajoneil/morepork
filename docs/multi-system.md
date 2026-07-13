@@ -1,6 +1,6 @@
 # Going multi-system
 
-gbtrace was built for one machine and has since grown past it, the same way its
+morepork was built for one machine and has since grown past it, the same way its
 sibling project missingno did — that frontend drives Game Boy, Atari 2600, Master
 System, and NES cores through family-agnostic seams (`docs/adding-a-system.md` in
 the missingno repo, https://github.com/ajoneil/missingno). This document is the
@@ -33,7 +33,7 @@ The data plane is system-agnostic and must stay that way:
   dictionary encoding) is field-name-driven.
 - `comparison.rs` — the diff engine operates on arbitrary columns; family
   specifics enter only through alignment hints.
-- `gbtrace-ffi` — the C writer API is column-index + field-name driven (the
+- `morepork-ffi` — the C writer API is column-index + field-name driven (the
   adapter builds the header JSON itself and pushes typed values by column).
   No register structs, no screen dimensions.
 - Web shell — trace-table, trace-diff-table, chart, timeline, query, selector,
@@ -63,7 +63,7 @@ metadata (there is no catalogue fallback — old traces get a clear
   state claims tags from `FAMILY_TAG_BASE` up with namespaced names
   (`gb.cpu`, …) registered on its `Family` entry.
 
-`GbtraceWriter::create` enriches the header itself — field defs and the
+`MoreporkWriter::create` enriches the header itself — field defs and the
 instruction-address column from the family catalogue, snapshot kind names
 from the registry, storage groups from the defs when the caller passes none
 — so every producer (FFI adapters, missingno, `convert`) writes
@@ -78,7 +78,7 @@ is mutable, so both ride per-frame). GB traces keep their raw frame payloads.
 
 ### 2. Family knowledge lives in one registry in the core
 
-`crates/gbtrace/src/family/` — a static registry (like missingno's `FAMILIES`
+`crates/morepork/src/family/` — a static registry (like missingno's `FAMILIES`
 table), one module per family: `gb/`, `nes/`, `vcs/`, with the shared 6502
 decode table, register catalogue, and flag vocabulary in `mos6502.rs`
 (the NES's 2A03 and the VCS's 6507 carry the same core; each family keeps
@@ -146,27 +146,27 @@ keys are an error), resolved in catalogue order. `[fields.memory]` and
    reader rejects headers without field metadata with a clear "regenerate"
    error. After a format change, regenerate the Spaces corpus (`traces.yml`)
    and any local `build/traces`.
-2. **missingno tracks gbtrace's git HEAD with no pin**
-   (`missingno-{gb,gbc,nes,vcs}/Cargo.toml: gbtrace = { git = ... }`).
-   Breaking the Rust API on main breaks missingno's `--features gbtrace`
+2. **missingno tracks morepork's git HEAD with no pin**
+   (`missingno-{gb,gbc,nes,vcs}/Cargo.toml: morepork = { git = ... }`).
+   Breaking the Rust API on main breaks missingno's `--features morepork`
    build immediately. Land breaking changes together with the matching
-   missingno update, and push gbtrace first, then missingno immediately
+   missingno update, and push morepork first, then missingno immediately
    after. The consumer surface:
-   - `gbtrace::format::write::GbtraceWriter` — `create(path, &header,
+   - `morepork::format::write::MoreporkWriter` — `create(path, &header,
      &groups)` (usually `&[]`: the writer groups by the header's field
      defs), `set_u8/u16/bool/str/null(col, v)`, `finish_entry`,
      `mark_frame`, `write_snapshot(tag, &[u8])`, `finish`.
-   - `gbtrace::format::{TAG_FRAME, TAG_MEMORY}` and
-     `gbtrace::family::gb::snapshot::TAG_*` — snapshot tags.
-   - `gbtrace::header::{TraceHeader (all fields), ExtensionField, PixFormat}`.
-   - `gbtrace::profile::{FieldType, field_type, field_nullable}`.
-   - `gbtrace::{BootRom, Profile (.trigger/.fields/.extensions/.memory/.name),
+   - `morepork::format::{TAG_FRAME, TAG_MEMORY}` and
+     `morepork::family::gb::snapshot::TAG_*` — snapshot tags.
+   - `morepork::header::{TraceHeader (all fields), ExtensionField, PixFormat}`.
+   - `morepork::profile::{FieldType, field_type, field_nullable}`.
+   - `morepork::{BootRom, Profile (.trigger/.fields/.extensions/.memory/.name),
      Trigger, Error::Profile}`.
-   - `gbtrace::family::gb::snapshot::{CpuSnapshot, PpuSnapshot, ApuSnapshot,
+   - `morepork::family::gb::snapshot::{CpuSnapshot, PpuSnapshot, ApuSnapshot,
      TimerSnapshot, DmaSnapshot, SerialSnapshot, MbcSnapshot}` and
-     `gbtrace::snapshot::{MemoryRegion, build_memory_payload}` — the
+     `morepork::snapshot::{MemoryRegion, build_memory_payload}` — the
      save-state restore path.
-   - `gbtrace::snapshot::IndexedFrame` — the NES and VCS tracers' frame
+   - `morepork::snapshot::IndexedFrame` — the NES and VCS tracers' frame
      payloads.
 3. **Adapter CLI surface is frozen** (`--rom/--profile/--output/--frames/
    --stop-when/--stop-opcode/--reference/--model`): `gen-rules.py` and the
@@ -190,7 +190,7 @@ carries dimensions per frame). SMS waits for a Z80 disassembler or ships
 with hex-dump disassembly.
 
 On the missingno side each family's tracer is a `trace` module in its core
-crate behind a `gbtrace` feature (a `Tracer` with per-field emitters,
+crate behind a `morepork` feature (a `Tracer` with per-field emitters,
 `mark_frame` writing self-contained `IndexedFrame` payloads), routed from
 the `missingno trace` CLI subcommand by ROM detection — a per-family tracer
 there is missingno work, but the family contract in this document is what
@@ -219,9 +219,9 @@ its own.
 
 ## Naming
 
-The rename ("emutrace"?) is mechanical but wide: crate names, `gbtrace.h` /
-`gbtrace_*` C symbols, the `GBTR` magic, binary name, repo name, CI, Pages
-URL, Spaces paths, missingno's git dependency URL, and the `.gbtrace`
+The rename ("emutrace"?) is mechanical but wide: crate names, `morepork.h` /
+`morepork_*` C symbols, the `MPRK` magic, binary name, repo name, CI, Pages
+URL, Spaces paths, missingno's git dependency URL, and the `.morepork`
 extension. Nothing in the architecture depends on it, so: build everything
 under the current names and rename in one commit once a name is chosen.
 Format note for that day: with back-compat waived, the magic can simply
@@ -230,7 +230,7 @@ change with the name; regenerate traces after.
 ## Order of work
 
 The generalization landed in this order, each step leaving the GB pipeline
-green (`cargo test -p gbtrace`, spot-check `make traces-<suite>`):
+green (`cargo test -p morepork`, spot-check `make traces-<suite>`):
 self-describing format → family registry (GB moved behind it,
 `Indexed8`/`IndexedFrame`) → NES (catalogue, flags, 6502 disassembler,
 missingno tracer, viewer) → family-aware web viewer (indexed frames,

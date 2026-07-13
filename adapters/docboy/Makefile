@@ -1,6 +1,6 @@
-# gbtrace-docboy adapter
+# morepork-docboy adapter
 #
-# Uses DocBoy (https://github.com/Docheinstein/docboy) to produce .gbtrace
+# Uses DocBoy (https://github.com/Docheinstein/docboy) to produce .morepork
 # files with T-cycle granularity via the debugger tick callback API.
 #
 # Dependencies are cloned and built automatically on first build:
@@ -10,7 +10,7 @@
 #   make DOCBOY_DIR=/path/to/docboy
 #
 # DocBoy selects DMG vs CGB at COMPILE TIME (-DENABLE_CGB), so we build two
-# binaries from the same source: gbtrace-docboy (DMG) and gbtrace-docboy-cgb
+# binaries from the same source: morepork-docboy (DMG) and morepork-docboy-cgb
 # (CGB), each linked against a separately-built core.
 
 DOCBOY_DIR       ?= docboy
@@ -21,8 +21,8 @@ CXX      ?= g++
 # ENABLE_DEBUGGER: required for tick callback and register access
 # ENABLE_AUDIO: required for DocBoy headers to compile (APU struct members)
 CXXFLAGS  = -O2 -std=c++17 -Wall -Wextra -DENABLE_DEBUGGER -DENABLE_AUDIO
-FFI_DIR  ?= ../../crates/gbtrace-ffi
-FFI_LIB  ?= ../../target/release/libgbtrace_ffi.a
+FFI_DIR  ?= ../../crates/morepork-ffi
+FFI_LIB  ?= ../../target/release/libmorepork_ffi.a
 INCLUDES  = -I$(DOCBOY_DIR)/src/docboy -I$(DOCBOY_DIR)/src/utils -I$(DOCBOY_DIR)/src/extra -I$(FFI_DIR)
 
 DOCBOY_LIB = $(DOCBOY_BUILD)/src/docboy/libdocboy.a
@@ -33,8 +33,8 @@ DOCBOY_LIB_CGB = $(DOCBOY_BUILD_CGB)/src/docboy/libdocboy.a
 UTILS_LIB_CGB  = $(DOCBOY_BUILD_CGB)/src/utils/libutils.a
 EXTRA_LIB_CGB  = $(DOCBOY_BUILD_CGB)/src/extra/libextra.a
 
-TARGET     = gbtrace-docboy
-TARGET_CGB = gbtrace-docboy-cgb
+TARGET     = morepork-docboy
+TARGET_CGB = morepork-docboy-cgb
 
 .PHONY: all clean
 
@@ -80,10 +80,10 @@ $(DOCBOY_LIB_CGB): $(DOCBOY_DIR)/.patched
 		-DSDL_UNIX_CONSOLE_BUILD=ON
 	cmake --build $(DOCBOY_BUILD_CGB) --target docboy extra -j$$(nproc)
 
-$(TARGET): gbtrace-docboy.cpp $(DOCBOY_LIB) $(FFI_LIB)
+$(TARGET): morepork-docboy.cpp $(DOCBOY_LIB) $(FFI_LIB)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< -Wl,--start-group $(DOCBOY_LIB) $(EXTRA_LIB) $(UTILS_LIB) -Wl,--end-group $(FFI_LIB) -lm -ldl -lpthread
 
-$(TARGET_CGB): gbtrace-docboy.cpp $(DOCBOY_LIB_CGB) $(FFI_LIB)
+$(TARGET_CGB): morepork-docboy.cpp $(DOCBOY_LIB_CGB) $(FFI_LIB)
 	$(CXX) $(CXXFLAGS) -DENABLE_CGB $(INCLUDES) -o $@ $< -Wl,--start-group $(DOCBOY_LIB_CGB) $(EXTRA_LIB_CGB) $(UTILS_LIB_CGB) -Wl,--end-group $(FFI_LIB) -lm -ldl -lpthread
 
 clean:

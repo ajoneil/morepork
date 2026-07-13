@@ -244,9 +244,9 @@ export class AppShell extends LitElement {
         @hidden-fields-changed=${this._onHiddenFieldsChanged}
       >
         <header>
-          <h1 @click=${this._reset}>gbtrace <span>Game Boy Trace Viewer</span></h1>
+          <h1 @click=${this._reset}>morepork <span>Game Boy Trace Viewer</span></h1>
           <span class="wip-badge">Under development — trace collection and pass/fail detection may have bugs</span>
-          <a href="https://github.com/ajoneil/gbtrace" class="gh-link" target="_blank">GitHub</a>
+          <a href="https://github.com/ajoneil/morepork" class="gh-link" target="_blank">GitHub</a>
         </header>
 
         ${this._suite

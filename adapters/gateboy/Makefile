@@ -1,6 +1,6 @@
-# gbtrace-gateboy adapter
+# morepork-gateboy adapter
 #
-# Uses the GateBoy gate-level simulation from metroboy to produce .gbtrace
+# Uses the GateBoy gate-level simulation from metroboy to produce .morepork
 # files.  GateBoy includes a built-in DMG boot ROM.
 #
 # Dependencies are cloned automatically on first build:
@@ -15,12 +15,12 @@ METROLIB_DIR ?= metrolib
 CXX      ?= g++
 CXXFLAGS  = -O3 -std=c++20 -Wall -Wextra -Wno-unused-parameter \
             -DCONFIG_RELEASE
-FFI_DIR  ?= ../../crates/gbtrace-ffi
-FFI_LIB  ?= ../../target/release/libgbtrace_ffi.a
+FFI_DIR  ?= ../../crates/morepork-ffi
+FFI_LIB  ?= ../../target/release/libmorepork_ffi.a
 INCLUDES  = -I$(METROBOY_DIR)/src -I$(METROBOY_DIR)/symlinks \
             -I$(METROBOY_DIR)/symlinks/metrolib -I$(FFI_DIR)
 
-TARGET = gbtrace-gateboy
+TARGET = morepork-gateboy
 
 # ---------------------------------------------------------------------------
 # Source lists
@@ -42,7 +42,7 @@ METROLIB_GB_SRCS   = $(METROLIB_DIR)/metrolib/gameboy/MetroBoyCPU.cpp \
 ALL_LIB_SRCS = $(GATEBOYLIB_SRCS) $(METROLIB_CORE_SRCS) $(METROLIB_GB_SRCS)
 ALL_LIB_OBJS = $(patsubst %.cpp,build/%.o,$(ALL_LIB_SRCS))
 
-ADAPTER_OBJ = build/gbtrace-gateboy.o
+ADAPTER_OBJ = build/morepork-gateboy.o
 AUDIO_STUB_OBJ = build/audio_stub.o
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ $(TARGET): deps $(ALL_LIB_OBJS) $(ADAPTER_OBJ) $(AUDIO_STUB_OBJ) $(FFI_LIB)
 		$(FFI_LIB) -lpthread -lm -ldl
 
 # Adapter source
-build/gbtrace-gateboy.o: gbtrace-gateboy.cpp | deps
+build/morepork-gateboy.o: morepork-gateboy.cpp | deps
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c -o $@ $<
 

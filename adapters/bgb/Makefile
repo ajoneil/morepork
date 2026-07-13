@@ -1,28 +1,28 @@
-# gbtrace-bgb adapter
+# morepork-bgb adapter
 #
 # BGB is a closed-source Windows emulator.  This adapter runs it under
 # Wine in headless mode, capturing per-instruction state via BGB's
-# debug-message breakpoint feature and writing .gbtrace via the FFI.
+# debug-message breakpoint feature and writing .morepork via the FFI.
 #
 # Build dependencies: curl, unzip (to download BGB)
 # Runtime dependencies: wine, xvfb-run
 
 CC ?= cc
 CFLAGS = -O2 -std=c11 -Wall -Wextra
-FFI_DIR  ?= ../../crates/gbtrace-ffi
-FFI_LIB  ?= ../../target/release/libgbtrace_ffi.a
+FFI_DIR  ?= ../../crates/morepork-ffi
+FFI_LIB  ?= ../../target/release/libmorepork_ffi.a
 
 INCLUDES = -I$(FFI_DIR)
 LDLIBS = -lm -ldl -lpthread
 
-TARGET = gbtrace-bgb
+TARGET = morepork-bgb
 BGB_URL = https://bgb.bircd.org/bgb.zip
 
 .PHONY: all clean
 
 all: $(TARGET) bgb.exe
 
-$(TARGET): gbtrace-bgb.c $(FFI_LIB)
+$(TARGET): morepork-bgb.c $(FFI_LIB)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(FFI_LIB) $(LDLIBS)
 
 bgb.exe:

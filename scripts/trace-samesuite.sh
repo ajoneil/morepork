@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate a single SameSuite trace: adapter + ROM → .gbtrace
+# Generate a single SameSuite trace: adapter + ROM → .morepork
 #
 # Pass/fail detection:
 #   SameSuite tests enter an infinite loop when complete.
@@ -14,9 +14,9 @@ ROM="$2"
 PROFILE="$3"
 OUT_DIR="$4"
 ROM_DIR="${5:-$(dirname "$ROM")}"
-CLI="${CLI:-target/release/gbtrace}"
+CLI="${CLI:-target/release/morepork}"
 
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
+ADAPTER="$(basename "$BIN" | sed 's/morepork-//; s/-cgb$//')"
 MODEL="${MODEL:-dmg}"
 source "$(dirname "$0")/ref-lib.sh"
 
@@ -33,9 +33,9 @@ NAME="${ROM_REL//\//__}"
 # adapters (missingno/docboy). 200 frames (~14M-cycle cap) is plenty for the
 # passing tests and keeps failures fast.
 MAX_FRAMES=200
-TMP="/tmp/gbtrace_samesuite_${NAME}_${ADAPTER}_$$"
+TMP="/tmp/morepork_samesuite_${NAME}_${ADAPTER}_$$"
 stderr_file="${TMP}.stderr"
-tmp_trace="${TMP}.gbtrace"
+tmp_trace="${TMP}.morepork"
 
 cleanup() { rm -f "$stderr_file" "$tmp_trace" "${ROM%.gb}.sav" "${ROM%.gbc}.sav"; }
 trap cleanup EXIT
@@ -62,7 +62,7 @@ status=$("$CLI" query "$tmp_trace" --last 1 2>&1 | \
 
 # --- Output ---
 mkdir -p "$OUT_DIR"
-out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"
+out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.morepork"
 mv "$tmp_trace" "$out"
 
 entries=$("$CLI" info "$out" 2>/dev/null | grep Entries | awk '{print $2}')

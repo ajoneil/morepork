@@ -4,7 +4,7 @@
  typedef void (*GB_boot_rom_load_callback_t)(GB_gameboy_t *gb, GB_boot_rom_t type);
  
  typedef void (*GB_execution_callback_t)(GB_gameboy_t *gb, uint16_t address, uint8_t opcode);
-+/* gbtrace: fires once per emulated T-cycle (see GB_set_tcycle_callback). */
++/* morepork: fires once per emulated T-cycle (see GB_set_tcycle_callback). */
 +typedef void (*GB_tcycle_callback_t)(GB_gameboy_t *gb);
  typedef void (*GB_lcd_line_callback_t)(GB_gameboy_t *gb, uint8_t line);
  typedef void (*GB_lcd_status_callback_t)(GB_gameboy_t *gb, bool on);
@@ -13,7 +13,7 @@
          GB_workboy_set_time_callback_t workboy_set_time_callback;
          GB_workboy_get_time_callback_t workboy_get_time_callback;
          GB_execution_callback_t execution_callback;
-+        GB_tcycle_callback_t tcycle_callback; /* gbtrace: per-T-cycle trace hook */
++        GB_tcycle_callback_t tcycle_callback; /* morepork: per-T-cycle trace hook */
          GB_lcd_line_callback_t lcd_line_callback;
          GB_lcd_status_callback_t lcd_status_callback;
                 
@@ -21,7 +21,7 @@
  void GB_set_boot_rom_load_callback(GB_gameboy_t *gb, GB_boot_rom_load_callback_t callback);
      
  void GB_set_execution_callback(GB_gameboy_t *gb, GB_execution_callback_t callback);
-+/* gbtrace: register a callback fired once per emulated T-cycle, enabling
++/* morepork: register a callback fired once per emulated T-cycle, enabling
 +   sub-instruction (T-cycle granularity) tracing. Pass NULL to disable. */
 +void GB_set_tcycle_callback(GB_gameboy_t *gb, GB_tcycle_callback_t callback);
  void GB_set_lcd_line_callback(GB_gameboy_t *gb, GB_lcd_line_callback_t callback);
@@ -51,7 +51,7 @@
  
  
 -void GB_advance_cycles(GB_gameboy_t *gb, uint8_t cycles)
-+/* gbtrace: the body of GB_advance_cycles is factored out so the public entry
++/* morepork: the body of GB_advance_cycles is factored out so the public entry
 +   point can drive it one T-cycle at a time when a per-T-cycle trace callback is
 +   installed. Every timing subsystem here accumulates a cycle budget and carries
 +   its remainder (div state machine, GB_dma_run's dma_cycles_modulo, the display
@@ -75,7 +75,7 @@
  
 +void GB_advance_cycles(GB_gameboy_t *gb, uint8_t cycles)
 +{
-+    /* gbtrace: with a per-T-cycle callback installed, step the machine one
++    /* morepork: with a per-T-cycle callback installed, step the machine one
 +       T-cycle at a time and fire the hook after each, exposing sub-instruction
 +       (PPU/timer/DIV) state. Without a callback this is a single tail call with
 +       no added overhead — behaviour is identical to upstream. */

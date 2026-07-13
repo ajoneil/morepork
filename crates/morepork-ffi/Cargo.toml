@@ -1,0 +1,12 @@
+[package]
+name = "morepork-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "C FFI bindings for morepork native format writer"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+morepork = { path = "../morepork" }
+serde_json = "1"

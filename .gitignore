@@ -2,26 +2,26 @@ receipts/
 target/
 web/pkg/
 build/
-*.gbtrace
-*.gbtrace.jsonl
+*.morepork
+*.morepork.jsonl
 *.sav
 *.pix
 *.rgb555
 adapters/gambatte/gambatte-speedrun/
-adapters/gambatte/gbtrace-gambatte
+adapters/gambatte/morepork-gambatte
 adapters/gateboy/metroboy/
 adapters/gateboy/metrolib/
 adapters/gateboy/build/
-adapters/gateboy/gbtrace-gateboy
+adapters/gateboy/morepork-gateboy
 adapters/sameboy/SameBoy/
-adapters/sameboy/gbtrace-sameboy
+adapters/sameboy/morepork-sameboy
 adapters/mgba/mgba/
-adapters/mgba/gbtrace-mgba
-adapters/mgba/gbtrace-mgba-dbg
+adapters/mgba/morepork-mgba
+adapters/mgba/morepork-mgba-dbg
 adapters/docboy/docboy/
-adapters/docboy/gbtrace-docboy
-adapters/docboy/gbtrace-docboy-cgb
-adapters/missingno/gbtrace-missingno
+adapters/docboy/morepork-docboy
+adapters/docboy/morepork-docboy-cgb
+adapters/missingno/morepork-missingno
 
 # Local symlink so Claude Code picks up AGENTS.md (it does not read AGENTS.md itself)
 /CLAUDE.md

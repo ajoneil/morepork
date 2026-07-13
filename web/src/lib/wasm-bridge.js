@@ -9,7 +9,7 @@ export async function loadWasm() {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    const mod = await import('../../pkg/gbtrace_wasm.js');
+    const mod = await import('../../pkg/morepork_wasm.js');
     await mod.default();
     wasmModule = mod;
     return mod;

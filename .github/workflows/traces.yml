@@ -92,18 +92,18 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: build.yml
-          name: gbtrace-bin
+          name: morepork-bin
           path: target/release
           branch: main
 
       - name: Make CLI executable
         # `touch` is essential: the unzipped artifact keeps its original build
         # mtime, which is older than the just-checked-out source. The `$(CLI)`
-        # make target lists crates/gbtrace/src as prerequisites, so without this
+        # make target lists crates/morepork/src as prerequisites, so without this
         # make would rebuild the CLI from scratch (~2 min) on every trace job.
         run: |
-          chmod +x target/release/gbtrace
-          touch target/release/gbtrace
+          chmod +x target/release/morepork
+          touch target/release/morepork
 
       # Download adapter from latest build (docboy ships a second CGB binary)
       - name: Download adapter
@@ -116,7 +116,7 @@ jobs:
 
       # Place the downloaded binaries at the paths make expects, then verify.
       # upload-artifact's least-common-ancestor path logic can nest a flat
-      # artifact (e.g. adapters/missingno/adapters/missingno/gbtrace-missingno);
+      # artifact (e.g. adapters/missingno/adapters/missingno/morepork-missingno);
       # relocate any such stray into place so the trace stamps find it. With
       # BUILD_ADAPTERS=0 a genuinely absent binary fails fast here rather than
       # silently recompiling the adapter on every job.
@@ -124,18 +124,18 @@ jobs:
         run: |
           emu='${{ matrix.emulator }}'
           dir="adapters/$emu"
-          for bin in "gbtrace-$emu" "gbtrace-$emu-cgb"; do
+          for bin in "morepork-$emu" "morepork-$emu-cgb"; do
             if [ ! -f "$dir/$bin" ]; then
               found="$(find "$dir" -type f -name "$bin" -print -quit 2>/dev/null || true)"
               [ -n "$found" ] && mv "$found" "$dir/$bin"
             fi
             [ -f "$dir/$bin" ] && chmod +x "$dir/$bin"
           done
-          need="$dir/gbtrace-$emu"
-          [ "$emu" = docboy ] && [ '${{ matrix.system }}' = cgb ] && need="$dir/gbtrace-docboy-cgb"
+          need="$dir/morepork-$emu"
+          [ "$emu" = docboy ] && [ '${{ matrix.system }}' = cgb ] && need="$dir/morepork-docboy-cgb"
           if [ ! -f "$need" ]; then
             echo "::error::Adapter binary '$need' was not downloaded — is the '$emu' build.yml job green?"
-            find "$dir" -type f -name 'gbtrace-*' || true
+            find "$dir" -type f -name 'morepork-*' || true
             exit 1
           fi
 
@@ -149,7 +149,7 @@ jobs:
         run: make pix-refs traces-${{ matrix.suite }} EMUS=${{ matrix.emulator }} SYSTEMS=${{ matrix.system }} BUILD_ADAPTERS=0 -j"$(nproc)"
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/adapters/sameboy/SameBoy/build/lib
-          CLI: ${{ github.workspace }}/target/release/gbtrace
+          CLI: ${{ github.workspace }}/target/release/morepork
         timeout-minutes: 320
 
       # Upload the trace blobs to DigitalOcean Spaces (s3://bucket/tests/<suite>/...).
@@ -158,7 +158,7 @@ jobs:
         run: |
           aws s3 sync "build/traces" "s3://${SPACES_BUCKET}/tests" \
             --endpoint-url "https://${SPACES_REGION}.digitaloceanspaces.com" \
-            --exclude '*' --include '*.gbtrace' --acl public-read --no-progress
+            --exclude '*' --include '*.morepork' --acl public-read --no-progress
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET }}
@@ -168,7 +168,7 @@ jobs:
       - name: Collect trace filenames
         run: |
           mkdir -p _tracelists
-          find build/traces -name '*.gbtrace' -printf '%P\n' | sort \
+          find build/traces -name '*.morepork' -printf '%P\n' | sort \
             > "_tracelists/${{ matrix.suite }}-${{ matrix.emulator }}-${{ matrix.system }}.txt"
 
       - name: Upload trace list

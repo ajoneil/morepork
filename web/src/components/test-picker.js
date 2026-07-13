@@ -204,9 +204,9 @@ const SYSTEM_LABEL = { dmg: 'DMG', cgb: 'CGB' };
 const SYSTEM_NAME = { dmg: 'Game Boy', cgb: 'Game Boy Color' };
 
 // Trace blobs are hosted off-Pages (DigitalOcean Spaces) because the full set
-// far exceeds the 1 GB Pages limit. Production sets `window.GBTRACE_TRACE_BASE`
+// far exceeds the 1 GB Pages limit. Production sets `window.MOREPORK_TRACE_BASE`
 // to the bucket URL; empty means same-origin (local `make serve`).
-const TRACE_BASE = ((typeof window !== 'undefined' && window.GBTRACE_TRACE_BASE) || '').replace(/\/$/, '');
+const TRACE_BASE = ((typeof window !== 'undefined' && window.MOREPORK_TRACE_BASE) || '').replace(/\/$/, '');
 
 /** Known uppercase abbreviations in test names. */
 const ABBREVIATIONS = new Set([
@@ -240,7 +240,7 @@ function humanizeTestName(name) {
 export { humanizeTestName };
 
 function traceUrl(suite, test, emulator, system, status = 'pass') {
-  const path = `${suite.base}/${test.name}_${emulator}_${system}_${status}.gbtrace`;
+  const path = `${suite.base}/${test.name}_${emulator}_${system}_${status}.morepork`;
   return TRACE_BASE ? `${TRACE_BASE}/${path}` : path;
 }
 

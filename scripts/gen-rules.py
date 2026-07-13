@@ -13,9 +13,9 @@ Each suite declares which models (`dmg`, `cgb`) its ROMs run under:
   - gambatte:    special — each root ROM's models come from its filename tags
                  (`_dmg08` → dmg, `_cgb04c` → cgb, `_blank` → both).
 
-Trace output files are named `<test>_<emu>_<model>_<status>.gbtrace`. The model
+Trace output files are named `<test>_<emu>_<model>_<status>.morepork`. The model
 is passed to the trace script via the MODEL env var. docboy selects DMG/CGB at
-compile time, so (docboy, cgb) resolves to the separate `gbtrace-docboy-cgb`
+compile time, so (docboy, cgb) resolves to the separate `morepork-docboy-cgb`
 binary; all other adapters take `--model` at runtime.
 """
 import os
@@ -24,7 +24,7 @@ import sys
 # When false (CI, where adapter binaries are downloaded artifacts), the adapter
 # binary is NOT a stamp prerequisite — trace generation must never recompile a
 # heavy adapter. When true (local default), a missing binary is built on demand.
-BUILD_ADAPTERS = os.environ.get('GBTRACE_BUILD_ADAPTERS', '1') != '0'
+BUILD_ADAPTERS = os.environ.get('MOREPORK_BUILD_ADAPTERS', '1') != '0'
 
 
 def sanitize(name):
@@ -45,8 +45,8 @@ def find_roms(rom_dir, exclude_dirs):
 def binary_for(emu, model):
     # docboy is compiled per-model; everything else takes --model at runtime.
     if emu == 'docboy' and model == 'cgb':
-        return 'adapters/docboy/gbtrace-docboy-cgb'
-    return f'adapters/{emu}/gbtrace-{emu}'
+        return 'adapters/docboy/morepork-docboy-cgb'
+    return f'adapters/{emu}/morepork-{emu}'
 
 
 def rel_name(rom, name_base):

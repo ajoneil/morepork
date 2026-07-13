@@ -1,8 +1,8 @@
-# gbtrace-stella
+# morepork-stella
 
-A gbtrace adapter for the [Stella](https://github.com/stella-emu/stella)
+A morepork adapter for the [Stella](https://github.com/stella-emu/stella)
 emulator (VCS / Atari 2600 family). Drives Stella's emucore headlessly one CPU
-instruction at a time and writes a **native `.gbtrace`** (via the gbtrace C FFI)
+instruction at a time and writes a **native `.morepork`** (via the morepork C FFI)
 with per-instruction 6507 registers, TIA beam position, and the test-suite
 RESULT convention RAM bytes.
 
@@ -18,7 +18,7 @@ Stella isn't an embeddable library, so:
 2. A small **patch** (`stella-trace-api.patch`) exposes the otherwise-private
    6507 register file (the debugger, which the libretro build omits, is normally
    its only friend).
-3. The wrapper (`gbtrace-stella.cxx`) creates the console via `StellaLIBRETRO`,
+3. The wrapper (`morepork-stella.cxx`) creates the console via `StellaLIBRETRO`,
    then steps `m6502().execute(1)` per instruction, reading registers, the TIA
    beam (`scanlines()`/`clocksThisLine()`), and RIOT RAM. It provides the few
    libretro-frontend glue symbols the core references (a real filesystem `stat`
@@ -31,13 +31,13 @@ make
 ```
 
 Clones Stella into `./src` (gitignored), applies the patch, builds the core
-(~5-10 min, first time), and links `./gbtrace-stella`. Needs the gbtrace FFI
+(~5-10 min, first time), and links `./morepork-stella`. Needs the morepork FFI
 static lib (built automatically if missing).
 
 ## Usage
 
 ```
-./gbtrace-stella -rom test.bin -out trace.gbtrace -spec NTSC -frames 30
+./morepork-stella -rom test.bin -out trace.morepork -spec NTSC -frames 30
 ```
 
 - `-spec` `NTSC` | `PAL` | `PAL60` | `SECAM` | `AUTO`
@@ -53,7 +53,7 @@ debugger subsystem is a TODO), and no frame snapshot yet.
 ## Trace alignment
 
 The Stella and Gopher2600 per-instruction traces align **100% on the instruction
-stream** (`pc a x y s p`) and **99.9% on `clock`**, so `gbtrace diff` between them
+stream** (`pc a x y s p`) and **99.9% on `clock`**, so `morepork diff` between them
 is clean. Getting there required matching two conventions (both handled in the
 Gopher2600 adapter):
 

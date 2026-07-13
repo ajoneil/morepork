@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate a single gbmicrotest trace: adapter + ROM → .gbtrace
+# Generate a single gbmicrotest trace: adapter + ROM → .morepork
 # Usage: trace-gbmicrotest.sh <adapter-binary> <rom> <profile> <output-dir>
 set -euo pipefail
 
@@ -7,16 +7,16 @@ BIN="$1"
 ROM="$2"
 PROFILE="$3"
 OUT_DIR="$4"
-CLI="${CLI:-target/release/gbtrace}"
+CLI="${CLI:-target/release/morepork}"
 
 NAME="$(basename "$ROM")"; NAME="${NAME%.gbc}"; NAME="${NAME%.gb}"
-ADAPTER="$(basename "$BIN" | sed 's/gbtrace-//; s/-cgb$//')"
+ADAPTER="$(basename "$BIN" | sed 's/morepork-//; s/-cgb$//')"
 MODEL="${MODEL:-dmg}"
 source "$(dirname "$0")/ref-lib.sh"
 FRAMES=30
 
-TMP="/tmp/gbtrace_micro_${NAME}_${ADAPTER}_$$"
-TRACE="${TMP}.gbtrace"
+TMP="/tmp/morepork_micro_${NAME}_${ADAPTER}_$$"
+TRACE="${TMP}.morepork"
 stderr_file="${TMP}.stderr"
 
 cleanup() { rm -f "$TRACE" "$stderr_file" "${ROM%.gb}.sav" "${ROM%.gbc}.sav"; }
@@ -44,7 +44,7 @@ fi
 
 # Move to output
 mkdir -p "$OUT_DIR"
-out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.gbtrace"
+out="${OUT_DIR}/${NAME}_${ADAPTER}_${MODEL}_${status}.morepork"
 mv "$TRACE" "$out"
 
 entries=$("$CLI" info "$out" 2>/dev/null | grep Entries | awk '{print $2}')

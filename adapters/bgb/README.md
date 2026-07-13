@@ -48,7 +48,7 @@ make          # downloads BGB and compiles the adapter
 ## Usage
 
 ```
-./gbtrace-bgb --rom test.gb --profile profile.toml --output trace.gbtrace \
+./morepork-bgb --rom test.gb --profile profile.toml --output trace.morepork \
     [--stop-when FF82=01] [--stop-opcode 40] [--extra-frames 2] \
     [--reference ref.pix] [--frames 30]
 ```

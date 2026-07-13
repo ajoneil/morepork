@@ -1,6 +1,6 @@
 # mGBA Adapter
 
-Produces `.gbtrace` files using [mGBA](https://github.com/mgba-emu/mgba) as a library, with **zero source modifications** to mGBA.
+Produces `.morepork` files using [mGBA](https://github.com/mgba-emu/mgba) as a library, with **zero source modifications** to mGBA.
 
 ## How it works
 
@@ -10,7 +10,7 @@ Uses mGBA's `mDebuggerModule` callback API, which fires before each CPU instruct
 2. Attaches a custom debugger module with a per-instruction callback
 3. Reads CPU registers directly from the `SM83Core` struct and IO state via `rawRead8`
 4. Runs the emulator for N frames via `mDebuggerRunFrame`
-5. Produces a `.gbtrace` file matching the spec
+5. Produces a `.morepork` file matching the spec
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ make
 ## Usage
 
 ```bash
-./gbtrace-mgba --rom cpu_instrs.gb --profile ../../profiles/cpu_basic.toml --output trace.gbtrace --frames 3000
+./morepork-mgba --rom cpu_instrs.gb --profile ../../profiles/cpu_basic.toml --output trace.morepork --frames 3000
 ```
 
 Options:

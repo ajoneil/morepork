@@ -1,8 +1,8 @@
-# gbtrace - Build adapters, generate traces, assemble site
+# morepork - Build adapters, generate traces, assemble site
 #
 # Usage:
 #   make adapters            - Build all adapter binaries
-#   make cli                 - Build gbtrace CLI
+#   make cli                 - Build morepork CLI
 #   make wasm                - Build WASM module
 #   make traces              - Generate all traces (use -jN for parallelism)
 #   make traces-gbmicrotest  - Generate gbmicrotest traces only
@@ -21,13 +21,13 @@ SHELL := /bin/bash
 .SHELLFLAGS := -euo pipefail -c
 
 PROJECT_DIR := $(shell pwd)
-CLI := $(PROJECT_DIR)/target/release/gbtrace
+CLI := $(PROJECT_DIR)/target/release/morepork
 BUILD_DIR := $(PROJECT_DIR)/build
-PAGES_URL ?= https://ajoneil.github.io/gbtrace
+PAGES_URL ?= https://ajoneil.github.io/morepork
 
 # Adapters
 ADAPTERS := gambatte sameboy missingno docboy
-ADAPTER_BINS := $(foreach a,$(ADAPTERS),adapters/$(a)/gbtrace-$(a))
+ADAPTER_BINS := $(foreach a,$(ADAPTERS),adapters/$(a)/morepork-$(a))
 
 # Emulators to run (comma-separated, override with EMUS=gambatte,missingno)
 EMUS ?= gambatte,sameboy,missingno,docboy
@@ -70,7 +70,7 @@ RULES_MK := $(BUILD_DIR)/rules.mk
 
 $(RULES_MK): scripts/gen-rules.py
 	@mkdir -p $(BUILD_DIR)
-	@GBTRACE_BUILD_ADAPTERS=$(BUILD_ADAPTERS) python3 scripts/gen-rules.py $(EMUS) $(SYSTEMS) > $@
+	@MOREPORK_BUILD_ADAPTERS=$(BUILD_ADAPTERS) python3 scripts/gen-rules.py $(EMUS) $(SYSTEMS) > $@
 
 -include $(RULES_MK)
 
@@ -212,7 +212,7 @@ site: wasm traces
 	@mkdir -p $(BUILD_DIR)/site/pkg $(BUILD_DIR)/site/tests
 	@cp web/index.html $(BUILD_DIR)/site/
 	@cp -r web/src $(BUILD_DIR)/site/
-	@cp web/pkg/gbtrace_wasm.js web/pkg/gbtrace_wasm_bg.wasm $(BUILD_DIR)/site/pkg/
+	@cp web/pkg/morepork_wasm.js web/pkg/morepork_wasm_bg.wasm $(BUILD_DIR)/site/pkg/
 	@# Copy traces, ROMs, and profiles for each suite
 	@for suite_dir in $(BUILD_DIR)/traces/*/; do \
 		[ -d "$$suite_dir" ] || continue; \
@@ -238,44 +238,44 @@ clean:
 
 # ── Adapter builds ───────────────────────────────────────────────────
 
-FFI_LIB := $(PROJECT_DIR)/target/release/libgbtrace_ffi.a
-FFI_HEADER := $(PROJECT_DIR)/crates/gbtrace-ffi/gbtrace.h
+FFI_LIB := $(PROJECT_DIR)/target/release/libmorepork_ffi.a
+FFI_HEADER := $(PROJECT_DIR)/crates/morepork-ffi/morepork.h
 
 # C/C++ adapters statically link the FFI, so they must relink when it
 # changes — otherwise they silently ship a stale trace writer.
-adapters/gambatte/gbtrace-gambatte: adapters/gambatte/gbtrace-gambatte.cpp $(FFI_LIB) $(FFI_HEADER)
+adapters/gambatte/morepork-gambatte: adapters/gambatte/morepork-gambatte.cpp $(FFI_LIB) $(FFI_HEADER)
 	@echo "Building gambatte adapter..."
 	@$(MAKE) -C adapters/gambatte -j$$(nproc)
 
-adapters/sameboy/gbtrace-sameboy: adapters/sameboy/gbtrace-sameboy.cpp $(FFI_LIB) $(FFI_HEADER)
+adapters/sameboy/morepork-sameboy: adapters/sameboy/morepork-sameboy.cpp $(FFI_LIB) $(FFI_HEADER)
 	@echo "Building sameboy adapter..."
 	@$(MAKE) -C adapters/sameboy -j$$(nproc)
 
-adapters/mgba/gbtrace-mgba: adapters/mgba/gbtrace-mgba.c $(FFI_LIB) $(FFI_HEADER)
+adapters/mgba/morepork-mgba: adapters/mgba/morepork-mgba.c $(FFI_LIB) $(FFI_HEADER)
 	@echo "Building mgba adapter..."
 	@$(MAKE) -C adapters/mgba -j$$(nproc)
 
-adapters/missingno/gbtrace-missingno:
+adapters/missingno/morepork-missingno:
 	@echo "Building missingno adapter..."
-	@cd adapters/missingno && cargo build --release && cp target/release/gbtrace-missingno .
+	@cd adapters/missingno && cargo build --release && cp target/release/morepork-missingno .
 
-adapters/docboy/gbtrace-docboy adapters/docboy/gbtrace-docboy-cgb: adapters/docboy/gbtrace-docboy.cpp $(FFI_LIB) $(FFI_HEADER)
+adapters/docboy/morepork-docboy adapters/docboy/morepork-docboy-cgb: adapters/docboy/morepork-docboy.cpp $(FFI_LIB) $(FFI_HEADER)
 	@echo "Building docboy adapters (DMG + CGB)..."
 	@$(MAKE) -C adapters/docboy
 
-$(CLI): $(wildcard crates/gbtrace/src/*.rs crates/gbtrace/src/**/*.rs)
-	@echo "Building gbtrace..."
+$(CLI): $(wildcard crates/morepork/src/*.rs crates/morepork/src/**/*.rs)
+	@echo "Building morepork..."
 	@cargo build --release --features cli 2>&1 | tail -1
 
-$(FFI_LIB): $(wildcard crates/gbtrace-ffi/src/*.rs crates/gbtrace/src/*.rs crates/gbtrace/src/**/*.rs)
-	@echo "Building gbtrace-ffi..."
-	@cargo build --release -p gbtrace-ffi 2>&1 | tail -1
+$(FFI_LIB): $(wildcard crates/morepork-ffi/src/*.rs crates/morepork/src/*.rs crates/morepork/src/**/*.rs)
+	@echo "Building morepork-ffi..."
+	@cargo build --release -p morepork-ffi 2>&1 | tail -1
 
 ffi: $(FFI_LIB)
 
-wasm: web/pkg/gbtrace_wasm_bg.wasm
+wasm: web/pkg/morepork_wasm_bg.wasm
 
-web/pkg/gbtrace_wasm_bg.wasm: $(wildcard crates/gbtrace-wasm/src/*.rs crates/gbtrace/src/*.rs)
+web/pkg/morepork_wasm_bg.wasm: $(wildcard crates/morepork-wasm/src/*.rs crates/morepork/src/*.rs)
 	@echo "Building WASM module..."
-	@wasm-pack build crates/gbtrace-wasm --target web --out-dir $(PROJECT_DIR)/web/pkg --no-typescript
+	@wasm-pack build crates/morepork-wasm --target web --out-dir $(PROJECT_DIR)/web/pkg --no-typescript
 	@rm -f web/pkg/.gitignore web/pkg/package.json
