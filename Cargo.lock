@@ -313,6 +313,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 
 [[package]]
+name = "bytemuck"
+version = "1.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+
+[[package]]
 name = "bytes"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -783,12 +789,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "missingno-6502"
+version = "0.1.0"
+dependencies = [
+ "missingno-core",
+]
+
+[[package]]
+name = "missingno-core"
+version = "0.1.0"
+dependencies = [
+ "rgb",
+ "serde",
+]
+
+[[package]]
 name = "morepork"
 version = "0.1.0"
 dependencies = [
  "arrow",
  "clap",
  "flate2",
+ "missingno-6502",
+ "missingno-core",
  "png",
  "serde",
  "serde_json",
@@ -993,6 +1016,15 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+
+[[package]]
+name = "rgb"
+version = "0.8.53"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
+dependencies = [
+ "bytemuck",
+]
 
 [[package]]
 name = "rustc_version"

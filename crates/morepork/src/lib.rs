@@ -1,5 +1,6 @@
 pub mod store;
 pub mod comparison;
+pub mod disasm;
 pub mod downsample;
 pub mod entry;
 pub mod system;

@@ -11,8 +11,6 @@
 use super::{System, field, mos6502};
 use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
 
-pub mod disasm;
-
 pub static TIA: SubsystemDef = SubsystemDef {
     name: "tia",
     layers: &[
@@ -44,8 +42,6 @@ pub static VCS: System = System {
     subsystems: SUBSYSTEMS,
     exact_phrases: &[],
     numbered_phrases: &[],
-    labelled_phrases: &[],
-    disassemble: Some(disasm::disassemble),
     snapshot_kinds: &[],
     // The reset vector is ROM-dependent; diff falls back to
     // first-common-address alignment.

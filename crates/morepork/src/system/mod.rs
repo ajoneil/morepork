@@ -65,9 +65,6 @@ pub struct Isa {
     pub flags: &'static [FlagDef],
 }
 
-/// Instruction decoder: (rom, address) → (mnemonic, length).
-pub type Disassemble = fn(&[u8], u16) -> (String, u8);
-
 /// A semantic phrase that is exactly one fixed string (`"lcd on"`),
 /// desugaring to a generic [`Condition`].
 pub type ExactPhrase = (&'static str, fn() -> Condition);
@@ -75,17 +72,6 @@ pub type ExactPhrase = (&'static str, fn() -> Condition);
 /// A semantic phrase of the form `<prefix><number>` (`"interrupt 2"`),
 /// with an inclusive maximum for the number.
 pub type NumberedPhrase = (&'static str, u8, fn(u8) -> Condition);
-
-/// A semantic phrase with display metadata for query-builder UIs.
-/// `query` is the phrase exactly as [`crate::query::parse_condition`]
-/// accepts it; UIs show the chip under `group` with `label` when the
-/// trace carries the `needs` field.
-pub struct LabelledPhrase {
-    pub group: &'static str,
-    pub label: &'static str,
-    pub query: &'static str,
-    pub needs: &'static str,
-}
 
 /// A system: the machine-specific vocabulary and behaviour behind
 /// profiles, queries, disassembly, and diff alignment. Its [`Isa`] carries
@@ -108,14 +94,6 @@ pub struct System {
 
     /// Semantic query phrases carrying a number.
     pub numbered_phrases: &'static [NumberedPhrase],
-
-    /// The subset of semantic phrases worth showing as one-click chips in
-    /// query UIs, with display labels and grouping. Every entry's `query`
-    /// must parse against this family's vocabulary.
-    pub labelled_phrases: &'static [LabelledPhrase],
-
-    /// Instruction decoder.
-    pub disassemble: Option<Disassemble>,
 
     /// Kind names for this family's typed snapshot payloads, in tag order
     /// starting at [`crate::format::FAMILY_TAG_BASE`]. Namespaced by the

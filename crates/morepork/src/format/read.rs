@@ -97,7 +97,10 @@ impl MoreporkStore {
         }
         let version = data[4];
         if version != VERSION {
-            return Err(Error::InvalidHeader(format!("unsupported version {version}")));
+            return Err(Error::InvalidHeader(format!(
+                "format version {version} does not match this build's version {VERSION}; \
+                 the format was broken without a migration path — regenerate the trace"
+            )));
         }
 
         // Read header

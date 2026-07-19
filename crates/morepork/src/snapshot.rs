@@ -1,6 +1,6 @@
 //! Family-agnostic snapshot payloads: bulk memory regions and indexed
-//! screen frames. Family-specific typed payloads (the `gb.*` kinds) live
-//! with their family (`system::gb::snapshot`).
+//! screen frames. Full per-system state records key off `missingno_core`'s
+//! shared state schema rather than a payload struct authored here.
 
 /// Memory snapshot payload.
 ///

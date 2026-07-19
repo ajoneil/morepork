@@ -247,25 +247,6 @@ ppu = "registers"
 }
 
 #[test]
-fn labelled_phrases_parse_in_their_system() {
-    for system in morepork::system::SYSTEMS {
-        for chip in system.labelled_phrases {
-            morepork::query::parse_condition(chip.query, system).unwrap_or_else(|e| {
-                panic!(
-                    "system '{}' chip '{}' has unparseable query '{}': {e}",
-                    system.id, chip.label, chip.query
-                )
-            });
-            assert!(
-                system.lookup_field(chip.needs).is_some(),
-                "system '{}' chip '{}' needs unknown field '{}'",
-                system.id, chip.label, chip.needs
-            );
-        }
-    }
-}
-
-#[test]
 fn vcs_profile_and_flag_queries() {
     let toml = r#"
 [profile]
@@ -299,4 +280,70 @@ riot = "registers"
     // Phrases from the other families are not in the VCS vocabulary.
     assert!(morepork::query::parse_condition("lcd on", vcs).is_err());
     assert!(morepork::query::parse_condition("vblank starts", vcs).is_err());
+}
+
+// --- ISA-driven disassembly through the shared missingno_core vocabulary ---
+
+use missingno_core::isa::{Flow, Instruction, InstructionSet, OperandClass};
+
+/// A minimal SM83 front end over the shared trait, standing in for the real
+/// `missingno_gb::Sm83` (whose crate cannot be a morepork dependency without
+/// a cycle). Enough opcodes to prove the render path decodes through the trait.
+struct ToySm83;
+
+impl InstructionSet for ToySm83 {
+    fn id(&self) -> &'static str {
+        "sm83"
+    }
+    fn max_len(&self) -> usize {
+        3
+    }
+    fn decode(&self, _address: u32, bytes: &[u8]) -> Instruction {
+        match bytes.first().copied().unwrap_or(0) {
+            0x00 => Instruction { mnemonic: "nop".into(), length: 1, flow: Flow::Sequential },
+            0x01 => {
+                let word = u16::from_le_bytes([bytes[1], bytes[2]]);
+                Instruction {
+                    mnemonic: format!("ld bc,${word:04x}"),
+                    length: 3,
+                    flow: Flow::Sequential,
+                }
+            }
+            other => Instruction {
+                mnemonic: format!("${other:02x}"),
+                length: 1,
+                flow: Flow::Sequential,
+            },
+        }
+    }
+    fn classify_operand(&self, _operand: &str) -> OperandClass {
+        OperandClass::Plain
+    }
+}
+
+#[test]
+fn disassemble_sm83_through_shared_isa() {
+    // nop ; ld bc,$1234 ; nop
+    let rom = [0x00u8, 0x01, 0x34, 0x12, 0x00];
+    let rows = morepork::disasm::disassemble_rows(&ToySm83, &rom, 0, 3);
+    assert_eq!(
+        rows,
+        vec![
+            (0, "nop".to_string()),
+            (1, "ld bc,$1234".to_string()),
+            (4, "nop".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn disassemble_6502_through_real_decoder() {
+    // The real missingno-6502 decoder, driven by the same shared trait.
+    let isa = missingno_6502::Mos6502;
+    // lda #$7f ; sta $02 ; jmp $8000
+    let rom = [0xA9u8, 0x7F, 0x85, 0x02, 0x4C, 0x00, 0x80];
+    let rows = morepork::disasm::disassemble_rows(&isa, &rom, 0, 3);
+    assert_eq!(rows[0], (0, "lda #$7f".to_string()));
+    assert_eq!(rows[1], (2, "sta $02".to_string()));
+    assert_eq!(rows[2], (4, "jmp $8000".to_string()));
 }

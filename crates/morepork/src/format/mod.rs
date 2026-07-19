@@ -26,7 +26,10 @@ pub mod read;
 pub mod convert;
 
 pub const MAGIC: &[u8; 4] = b"MPRK";
-pub const VERSION: u8 = 2;
+/// Container-format version. Bumped to 3 when the format was re-founded on
+/// `missingno_core`'s shared state vocabulary: there is no migration path —
+/// a reader rejects any other version outright and the trace is regenerated.
+pub const VERSION: u8 = 3;
 pub const SNAPSHOT_TAG: &[u8; 4] = b"SNAP";
 
 /// Default maximum entries per chunk.

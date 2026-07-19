@@ -5,11 +5,9 @@
 //! (CPU registers, PPU control/mask and beam position) and grows with its
 //! tracer; adapters can carry anything else as extension fields.
 
-use super::{ExactPhrase, LabelledPhrase, System, field, mos6502};
+use super::{ExactPhrase, System, field, mos6502};
 use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
 use crate::query::Condition;
-
-pub mod disasm;
 
 pub static PPU: SubsystemDef = SubsystemDef {
     name: "ppu",
@@ -30,18 +28,12 @@ static EXACT_PHRASES: &[ExactPhrase] = &[
     ("vblank starts", || Condition::FieldChangesTo { field: "line".into(), value: "0xf1".into() }),
 ];
 
-static LABELLED_PHRASES: &[LabelledPhrase] = &[
-    LabelledPhrase { group: "PPU", label: "VBlank", query: "vblank starts", needs: "line" },
-];
-
 pub static NES: System = System {
     id: "nes",
     isa: &super::MOS6502,
     subsystems: SUBSYSTEMS,
     exact_phrases: EXACT_PHRASES,
     numbered_phrases: &[],
-    labelled_phrases: LABELLED_PHRASES,
-    disassemble: Some(disasm::disassemble),
     snapshot_kinds: &[],
     // The reset vector is ROM-dependent, so there is no fixed entry
     // address; diff falls back to first-common-address alignment.

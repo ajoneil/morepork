@@ -15,6 +15,7 @@ cli = ["dep:clap", "png"]
 png = ["dep:png"]
 
 [dependencies]
+missingno-core = { path = "../../../../../crates/missingno-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
@@ -29,3 +30,4 @@ tempfile = "3"
 
 [dev-dependencies]
 tempfile = "3"
+missingno-6502 = { path = "../../../../../crates/missingno-6502" }

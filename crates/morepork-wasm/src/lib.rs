@@ -186,22 +186,13 @@ impl TraceStore {
         to_js(&flags)
     }
 
-    /// Labelled semantic query phrases for this trace's family: array of
-    /// {group, label, query, needs}. UIs show each as a one-click chip
-    /// when the trace carries the `needs` field; `query` feeds `query()`.
+    /// Labelled semantic query phrases for this trace's family. The
+    /// viewer-oriented chip catalogue was dropped when morepork was
+    /// re-founded on the shared state vocabulary (no consumer remains in the
+    /// CLI/diff core); this returns an empty list until a consumer re-adds it.
     #[wasm_bindgen(js_name = semanticPhrases)]
     pub fn semantic_phrases(&self) -> Result<JsValue, JsError> {
-        #[derive(serde::Serialize)]
-        struct JsPhrase {
-            group: &'static str,
-            label: &'static str,
-            query: &'static str,
-            needs: &'static str,
-        }
-        let phrases: Vec<JsPhrase> = self.store.header().system_def().labelled_phrases
-            .iter()
-            .map(|p| JsPhrase { group: p.group, label: p.label, query: p.query, needs: p.needs })
-            .collect();
+        let phrases: Vec<()> = Vec::new();
         to_js(&phrases)
     }
 
@@ -581,41 +572,20 @@ impl TraceStore {
         self.rom.is_some()
     }
 
-    /// Disassemble the instruction at the given PC.
-    pub fn disassemble(&self, pc: u16) -> String {
-        match &self.rom {
-            Some(rom) => match self.store.header().system_def().disassemble {
-                Some(disassemble) => disassemble(rom, pc).0,
-                None => String::new(),
-            },
-            None => String::new(),
-        }
+    /// Disassemble the instruction at the given PC. The viewer disassembler
+    /// is stubbed: morepork's own decoders were removed in favour of
+    /// `missingno_core`'s shared `InstructionSet`, which the wasm build does
+    /// not link a concrete implementation of. Returns an empty string until a
+    /// consumer wires a concrete decoder in.
+    pub fn disassemble(&self, _pc: u16) -> String {
+        String::new()
     }
 
-    /// Disassemble instructions for a range of trace entries.
+    /// Disassemble instructions for a range of trace entries. Stubbed for the
+    /// same reason as [`Self::disassemble`].
     #[wasm_bindgen(js_name = disassembleRange)]
-    pub fn disassemble_range(&self, start: usize, count: usize) -> Result<JsValue, JsError> {
-        let rom = match &self.rom {
-            Some(r) => r,
-            None => return to_js(&Vec::<String>::new()),
-        };
-        let disassemble = match self.store.header().system_def().disassemble {
-            Some(f) => f,
-            None => return to_js(&Vec::<String>::new()),
-        };
-        let end = (start + count).min(self.entry_count());
-        let addr_col = self.store.addr_col();
-        let mnemonics: Vec<String> = (start..end)
-            .map(|i| {
-                // Map through the downsample view so we read the right entry.
-                let row = self.map_row(i);
-                let addr = addr_col
-                    .map(|col| self.store.get_numeric(col, row))
-                    .unwrap_or(0) as u16;
-                disassemble(rom, addr).0
-            })
-            .collect();
-        to_js(&mnemonics)
+    pub fn disassemble_range(&self, _start: usize, _count: usize) -> Result<JsValue, JsError> {
+        to_js(&Vec::<String>::new())
     }
     // --- VRAM reconstruction ---
 
