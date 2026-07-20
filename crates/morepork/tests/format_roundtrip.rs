@@ -1,10 +1,10 @@
 //! Round-trip test: write a .morepork file, read it back, verify correctness.
 
-use morepork::store::TraceStore;
+use morepork::format::FieldGroup;
 use morepork::format::read::MoreporkStore;
 use morepork::format::write::MoreporkWriter;
-use morepork::format::FieldGroup;
 use morepork::header::{BootRom, PixFormat, TraceHeader, Trigger};
+use morepork::store::TraceStore;
 
 fn test_header() -> TraceHeader {
     TraceHeader {
@@ -17,12 +17,22 @@ fn test_header() -> TraceHeader {
         boot_rom: BootRom::Skip,
         profile: "test".into(),
         fields: vec![
-            "pc".into(), "sp".into(),
-            "a".into(), "f".into(), "b".into(), "c".into(),
-            "d".into(), "e".into(), "h".into(), "l".into(),
-            "lcdc".into(), "stat".into(), "ly".into(),
+            "pc".into(),
+            "sp".into(),
+            "a".into(),
+            "f".into(),
+            "b".into(),
+            "c".into(),
+            "d".into(),
+            "e".into(),
+            "h".into(),
+            "l".into(),
+            "lcdc".into(),
+            "stat".into(),
+            "ly".into(),
             "pix".into(),
-            "vram_addr".into(), "vram_data".into(),
+            "vram_addr".into(),
+            "vram_data".into(),
         ],
         trigger: Trigger::Tcycle,
         pix_format: PixFormat::default(),
@@ -37,9 +47,16 @@ fn test_groups() -> Vec<FieldGroup> {
         FieldGroup {
             name: "cpu".into(),
             fields: vec![
-                "pc".into(), "sp".into(),
-                "a".into(), "f".into(), "b".into(), "c".into(),
-                "d".into(), "e".into(), "h".into(), "l".into(),
+                "pc".into(),
+                "sp".into(),
+                "a".into(),
+                "f".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                "e".into(),
+                "h".into(),
+                "l".into(),
             ],
         },
         FieldGroup {
@@ -80,32 +97,32 @@ fn test_basic_roundtrip() {
             let f = if a == 0 { 0x80u8 } else { 0x00u8 };
             let ly = ((i / 4) % 154) as u8;
 
-            w.set_u16(0, pc);       // pc
-            w.set_u16(1, sp);       // sp
-            w.set_u8(2, a);         // a
-            w.set_u8(3, f);         // f
-            w.set_u8(4, 0);         // b
-            w.set_u8(5, 0x13);      // c
-            w.set_u8(6, 0);         // d
-            w.set_u8(7, 0xD8);      // e
-            w.set_u8(8, 0x01);      // h
-            w.set_u8(9, 0x4D);      // l
-            w.set_u8(10, 0x91);     // lcdc
-            w.set_u8(11, 0x80);     // stat (dictionary-encoded)
-            w.set_u8(12, ly);       // ly
+            w.set_u16(0, pc); // pc
+            w.set_u16(1, sp); // sp
+            w.set_u8(2, a); // a
+            w.set_u8(3, f); // f
+            w.set_u8(4, 0); // b
+            w.set_u8(5, 0x13); // c
+            w.set_u8(6, 0); // d
+            w.set_u8(7, 0xD8); // e
+            w.set_u8(8, 0x01); // h
+            w.set_u8(9, 0x4D); // l
+            w.set_u8(10, 0x91); // lcdc
+            w.set_u8(11, 0x80); // stat (dictionary-encoded)
+            w.set_u8(12, ly); // ly
 
             // pix: every 4th entry has a pixel
             if i % 4 == 0 {
                 let shade = (i % 4) as u8 + b'0';
                 w.set_str(13, std::str::from_utf8(&[shade]).unwrap());
             } else {
-                w.set_null(13);     // pix null
+                w.set_null(13); // pix null
             }
 
             // vram: every 50th entry has a write
             if i % 50 == 0 {
                 w.set_u16(14, 0x8000 + (i as u16 % 0x1800)); // vram_addr
-                w.set_u8(15, (i & 0xFF) as u8);               // vram_data
+                w.set_u8(15, (i & 0xFF) as u8); // vram_data
             } else {
                 w.set_null(14);
                 w.set_null(15);
@@ -133,7 +150,12 @@ fn test_basic_roundtrip() {
 
     // Verify frame boundaries
     let boundaries = store.frame_boundaries();
-    assert_eq!(boundaries.len(), 2, "expected 2 frame boundaries, got {:?}", boundaries);
+    assert_eq!(
+        boundaries.len(),
+        2,
+        "expected 2 frame boundaries, got {:?}",
+        boundaries
+    );
     assert_eq!(boundaries[0], 0);
     assert_eq!(boundaries[1], 500);
 
@@ -170,11 +192,21 @@ fn test_basic_roundtrip() {
 
         // vram
         if i % 50 == 0 {
-            assert!(!store.is_null(14, i), "vram_addr should not be null at entry {i}");
+            assert!(
+                !store.is_null(14, i),
+                "vram_addr should not be null at entry {i}"
+            );
             let addr = store.get_numeric(14, i);
-            assert_eq!(addr, (0x8000 + (i as u64 % 0x1800)), "vram_addr mismatch at entry {i}");
+            assert_eq!(
+                addr,
+                (0x8000 + (i as u64 % 0x1800)),
+                "vram_addr mismatch at entry {i}"
+            );
         } else {
-            assert!(store.is_null(14, i), "vram_addr should be null at entry {i}");
+            assert!(
+                store.is_null(14, i),
+                "vram_addr should be null at entry {i}"
+            );
         }
     }
 }
@@ -202,9 +234,10 @@ fn test_large_chunk_boundary() {
         ..Default::default()
     };
 
-    let groups = vec![
-        FieldGroup { name: "cpu".into(), fields: vec!["pc".into(), "a".into()] },
-    ];
+    let groups = vec![FieldGroup {
+        name: "cpu".into(),
+        fields: vec!["pc".into(), "a".into()],
+    }];
 
     let num_entries = 150_000; // spans ~2.3 chunks at 64K
 
@@ -215,7 +248,7 @@ fn test_large_chunk_boundary() {
 
         for i in 0..num_entries {
             w.set_u16(0, (i & 0xFFFF) as u16); // pc
-            w.set_u8(1, (i & 0xFF) as u8);      // a
+            w.set_u8(1, (i & 0xFF) as u8); // a
             w.finish_entry().unwrap();
         }
 
@@ -229,7 +262,17 @@ fn test_large_chunk_boundary() {
     assert_eq!(store.entry_count(), num_entries);
 
     // Check entries near chunk boundaries
-    for i in [0, 1, 65535, 65536, 65537, 131071, 131072, 131073, num_entries - 1] {
+    for i in [
+        0,
+        1,
+        65535,
+        65536,
+        65537,
+        131071,
+        131072,
+        131073,
+        num_entries - 1,
+    ] {
         let pc = store.get_numeric(0, i);
         assert_eq!(pc, (i & 0xFFFF) as u64, "pc mismatch at entry {i}");
         let a = store.get_numeric(1, i);
@@ -259,9 +302,10 @@ fn test_framebuffer() {
         ..Default::default()
     };
 
-    let groups = vec![
-        FieldGroup { name: "cpu".into(), fields: vec!["pc".into()] },
-    ];
+    let groups = vec![FieldGroup {
+        name: "cpu".into(),
+        fields: vec!["pc".into()],
+    }];
 
     // Create a test framebuffer (23040 bytes)
     let fb: Vec<u8> = (0..23040).map(|i| (i % 4) as u8).collect();
@@ -354,7 +398,10 @@ fn test_extension_fields_roundtrip() {
     };
 
     let groups = vec![
-        FieldGroup { name: "cpu".into(), fields: vec!["pc".into()] },
+        FieldGroup {
+            name: "cpu".into(),
+            fields: vec!["pc".into()],
+        },
         FieldGroup {
             name: "ext".into(),
             fields: vec!["halt_bug".into(), "debug_counter".into()],
@@ -388,7 +435,11 @@ fn test_extension_fields_roundtrip() {
     // Column data round-tripped with correct types
     let pc_col = hdr.fields.iter().position(|f| f == "pc").unwrap();
     let halt_col = hdr.fields.iter().position(|f| f == "halt_bug").unwrap();
-    let cnt_col = hdr.fields.iter().position(|f| f == "debug_counter").unwrap();
+    let cnt_col = hdr
+        .fields
+        .iter()
+        .position(|f| f == "debug_counter")
+        .unwrap();
     for i in 0..10usize {
         assert_eq!(store.get_numeric(pc_col, i), 0x100 + i as u64);
         assert_eq!(store.get_bool(halt_col, i), i % 2 == 0);
@@ -437,9 +488,10 @@ fn test_empty_trace() {
         ..Default::default()
     };
 
-    let groups = vec![
-        FieldGroup { name: "cpu".into(), fields: vec!["pc".into()] },
-    ];
+    let groups = vec![FieldGroup {
+        name: "cpu".into(),
+        fields: vec!["pc".into()],
+    }];
 
     // Write empty trace
     {
@@ -533,6 +585,87 @@ fn test_writer_derives_groups_from_defs_when_none_given() {
     assert_eq!(store.entry_count(), 1);
     assert_eq!(store.get_numeric(0, 0), 0x0150);
     assert_eq!(store.get_numeric(12, 0), 0);
+}
+
+/// Write a small valid trace (a handful of entries, one chunk, two frame
+/// snapshots) and return its bytes — a starting point for corruption tests.
+fn valid_trace_bytes() -> Vec<u8> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("valid.morepork");
+    let header = test_header();
+    let groups = test_groups();
+    {
+        let mut w = MoreporkWriter::create(&path, &header, &groups).unwrap();
+        w.mark_frame(None).unwrap();
+        for i in 0..64u16 {
+            w.set_u16(0, 0x150 + i);
+            w.set_u16(1, 0xFFFE);
+            for col in 2..13 {
+                w.set_u8(col, 0);
+            }
+            w.set_null(13);
+            w.set_null(14);
+            w.set_null(15);
+            w.finish_entry().unwrap();
+        }
+        w.finish().unwrap();
+    }
+    std::fs::read(&path).unwrap()
+}
+
+#[test]
+fn rejects_corrupt_footer_offset() {
+    let mut data = valid_trace_bytes();
+    // Point the trailing footer pointer past the end of the file.
+    let bogus = (data.len() as u64 + 4096).to_le_bytes();
+    let end = data.len();
+    data[end - 8..].copy_from_slice(&bogus);
+
+    match MoreporkStore::from_bytes(&data) {
+        Ok(_) => panic!("corrupt footer offset was accepted"),
+        Err(err) => assert!(
+            err.to_string().contains("footer offset"),
+            "expected a footer-offset error, got: {err}"
+        ),
+    }
+}
+
+#[test]
+fn rejects_oversized_header_length() {
+    let mut data = valid_trace_bytes();
+    // Claim a header far larger than the file.
+    let bogus = (data.len() as u32 + 4096).to_le_bytes();
+    data[5..9].copy_from_slice(&bogus);
+
+    match MoreporkStore::from_bytes(&data) {
+        Ok(_) => panic!("oversized header length was accepted"),
+        Err(err) => assert!(
+            err.to_string().contains("header length"),
+            "expected a header-length error, got: {err}"
+        ),
+    }
+}
+
+#[test]
+fn rejects_truncated_footer() {
+    let data = valid_trace_bytes();
+    // Aim the footer pointer 4 bytes before the end: the entry-count read
+    // consumes them, then the per-entry reads run past the file end. A clean
+    // error, never a panic.
+    let mut corrupt = data.clone();
+    let footer_at = (corrupt.len() as u64 - 4).to_le_bytes();
+    let end = corrupt.len();
+    corrupt[end - 8..].copy_from_slice(&footer_at);
+    assert!(
+        MoreporkStore::from_bytes(&corrupt).is_err(),
+        "a footer pointing into the trailer must error, not panic"
+    );
+
+    // And a hard truncation of a valid file must also error rather than panic,
+    // whatever garbage the trailing bytes now decode to.
+    for cut in [17, 32, data.len() / 2, data.len() - 9] {
+        let _ = MoreporkStore::from_bytes(&data[..cut]);
+    }
 }
 
 #[test]
