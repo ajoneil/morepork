@@ -791,6 +791,7 @@ dependencies = [
 [[package]]
 name = "missingno-6502"
 version = "0.1.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#910876c15d2193c149c0b9398a3cf4833610795e"
 dependencies = [
  "missingno-core",
 ]
@@ -798,6 +799,7 @@ dependencies = [
 [[package]]
 name = "missingno-core"
 version = "0.1.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#910876c15d2193c149c0b9398a3cf4833610795e"
 dependencies = [
  "rgb",
  "serde",
