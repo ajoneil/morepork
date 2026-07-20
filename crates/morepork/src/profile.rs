@@ -89,33 +89,12 @@ impl SubsystemDef {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Field lookup helpers — the legacy fallback
-// ---------------------------------------------------------------------------
-//
-// These consult the Game Boy catalogue only — a convenience for GB
-// producers (missingno-gb types its emitters through them). Readers use
-// `TraceHeader::resolve_*`; other families go through their registry
-// entry (`system::System::lookup_field`).
-
-/// Look up a field definition by name across the GB subsystems.
-pub fn lookup_field(name: &str) -> Option<&'static FieldDef> {
-    crate::system::gb::catalogue::SUBSYSTEMS_DMG
-        .iter()
-        .flat_map(|s| s.all_fields())
-        .find(|f| f.name == name)
-}
-
-/// Return the native type for a field name.
-/// Falls back to UInt8 for unknown fields (e.g. memory reads).
-pub fn field_type(name: &str) -> FieldType {
-    lookup_field(name).map(|f| f.field_type).unwrap_or(FieldType::UInt8)
-}
-
-/// Whether a field should be nullable.
-pub fn field_nullable(name: &str) -> bool {
-    lookup_field(name).map(|f| f.nullable).unwrap_or(false)
-}
+// The GB-catalogue field-lookup free helpers were removed once the missingno
+// producer began authoring its trace headers from its own state schema: they
+// existed only so that producer could type its emitters through morepork.
+// Readers resolve types from the self-describing header (`TraceHeader::resolve_*`);
+// a non-missingno GB adapter that still selects fields through a profile reaches
+// the catalogue via its system registry entry (`System::lookup_field`).
 
 // ---------------------------------------------------------------------------
 // Profile
@@ -212,7 +191,10 @@ struct FieldGroupsToml {
 }
 
 fn parse_hex_addr(s: &str) -> std::result::Result<u16, String> {
-    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    let s = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
     u16::from_str_radix(s, 16).map_err(|_| format!("invalid hex address: {s}"))
 }
 
@@ -225,9 +207,8 @@ fn resolve_layers(
         LayerSelection::Bool(false) => Ok(vec![]),
         LayerSelection::Single(s) if s == "all" => Ok(subsystem.available_layers()),
         LayerSelection::Single(s) => {
-            let layer = Layer::from_str(s).ok_or_else(|| {
-                format!("unknown layer '{s}' for subsystem '{}'", subsystem.name)
-            })?;
+            let layer = Layer::from_str(s)
+                .ok_or_else(|| format!("unknown layer '{s}' for subsystem '{}'", subsystem.name))?;
             if !subsystem.available_layers().contains(&layer) {
                 return Err(format!(
                     "subsystem '{}' does not have layer '{s}'",
@@ -298,8 +279,7 @@ impl Profile {
         let mut fields = Vec::new();
         for subsystem in system.subsystems {
             if let Some(sel) = raw.fields.subsystems.get(subsystem.name) {
-                let layers = resolve_layers(sel, subsystem)
-                    .map_err(Error::Profile)?;
+                let layers = resolve_layers(sel, subsystem).map_err(Error::Profile)?;
                 for field_def in subsystem.fields_for_layers(&layers) {
                     if fields.contains(&field_def.name.to_string()) {
                         return Err(Error::Profile(format!(
