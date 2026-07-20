@@ -1,6 +1,17 @@
 //! Family-agnostic snapshot payloads: bulk memory regions and indexed
 //! screen frames. Full per-system state records key off `missingno_core`'s
 //! shared state schema rather than a payload struct authored here.
+//!
+//! The full-state **save framing** — a single record over a
+//! [`SystemStateSchema`](missingno_core::state::SystemStateSchema), its memory
+//! spans, and a frame — lives in `missingno_core`, the shared vocabulary crate.
+//! morepork reads and writes these save files through the same hardware-named
+//! vocabulary the trace framing keys on, so a save state and a trace are two
+//! framings of one schema. Re-exported here as the morepork state-file API.
+
+pub use missingno_core::state_file::{
+    StateFile, StateFileError, StateFrame, StateMeta, read_state_file, write_state_file,
+};
 
 /// Memory snapshot payload.
 ///
@@ -13,16 +24,22 @@ pub struct MemoryRegion {
 }
 
 pub fn parse_memory_snapshot(payload: &[u8]) -> Option<Vec<MemoryRegion>> {
-    if payload.is_empty() { return None; }
+    if payload.is_empty() {
+        return None;
+    }
     let num_regions = payload[0] as usize;
     let mut pos = 1;
     let mut regions = Vec::with_capacity(num_regions);
     for _ in 0..num_regions {
-        if pos + 4 > payload.len() { return None; }
+        if pos + 4 > payload.len() {
+            return None;
+        }
         let start = u16::from_le_bytes([payload[pos], payload[pos + 1]]);
         let len = u16::from_le_bytes([payload[pos + 2], payload[pos + 3]]) as usize;
         pos += 4;
-        if pos + len > payload.len() { return None; }
+        if pos + len > payload.len() {
+            return None;
+        }
         regions.push(MemoryRegion {
             start,
             data: payload[pos..pos + len].to_vec(),
@@ -81,19 +98,31 @@ impl IndexedFrame {
     }
 
     pub fn from_bytes(data: &[u8]) -> Option<Self> {
-        if data.len() < 10 { return None; }
+        if data.len() < 10 {
+            return None;
+        }
         let width = u16::from_le_bytes([data[0], data[1]]);
         let height = u16::from_le_bytes([data[2], data[3]]);
         let pixel_aspect = f32::from_le_bytes([data[4], data[5], data[6], data[7]]);
         let palette_len = u16::from_le_bytes([data[8], data[9]]) as usize;
         let mut pos = 10;
-        if data.len() < pos + palette_len * 3 { return None; }
+        if data.len() < pos + palette_len * 3 {
+            return None;
+        }
         let palette: Vec<[u8; 3]> = (0..palette_len)
-            .map(|i| [data[pos + i * 3], data[pos + i * 3 + 1], data[pos + i * 3 + 2]])
+            .map(|i| {
+                [
+                    data[pos + i * 3],
+                    data[pos + i * 3 + 1],
+                    data[pos + i * 3 + 2],
+                ]
+            })
             .collect();
         pos += palette_len * 3;
         let expected = width as usize * height as usize;
-        if data.len() < pos + expected { return None; }
+        if data.len() < pos + expected {
+            return None;
+        }
         Some(IndexedFrame {
             width,
             height,
