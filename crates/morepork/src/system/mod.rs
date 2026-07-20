@@ -20,29 +20,63 @@ pub mod vcs;
 /// Field-catalogue construction shorthand shared by the family catalogues.
 macro_rules! field {
     ($name:expr, u8) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: false, dictionary: false }
+        FieldDef {
+            name: $name,
+            field_type: FieldType::UInt8,
+            nullable: false,
+            dictionary: false,
+        }
     };
     ($name:expr, u8, dict) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: false, dictionary: true }
+        FieldDef {
+            name: $name,
+            field_type: FieldType::UInt8,
+            nullable: false,
+            dictionary: true,
+        }
     };
     ($name:expr, u16) => {
-        FieldDef { name: $name, field_type: FieldType::UInt16, nullable: false, dictionary: false }
+        FieldDef {
+            name: $name,
+            field_type: FieldType::UInt16,
+            nullable: false,
+            dictionary: false,
+        }
     };
     ($name:expr, u16, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::UInt16, nullable: true, dictionary: false }
+        FieldDef {
+            name: $name,
+            field_type: FieldType::UInt16,
+            nullable: true,
+            dictionary: false,
+        }
     };
     ($name:expr, u8, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::UInt8, nullable: true, dictionary: false }
+        FieldDef {
+            name: $name,
+            field_type: FieldType::UInt8,
+            nullable: true,
+            dictionary: false,
+        }
     };
     ($name:expr, bool) => {
-        FieldDef { name: $name, field_type: FieldType::Bool, nullable: false, dictionary: true }
+        FieldDef {
+            name: $name,
+            field_type: FieldType::Bool,
+            nullable: false,
+            dictionary: true,
+        }
     };
     ($name:expr, str, nullable) => {
-        FieldDef { name: $name, field_type: FieldType::Str, nullable: true, dictionary: false }
+        FieldDef {
+            name: $name,
+            field_type: FieldType::Str,
+            nullable: true,
+            dictionary: false,
+        }
     };
 }
 pub(crate) use field;
-
 
 /// A named CPU flag: which field holds it and at which bit. The first name
 /// is canonical (single letter); the rest are accepted aliases.
@@ -82,7 +116,7 @@ pub struct System {
     pub id: &'static str,
 
     /// The instruction-set architecture this system runs. Provides the flag
-    /// vocabulary; the concrete decoder is `disassemble` below.
+    /// vocabulary shared across systems on the same ISA.
     pub isa: &'static Isa,
 
     /// Default field catalogue: validates profiles and types legacy traces
@@ -94,11 +128,6 @@ pub struct System {
 
     /// Semantic query phrases carrying a number.
     pub numbered_phrases: &'static [NumberedPhrase],
-
-    /// Kind names for this family's typed snapshot payloads, in tag order
-    /// starting at [`crate::format::FAMILY_TAG_BASE`]. Namespaced by the
-    /// family id (`"gb.cpu"`, …). Empty when the family defines none.
-    pub snapshot_kinds: &'static [&'static str],
 
     /// Diff-alignment hint: the address every trace of this system reaches
     /// at program entry, and the address of the entry's second instruction
@@ -139,8 +168,14 @@ impl System {
 
 /// The Sharp SM83 (Game Boy) and the NMOS 6502 (the NES's 2A03, the VCS's
 /// 6507). The flag vocabulary lives with each ISA's home module.
-pub static SM83: Isa = Isa { id: "sm83", flags: gb::FLAGS };
-pub static MOS6502: Isa = Isa { id: "6502", flags: mos6502::FLAGS };
+pub static SM83: Isa = Isa {
+    id: "sm83",
+    flags: gb::FLAGS,
+};
+pub static MOS6502: Isa = Isa {
+    id: "6502",
+    flags: mos6502::FLAGS,
+};
 
 /// Every registered ISA.
 pub static ISAS: &[&Isa] = &[&SM83, &MOS6502];

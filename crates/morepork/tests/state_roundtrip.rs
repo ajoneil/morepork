@@ -44,7 +44,7 @@ fn state_file_round_trips_through_morepork() {
         emulator_version: "0.0.1",
     };
     let memory = vec![("wram", vec![0x7Eu8; 0x2000])];
-    let bytes = write_state_file(&meta, &record, &memory, None);
+    let bytes = write_state_file(&meta, &record, &memory, None).expect("writes the state file");
 
     let file = read_state_file(&bytes).expect("morepork reads the state file");
     assert_eq!(file.system, "dmg");

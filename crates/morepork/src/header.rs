@@ -11,8 +11,7 @@ use crate::profile::FieldType;
 /// - `"builtin"` — emulator's built-in boot ROM was used
 /// - `"stripped:<original>"` — boot entries were removed post-capture
 /// - `"<sha256>"` — a specific boot ROM was used, identified by hash
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum BootRom {
     /// Boot ROM was skipped; initial state is post-boot.
     Skip,
@@ -38,7 +37,6 @@ impl BootRom {
     }
 }
 
-
 impl Serialize for BootRom {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
@@ -58,9 +56,7 @@ impl<'de> Deserialize<'de> for BootRom {
         Ok(match s.as_str() {
             "skip" => BootRom::Skip,
             "builtin" => BootRom::Builtin,
-            _ if s.starts_with("stripped:") => {
-                BootRom::Stripped(s[9..].to_string())
-            }
+            _ if s.starts_with("stripped:") => BootRom::Stripped(s[9..].to_string()),
             _ => BootRom::Sha256(s),
         })
     }
@@ -118,7 +114,9 @@ pub struct ExtensionField {
     pub source: Option<String>,
 }
 
-fn is_false(b: &bool) -> bool { !b }
+fn is_false(b: &bool) -> bool {
+    !b
+}
 
 /// Typed declaration of one trace field, carried in the header so the file
 /// is self-describing: readers resolve type, nullability, encoding, and
@@ -250,9 +248,15 @@ pub struct TraceHeader {
     pub notes: String,
 }
 
-fn default_format_version() -> String { "1.0".to_string() }
-fn default_emulator() -> String { "unknown".to_string() }
-fn default_system() -> String { "dmg".to_string() }
+fn default_format_version() -> String {
+    "1.0".to_string()
+}
+fn default_emulator() -> String {
+    "unknown".to_string()
+}
+fn default_system() -> String {
+    "dmg".to_string()
+}
 
 impl TraceHeader {
     /// Validate header invariants. Empty `fields` is permitted at this
@@ -374,11 +378,10 @@ impl TraceHeader {
                 .map(|n| n.to_string());
         }
         if self.snapshot_kinds.is_empty() {
-            self.snapshot_kinds = ["frame", "memory"]
-                .iter()
-                .chain(self.system_def().snapshot_kinds)
-                .map(|k| k.to_string())
-                .collect();
+            // Only `frame` and `memory` are ever written and decoded; a reader
+            // resolves higher tags by name from the header, so there is nothing
+            // to stamp beyond the two the format itself defines.
+            self.snapshot_kinds = ["frame", "memory"].iter().map(|k| k.to_string()).collect();
         }
     }
 

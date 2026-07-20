@@ -21,9 +21,9 @@
 //! [Tag "SNAP" (4)] [Type (1)] [Entry index (8)] [Payload len (4)] [Payload zstd]
 //! ```
 
-pub mod write;
-pub mod read;
 pub mod convert;
+pub mod read;
+pub mod write;
 
 pub const MAGIC: &[u8; 4] = b"MPRK";
 /// Container-format version. Bumped to 3 when the format was re-founded on
@@ -44,9 +44,9 @@ pub const TAG_FRAME: u8 = 0;
 pub const TAG_MEMORY: u8 = 1;
 
 /// First tag available to console families. `frame` and `memory` are the
-/// only kinds the format itself defines; a family claims tags from here
-/// up (its registry entry lists their kind names, which the writer
-/// records in the header's `snapshot_kinds`).
+/// only kinds the format itself defines; a family claiming a tag from here up
+/// records its kind name in the header's `snapshot_kinds` at write time, and a
+/// reader resolves the tag by name from there.
 pub const FAMILY_TAG_BASE: u8 = 2;
 
 /// A field group definition — maps a group name to its column indices.
@@ -92,4 +92,3 @@ pub struct Footer {
     pub snapshots: Vec<SnapshotIndexEntry>,
     pub total_entries: u64,
 }
-

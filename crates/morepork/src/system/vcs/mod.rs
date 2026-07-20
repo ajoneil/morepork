@@ -13,25 +13,27 @@ use crate::profile::{FieldDef, FieldType, Layer, SubsystemDef};
 
 pub static TIA: SubsystemDef = SubsystemDef {
     name: "tia",
-    layers: &[
-        (Layer::Registers, &[
+    layers: &[(
+        Layer::Registers,
+        &[
             // Scanline within the frame — emergent height, so u16.
             field!("line", u16),
             // Colour clock within the line (0-227).
             field!("clock", u8),
-        ]),
-    ],
+        ],
+    )],
 };
 
 pub static RIOT: SubsystemDef = SubsystemDef {
     name: "riot",
-    layers: &[
-        (Layer::Registers, &[
+    layers: &[(
+        Layer::Registers,
+        &[
             field!("timer", u8),
             field!("port_a", u8, dict),
             field!("port_b", u8, dict),
-        ]),
-    ],
+        ],
+    )],
 };
 
 pub static SUBSYSTEMS: &[&SubsystemDef] = &[&mos6502::CPU, &TIA, &RIOT];
@@ -42,7 +44,6 @@ pub static VCS: System = System {
     subsystems: SUBSYSTEMS,
     exact_phrases: &[],
     numbered_phrases: &[],
-    snapshot_kinds: &[],
     // The reset vector is ROM-dependent; diff falls back to
     // first-common-address alignment.
     entry_addrs: None,

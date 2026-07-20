@@ -16,15 +16,15 @@ them.
 The header carries two small strings that, with the existing `pix_format`,
 replace the old monolithic `family` tag:
 
-- **`isa`** (`"sm83"`, `"6502"`) — the instruction-set architecture. Selects
-  the disassembler and flag vocabulary. Systems that share silicon share an
-  ISA: the Game Boy's DMG and CGB are both `sm83`; the NES's 2A03 and the VCS's
-  6507 are both `6502`.
+- **`isa`** (`"sm83"`, `"6502"`) — the instruction-set architecture. Names the
+  decoder (disassembly is driven by the shared `missingno_core` instruction-set
+  vocabulary, keyed on this id) and the flag vocabulary. Systems that share
+  silicon share an ISA: the Game Boy's DMG and CGB are both `sm83`; the NES's
+  2A03 and the VCS's 6507 are both `6502`.
 - **`system`** (`"dmg"`, `"cgb"`, `"nes"`, `"vcs"`) — the machine identity.
-  Selects the concrete disassembler (it closes over a system-specific
-  ROM-offset mapping), the default field catalogue, semantic query phrases,
-  diff-alignment hints, snapshot kinds, and viewer panels. Distinct from
-  `model` (the free-form hardware revision, `"DMG-B"`/`"CGB-C"`).
+  Selects the default field catalogue, semantic query phrases, diff-alignment
+  hints, and viewer panels. Distinct from `model` (the free-form hardware
+  revision, `"DMG-B"`/`"CGB-C"`).
 
 Frame reconstruction keys off `pix_format` (`shade2`/`rgb555` → the GB pixel
 replay, `indexed8` → the system-agnostic indexed-frame path), not the system.
@@ -77,14 +77,13 @@ metadata (there is no catalogue fallback — old traces get a clear
   current instruction" (the writer prefers `op_addr`, which is stable across
   an instruction's T-cycles, over `pc`).
 - `snapshot_kinds` — tag-indexed kind names. `frame` (tag 0) and `memory`
-  (tag 1) are format-level kinds the viewer depends on; a system's typed
-  state claims tags from `FAMILY_TAG_BASE` up with namespaced names
-  (`gb.cpu`, …) registered on its `System` entry.
+  (tag 1) are the only kinds anything writes or decodes; the writer stamps
+  those two, and a reader resolves any higher tag by name from this list.
 
 `MoreporkWriter::create` enriches the header itself — field defs and the
-instruction-address column from the system catalogue, snapshot kind names
-from the registry, storage groups from the defs when the caller passes none
-— so every producer (FFI adapters, missingno, `convert`) writes
+instruction-address column from the system catalogue, the `frame`/`memory`
+snapshot-kind names, and storage groups from the defs when the caller passes
+none — so every producer (FFI adapters, missingno, `convert`) writes
 self-describing traces without changes on their side.
 
 `pix_format` values: `shade2` (DMG greyscale pix stream), `rgb555` (CGB colour
@@ -115,11 +114,8 @@ its CPU-address-to-ROM-offset mapping). An `Isa` carries the flag vocabulary; a
 - **Semantic query phrases** (`exact_phrases`, `numbered_phrases`) — named
   conditions (`"lcd on"`, `"ppu enters mode N"`, `"vblank starts"`) that
   desugar to the generic `Condition` variants; `parse_condition` takes the
-  system whose vocabulary it parses. `labelled_phrases` is the UI-facing
-  subset — {group, label, query, needed field} — exported through wasm
-  `semanticPhrases()` to drive the query builder's one-click chips.
-- **Disassembler** (`disassemble`) — `fn(&[u8], u16) -> (String, u8)`. SM83
-  lives in `system/gb/disasm.rs`.
+  system whose vocabulary it parses. The wasm `semanticPhrases()` export
+  surfaces these to drive the query builder's one-click chips.
 - **Diff alignment hint** (`entry_addrs`) — the address every trace of the
   system reaches at program entry plus the entry's second instruction (GB:
   cartridge entry `0x0100`/`0x0101`); systems without a fixed entry use the
@@ -129,15 +125,17 @@ its CPU-address-to-ROM-offset mapping). An `Isa` carries the flag vocabulary; a
   not format features. The generic path is `frame` snapshots. The render gate
   keys on `pix_format` (`shade2`/`rgb555` → this GB replay); promote to a
   function-table hook when a second render model implements reconstruction.
-- **Typed snapshot payloads** — `system/gb/snapshot.rs` defines the `gb.*`
-  payload layouts and their tags (missingno's `from_snapshot` constructors
-  restore console state from them); the system's `snapshot_kinds` names the
-  tags in the header. `memory` and `frame` payloads are system-agnostic
-  (`src/snapshot.rs`).
+- **Snapshot payloads** — `frame` and `memory` are the only snapshot kinds,
+  both system-agnostic (`src/snapshot.rs`: `IndexedFrame`, `MemoryRegion`).
+  Console state is no longer re-founded from morepork-side `gb.*` payloads —
+  missingno restores from its own `missingno_core` state vocabulary — so the
+  registry defines no typed per-system snapshot layouts.
 
 What stays *out* of the registry: everything in the "generic" list. The
-registry is consulted only for disassembly, rendering, semantic query sugar,
-catalogue defaults/validation, and diff alignment hints.
+registry is consulted only for rendering, semantic query sugar, catalogue
+defaults/validation, and diff alignment hints; disassembly is ISA-keyed
+through the shared `missingno_core` instruction set (`src/disasm.rs`), not a
+per-system entry.
 
 The `profile.rs` free functions (`lookup_field`, `field_type`,
 `field_nullable`) consult the GB catalogue only — a write-side convenience
@@ -181,18 +179,17 @@ the CGB catalogue is a superset, so shared fields still validate.)
      &groups)` (usually `&[]`: the writer groups by the header's field
      defs), `set_u8/u16/bool/str/null(col, v)`, `finish_entry`,
      `mark_frame`, `write_snapshot(tag, &[u8])`, `finish`.
-   - `morepork::format::{TAG_FRAME, TAG_MEMORY}` and
-     `morepork::system::gb::snapshot::TAG_*` — snapshot tags.
-   - `morepork::header::{TraceHeader (all fields), ExtensionField, PixFormat}`.
+   - `morepork::format::{TAG_FRAME, TAG_MEMORY}` — the only snapshot tags.
+   - `morepork::header::{TraceHeader (all fields), HeaderFieldDef,
+     ExtensionField, PixFormat}`.
    - `morepork::profile::{FieldType, field_type, field_nullable}`.
    - `morepork::{BootRom, Profile (.trigger/.fields/.extensions/.memory/.name),
      Trigger, Error::Profile}`.
-   - `morepork::system::gb::snapshot::{CpuSnapshot, PpuSnapshot, ApuSnapshot,
-     TimerSnapshot, DmaSnapshot, SerialSnapshot, MbcSnapshot}` and
-     `morepork::snapshot::{MemoryRegion, build_memory_payload}` — the
-     save-state restore path.
-   - `morepork::snapshot::IndexedFrame` — the NES and VCS tracers' frame
-     payloads.
+   - `morepork::snapshot::{IndexedFrame, MemoryRegion, build_memory_payload}` —
+     the system-agnostic frame/memory payloads (the NES and VCS tracers write
+     `IndexedFrame` frames). Console state is restored on the missingno side
+     from its own `missingno_core` state vocabulary, not from morepork-side
+     `gb.*` snapshot structs (those were removed).
 3. **Adapter CLI surface is frozen** (`--rom/--profile/--output/--frames/
    --stop-when/--stop-opcode/--reference/--model`): `gen-rules.py` and the
    trace scripts hard-code it. Additions must not disturb existing
@@ -260,7 +257,7 @@ green (`cargo test -p morepork`, spot-check `make traces-<suite>`):
 self-describing format → system registry (GB moved behind it,
 `Indexed8`/`IndexedFrame`) → NES (catalogue, flags, 6502 disassembler,
 missingno tracer, viewer) → system-aware web viewer (indexed frames,
-labelled phrase chips, panel gating) → VCS (the emergent-height stress
+semantic phrase chips, panel gating) → VCS (the emergent-height stress
 test, on the shared `mos6502` core). What remains:
 
 1. **SMS** — blocked on a Z80 disassembler (or ships with hex-dump
