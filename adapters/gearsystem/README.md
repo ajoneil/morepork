@@ -38,5 +38,7 @@ test reads SP before initializing it.
 morepork-gearsystem -rom test.sg -out trace.morepork
 ```
 
-Flags: `-rom` (required) `-out` `-spec NTSC` `-frames` (budget cap)
-`-frame=false` (skip the frame snapshot).
+Flags: `-rom` (required) `-out` `-spec NTSC|PAL` `-frames` (budget cap)
+`-frame=false` (skip the frame snapshot). `-spec PAL` forces the core's
+PAL region: 313 lines of 228 cycles, a 71364-cycle frame. NTSC (the
+default) leaves region detection to the core, which gives 262 lines.

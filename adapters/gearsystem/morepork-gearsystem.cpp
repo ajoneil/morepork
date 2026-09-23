@@ -17,7 +17,11 @@
 // the frame straight from the framebuffer, which holds raw TMS colour
 // indices in TMS9918 modes. No BIOS: SG-1000 carts boot at $0000.
 //
-//   morepork-gearsystem -rom test.sg -out trace.morepork
+// -spec PAL forces the core's PAL region on the SG-1000: 313 lines of
+// 228 CPU cycles (a 71364-cycle frame, 50 Hz). NTSC (the default) leaves
+// the core's own region detection untouched, which gives 262 lines.
+//
+//   morepork-gearsystem -rom test.sg -out trace.morepork [-spec PAL]
 
 #include <cstdint>
 #include <cstdio>
@@ -113,7 +117,7 @@ int main(int argc, char** argv) {
     else {
       std::fprintf(stderr,
                    "usage: morepork-gearsystem -rom test.sg"
-                   " [-out trace.morepork] [-spec NTSC] [-frames N] [-frame=false]\n");
+                   " [-out trace.morepork] [-spec NTSC|PAL] [-frames N] [-frame=false]\n");
       return 2;
     }
   }
@@ -121,10 +125,11 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "error: -rom is required\n");
     return 2;
   }
-  if (spec != "NTSC") {
-    std::fprintf(stderr, "error: -spec %s is not supported (NTSC only)\n", spec.c_str());
+  if (spec != "NTSC" && spec != "PAL") {
+    std::fprintf(stderr, "error: -spec %s is not supported (NTSC or PAL)\n", spec.c_str());
     return 1;
   }
+  const bool pal = (spec == "PAL");
 
   std::vector<uint8_t> romBytes;
   {
@@ -144,7 +149,12 @@ int main(int argc, char** argv) {
 
   GearsystemCore core;
   core.Init(GS_PIXEL_RGBA8888);
-  if (!core.LoadROM(rom)) {
+  // PAL forces only the region; mapper, zone and system stay on the
+  // core's own detection. NTSC passes no config, as before.
+  Cartridge::ForceConfiguration palConfig = {
+      Cartridge::CartridgeNotSupported, Cartridge::CartridgeUnknownZone,
+      Cartridge::CartridgePAL, Cartridge::CartridgeUnknownSystem};
+  if (!core.LoadROM(rom, pal ? &palConfig : nullptr)) {
     std::fprintf(stderr, "error: failed to load ROM %s\n", rom);
     return 1;
   }
@@ -157,6 +167,10 @@ int main(int argc, char** argv) {
   Video* video = core.GetVideo();
   Audio* audio = core.GetAudio();
   Processor::ProcessorState* st = proc->GetState();
+  if (pal && !core.GetCartridge()->IsPAL()) {
+    std::fprintf(stderr, "error: -spec PAL did not take: the core runs NTSC\n");
+    return 1;
+  }
 
   std::string header = jsonHeader(spec, romId(romBytes), wantFrame);
   MoreporkWriter* w = morepork_writer_new(out, header.c_str(), header.size());
