@@ -112,6 +112,27 @@ pub struct ExtensionField {
     /// downstream tooling to attribute extension semantics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Subsystem the adapter groups the field under (e.g. "gateboy").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsystem: Option<String>,
+    /// Capture layer within that subsystem (e.g. "internal").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
+}
+
+impl ExtensionField {
+    /// The header def this declaration types a column with.
+    pub fn field_def(&self, name: &str) -> HeaderFieldDef {
+        HeaderFieldDef {
+            name: name.to_string(),
+            field_type: self.field_type,
+            subsystem: self.subsystem.clone(),
+            layer: self.layer.clone(),
+            nullable: self.nullable,
+            dictionary: false,
+            source: self.source.clone(),
+        }
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -320,15 +341,7 @@ impl TraceHeader {
             let ext = self.extension_fields.get(name).ok_or_else(|| {
                 crate::error::Error::InvalidHeader(format!("column '{name}' has no field_def"))
             })?;
-            self.field_defs.push(HeaderFieldDef {
-                name: name.clone(),
-                field_type: ext.field_type,
-                subsystem: None,
-                layer: None,
-                nullable: ext.nullable,
-                dictionary: false,
-                source: ext.source.clone(),
-            });
+            self.field_defs.push(ext.field_def(name));
         }
         if self.instruction_addr_field.is_none() {
             self.instruction_addr_field = ["op_addr", "pc"]

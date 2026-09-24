@@ -179,6 +179,11 @@ static Profile load_profile(const std::string &path) {
         prof.fields.push_back(morepork_profile_field_name(p, i));
     }
 
+    size_t next = morepork_profile_num_extensions(p, "gateboy");
+    for (size_t i = 0; i < next; i++) {
+        prof.fields.push_back(morepork_profile_extension_name(p, "gateboy", i));
+    }
+
     size_t nmem = morepork_profile_num_memory(p);
     for (size_t i = 0; i < nmem; i++) {
         prof.memory[morepork_profile_memory_name(p, i)] = morepork_profile_memory_addr(p, i);
@@ -444,6 +449,43 @@ static const std::unordered_map<std::string, bool(*)(const GateBoy &)> INTERNAL_
         // is currently held by the HALT-release latch.
         return (bit_pack(gb.gb_state.reg_ie) & gb.cpu.core.reg.halt_latch) != 0;
     }},
+};
+
+// Gate-level columns outside the DMG state vocabulary, declared in the
+// header as this adapter's extension fields (subsystem "gateboy", layer
+// "internal"). A profile requests them under [fields.extensions] gateboy.
+struct ExtensionDecl {
+    const char *type;
+    bool nullable;
+};
+
+static const std::unordered_map<std::string, ExtensionDecl> GATEBOY_EXTENSIONS = {
+    {"bus_addr", {"u16", false}},
+    {"op_state", {"u8", false}}, {"mcycle_phase", {"u8", false}},
+    {"mask_pipe", {"u8", false}},
+    {"oam0_x", {"u8", false}}, {"oam0_id", {"u8", false}}, {"oam0_attr", {"u8", false}},
+    {"oam1_x", {"u8", false}}, {"oam1_id", {"u8", false}}, {"oam1_attr", {"u8", false}},
+    {"oam2_x", {"u8", false}}, {"oam2_id", {"u8", false}}, {"oam2_attr", {"u8", false}},
+    {"oam3_x", {"u8", false}}, {"oam3_id", {"u8", false}}, {"oam3_attr", {"u8", false}},
+    {"oam4_x", {"u8", false}}, {"oam4_id", {"u8", false}}, {"oam4_attr", {"u8", false}},
+    {"oam5_x", {"u8", false}}, {"oam5_id", {"u8", false}}, {"oam5_attr", {"u8", false}},
+    {"oam6_x", {"u8", false}}, {"oam6_id", {"u8", false}}, {"oam6_attr", {"u8", false}},
+    {"oam7_x", {"u8", false}}, {"oam7_id", {"u8", false}}, {"oam7_attr", {"u8", false}},
+    {"oam8_x", {"u8", false}}, {"oam8_id", {"u8", false}}, {"oam8_attr", {"u8", false}},
+    {"oam9_x", {"u8", false}}, {"oam9_id", {"u8", false}}, {"oam9_attr", {"u8", false}},
+    {"ch1_env_vol", {"u8", false}}, {"ch1_phase", {"u8", false}}, {"ch1_len_cnt", {"u8", false}},
+    {"ch2_env_vol", {"u8", false}}, {"ch2_phase", {"u8", false}}, {"ch2_len_cnt", {"u8", false}},
+    {"ch3_wave_idx", {"u8", false}}, {"ch3_sample", {"u8", false}}, {"ch3_len_cnt", {"u8", false}},
+    {"ch4_env_vol", {"u8", false}}, {"ch4_len_cnt", {"u8", false}},
+    {"ch1_freq_cnt", {"u16", false}}, {"ch1_sweep_shadow", {"u16", false}},
+    {"ch2_freq_cnt", {"u16", false}}, {"ch3_freq_cnt", {"u16", false}},
+    {"ch4_freq_cnt", {"u16", false}}, {"ch4_lfsr", {"u16", false}},
+    {"ch1_active", {"bool", false}}, {"ch2_active", {"bool", false}},
+    {"ch3_active", {"bool", false}}, {"ch4_active", {"bool", false}},
+    {"halted", {"bool", false}}, {"irq_pending", {"bool", false}},
+    {"dispatch_active", {"bool", false}}, {"irq_latched", {"bool", false}},
+    {"vram_addr", {"u16", true}}, {"vram_data", {"u8", true}},
+    {"apu_write_addr", {"u16", true}}, {"apu_write_data", {"u8", true}},
 };
 
 static void build_emitters(const Profile &prof) {
@@ -772,6 +814,10 @@ int main(int argc, char *argv[]) {
             all_fields.push_back("vram_addr");
             all_fields.push_back("vram_data");
         }
+        if (g_has_apu_write) {
+            all_fields.push_back("apu_write_addr");
+            all_fields.push_back("apu_write_data");
+        }
 
         std::string header_json = "{\"_header\":true,\"format_version\":\"0.1.0\","
             "\"emulator\":\"gateboy\",\"emulator_version\":\"metroboy-git\","
@@ -782,7 +828,18 @@ int main(int argc, char *argv[]) {
             if (i > 0) header_json += ",";
             header_json += "\"" + all_fields[i] + "\"";
         }
-        header_json += "],\"trigger\":\"" + profile.trigger + "\"}";
+        header_json += "],\"extension_fields\":{";
+        bool first_ext = true;
+        for (const auto &name : all_fields) {
+            auto ext = GATEBOY_EXTENSIONS.find(name);
+            if (ext == GATEBOY_EXTENSIONS.end()) continue;
+            if (!first_ext) header_json += ",";
+            first_ext = false;
+            header_json += "\"" + name + "\":{\"type\":\"" + ext->second.type + "\","
+                "\"nullable\":" + (ext->second.nullable ? "true" : "false") + ","
+                "\"source\":\"gateboy\",\"subsystem\":\"gateboy\",\"layer\":\"internal\"}";
+        }
+        header_json += "},\"trigger\":\"" + profile.trigger + "\"}";
 
         g_writer = morepork_writer_new(
             output_path.c_str(), header_json.c_str(), header_json.size());

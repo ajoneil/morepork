@@ -46,6 +46,8 @@ pub struct MoreporkProfile {
     memory_names: Vec<CString>,
     /// Memory addresses in the same order as memory_names.
     memory_addrs: Vec<u16>,
+    /// Cached CStrings for each adapter's extension field names.
+    extension_cstrings: std::collections::BTreeMap<String, Vec<CString>>,
     /// Cached trigger string.
     trigger_cstring: CString,
     /// Cached name string.
@@ -85,6 +87,18 @@ pub unsafe extern "C" fn morepork_profile_load(path: *const c_char) -> *mut More
 
     let memory_addrs: Vec<u16> = profile.memory.values().copied().collect();
 
+    let extension_cstrings = profile
+        .extensions
+        .iter()
+        .map(|(adapter, names)| {
+            let names = names
+                .iter()
+                .map(|n| CString::new(n.as_str()).unwrap())
+                .collect();
+            (adapter.clone(), names)
+        })
+        .collect();
+
     let trigger_str = match profile.trigger {
         morepork::header::Trigger::Instruction => "instruction",
         morepork::header::Trigger::Mcycle => "mcycle",
@@ -103,6 +117,7 @@ pub unsafe extern "C" fn morepork_profile_load(path: *const c_char) -> *mut More
         field_cstrings,
         memory_names,
         memory_addrs,
+        extension_cstrings,
         trigger_cstring,
         name_cstring,
         description_cstring,
@@ -173,6 +188,38 @@ pub unsafe extern "C" fn morepork_profile_memory_addr(
 ) -> u16 {
     let profile = &*p;
     profile.memory_addrs.get(index).copied().unwrap_or(0)
+}
+
+/// Get the number of extension fields the profile asks `adapter` for
+/// (its `[fields.extensions]` entry). Returns 0 when it names none.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_num_extensions(
+    p: *const MoreporkProfile,
+    adapter: *const c_char,
+) -> usize {
+    let profile = &*p;
+    CStr::from_ptr(adapter)
+        .to_str()
+        .ok()
+        .and_then(|a| profile.extension_cstrings.get(a))
+        .map_or(0, Vec::len)
+}
+
+/// Get an extension field name the profile asks `adapter` for, by index.
+/// Returns null if out of bounds.
+#[no_mangle]
+pub unsafe extern "C" fn morepork_profile_extension_name(
+    p: *const MoreporkProfile,
+    adapter: *const c_char,
+    index: usize,
+) -> *const c_char {
+    let profile = &*p;
+    CStr::from_ptr(adapter)
+        .to_str()
+        .ok()
+        .and_then(|a| profile.extension_cstrings.get(a))
+        .and_then(|names| names.get(index))
+        .map_or(std::ptr::null(), |cs| cs.as_ptr())
 }
 
 /// Free a profile handle.

@@ -25,6 +25,9 @@ pub enum Error {
     #[error("system '{system}' has no column '{column}'")]
     UnknownColumn { system: String, column: String },
 
+    #[error("extension field '{column}' shadows a column of system '{system}'")]
+    ShadowedColumn { system: String, column: String },
+
     #[error("profile error: {0}")]
     Profile(String),
 
@@ -144,7 +147,7 @@ pub fn column_defs(id: &str, names: &[&str]) -> Result<Vec<HeaderFieldDef>> {
 /// its system states, the system's instruction-address column when the
 /// producer carries it, and — when the producer gave none — a def for every
 /// column (its declared extension fields as declared, the rest through
-/// [`column_defs`]).
+/// [`column_defs`]). An extension field may not shadow a vocabulary name.
 pub fn describe(header: &mut TraceHeader) -> Result<()> {
     let schema =
         schema(&header.system).ok_or_else(|| Error::UnknownSystem(header.system.clone()))?;
@@ -162,19 +165,22 @@ pub fn describe(header: &mut TraceHeader) -> Result<()> {
     {
         header.instruction_addr_field = Some(schema.instruction_addr_field.to_string());
     }
+    let vocabulary = vocabulary(&header.system)?;
+    if let Some(name) = header
+        .extension_fields
+        .keys()
+        .find(|name| vocabulary.iter().any(|d| &d.name == *name))
+    {
+        return Err(Error::ShadowedColumn {
+            system: header.system.clone(),
+            column: name.clone(),
+        });
+    }
     if header.field_defs.is_empty() {
         let mut defs = Vec::with_capacity(header.fields.len());
         for name in &header.fields {
             defs.push(match header.extension_fields.get(name) {
-                Some(ext) => HeaderFieldDef {
-                    name: name.clone(),
-                    field_type: ext.field_type,
-                    subsystem: None,
-                    layer: None,
-                    nullable: ext.nullable,
-                    dictionary: false,
-                    source: ext.source.clone(),
-                },
+                Some(ext) => ext.field_def(name),
                 None => column_defs(&header.system, &[name.as_str()])?.remove(0),
             });
         }

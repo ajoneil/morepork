@@ -432,6 +432,8 @@ fn test_extension_fields_roundtrip() {
             nullable: false,
             description: Some("HALT bug flag".into()),
             source: Some("missingno".into()),
+            subsystem: None,
+            layer: None,
         },
     );
     extension_fields.insert(
@@ -441,6 +443,8 @@ fn test_extension_fields_roundtrip() {
             nullable: false,
             description: None,
             source: Some("missingno".into()),
+            subsystem: None,
+            layer: None,
         },
     );
 

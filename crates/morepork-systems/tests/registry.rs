@@ -1,7 +1,9 @@
 //! The registry types every adapter's columns, expands profiles over each
 //! system's vocabulary, and completes producers' headers.
 
-use morepork::header::TraceHeader;
+use std::collections::BTreeMap;
+
+use morepork::header::{ExtensionField, TraceHeader};
 use morepork::profile::FieldType;
 use morepork_systems::{column_defs, describe, parse_profile, Error};
 
@@ -209,6 +211,149 @@ const GATEBOY_PPU: &[&str] = &[
     "rendering",
     "win_mode",
 ];
+
+/// GateBoy's gate-level columns outside the DMG vocabulary, as its header
+/// declares them: name, type, nullable.
+const GATEBOY_EXTENSIONS: &[(&str, FieldType, bool)] = &[
+    ("bus_addr", FieldType::UInt16, false),
+    ("ch1_freq_cnt", FieldType::UInt16, false),
+    ("ch1_sweep_shadow", FieldType::UInt16, false),
+    ("ch2_freq_cnt", FieldType::UInt16, false),
+    ("ch3_freq_cnt", FieldType::UInt16, false),
+    ("ch4_freq_cnt", FieldType::UInt16, false),
+    ("ch4_lfsr", FieldType::UInt16, false),
+    ("op_state", FieldType::UInt8, false),
+    ("mcycle_phase", FieldType::UInt8, false),
+    ("mask_pipe", FieldType::UInt8, false),
+    ("oam0_x", FieldType::UInt8, false),
+    ("oam0_id", FieldType::UInt8, false),
+    ("oam0_attr", FieldType::UInt8, false),
+    ("oam1_x", FieldType::UInt8, false),
+    ("oam1_id", FieldType::UInt8, false),
+    ("oam1_attr", FieldType::UInt8, false),
+    ("oam2_x", FieldType::UInt8, false),
+    ("oam2_id", FieldType::UInt8, false),
+    ("oam2_attr", FieldType::UInt8, false),
+    ("oam3_x", FieldType::UInt8, false),
+    ("oam3_id", FieldType::UInt8, false),
+    ("oam3_attr", FieldType::UInt8, false),
+    ("oam4_x", FieldType::UInt8, false),
+    ("oam4_id", FieldType::UInt8, false),
+    ("oam4_attr", FieldType::UInt8, false),
+    ("oam5_x", FieldType::UInt8, false),
+    ("oam5_id", FieldType::UInt8, false),
+    ("oam5_attr", FieldType::UInt8, false),
+    ("oam6_x", FieldType::UInt8, false),
+    ("oam6_id", FieldType::UInt8, false),
+    ("oam6_attr", FieldType::UInt8, false),
+    ("oam7_x", FieldType::UInt8, false),
+    ("oam7_id", FieldType::UInt8, false),
+    ("oam7_attr", FieldType::UInt8, false),
+    ("oam8_x", FieldType::UInt8, false),
+    ("oam8_id", FieldType::UInt8, false),
+    ("oam8_attr", FieldType::UInt8, false),
+    ("oam9_x", FieldType::UInt8, false),
+    ("oam9_id", FieldType::UInt8, false),
+    ("oam9_attr", FieldType::UInt8, false),
+    ("ch1_env_vol", FieldType::UInt8, false),
+    ("ch1_phase", FieldType::UInt8, false),
+    ("ch1_len_cnt", FieldType::UInt8, false),
+    ("ch2_env_vol", FieldType::UInt8, false),
+    ("ch2_phase", FieldType::UInt8, false),
+    ("ch2_len_cnt", FieldType::UInt8, false),
+    ("ch3_wave_idx", FieldType::UInt8, false),
+    ("ch3_sample", FieldType::UInt8, false),
+    ("ch3_len_cnt", FieldType::UInt8, false),
+    ("ch4_env_vol", FieldType::UInt8, false),
+    ("ch4_len_cnt", FieldType::UInt8, false),
+    ("ch1_active", FieldType::Bool, false),
+    ("ch2_active", FieldType::Bool, false),
+    ("ch3_active", FieldType::Bool, false),
+    ("ch4_active", FieldType::Bool, false),
+    ("halted", FieldType::Bool, false),
+    ("irq_pending", FieldType::Bool, false),
+    ("dispatch_active", FieldType::Bool, false),
+    ("irq_latched", FieldType::Bool, false),
+    ("vram_addr", FieldType::UInt16, true),
+    ("vram_data", FieldType::UInt8, true),
+    ("apu_write_addr", FieldType::UInt16, true),
+    ("apu_write_data", FieldType::UInt8, true),
+];
+
+fn gateboy_extension_fields() -> BTreeMap<String, ExtensionField> {
+    GATEBOY_EXTENSIONS
+        .iter()
+        .map(|&(name, field_type, nullable)| {
+            let ext = ExtensionField {
+                field_type,
+                nullable,
+                description: None,
+                source: Some("gateboy".into()),
+                subsystem: Some("gateboy".into()),
+                layer: Some("internal".into()),
+            };
+            (name.to_string(), ext)
+        })
+        .collect()
+}
+
+#[test]
+fn gateboy_columns_resolve_with_its_extension_declarations() {
+    let mut fields: Vec<&str> = GB_IO
+        .iter()
+        .chain(GB_CPU)
+        .chain(GATEBOY_PPU)
+        .copied()
+        .filter(|n| !["sb", "sc", "op_addr"].contains(n))
+        .collect();
+    fields.extend(GATEBOY_EXTENSIONS.iter().map(|&(name, _, _)| name));
+    assert_eq!(GATEBOY_EXTENSIONS.len(), 63);
+
+    for &(name, _, _) in GATEBOY_EXTENSIONS {
+        assert!(
+            column_defs("dmg", &[name]).is_err(),
+            "{name} is a dmg column"
+        );
+    }
+
+    let mut h = header("dmg", &fields);
+    h.extension_fields = gateboy_extension_fields();
+    describe(&mut h).unwrap();
+    assert_eq!(h.field_defs.len(), fields.len());
+    for &(name, field_type, nullable) in GATEBOY_EXTENSIONS {
+        let def = h.field_def(name).unwrap();
+        assert_eq!(def.field_type, field_type, "{name}");
+        assert_eq!(def.nullable, nullable, "{name}");
+        assert_eq!(def.subsystem.as_deref(), Some("gateboy"), "{name}");
+        assert_eq!(def.layer.as_deref(), Some("internal"), "{name}");
+    }
+    assert_eq!(h.field_def("ly").unwrap().subsystem.as_deref(), Some("ppu"));
+
+    let names: Vec<String> = GATEBOY_EXTENSIONS
+        .iter()
+        .map(|&(name, _, _)| format!("\"{name}\""))
+        .collect();
+    let p = parse_profile(&format!(
+        "[profile]\nname = \"t\"\ndescription = \"t\"\ntrigger = \"tcycle\"\n\n[fields]\nppu = \"registers\"\n\n[fields.extensions]\ngateboy = [{}]\n",
+        names.join(", ")
+    ))
+    .unwrap();
+    assert_eq!(p.extensions["gateboy"].len(), 63);
+}
+
+#[test]
+fn an_extension_field_may_not_shadow_a_vocabulary_name() {
+    let mut h = header("dmg", &["pc", "ly"]);
+    let mut ext = gateboy_extension_fields();
+    let decl = ext.remove("bus_addr").unwrap();
+    ext.insert("ly".into(), decl);
+    h.extension_fields = ext;
+    let err = describe(&mut h).unwrap_err();
+    assert!(
+        matches!(&err, Error::ShadowedColumn { column, .. } if column == "ly"),
+        "{err}"
+    );
+}
 
 #[test]
 fn every_gb_adapter_column_resolves() {
