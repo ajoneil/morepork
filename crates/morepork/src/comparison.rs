@@ -105,7 +105,7 @@ impl<'a> TraceComparison<'a> {
             }
             "cartridge" => {
                 if !try_align_cartridge_entry(store_a, store_b, &mut map_a, &mut map_b) {
-                    let msg = match store_a.header().system_def().entry_addrs {
+                    let msg = match store_a.header().entry_addrs {
                         Some((entry, next)) => format!(
                             "sync=cartridge: both traces must start at \
                              PC=0x{entry:04X} (program entry) and contain a \
@@ -114,7 +114,7 @@ impl<'a> TraceComparison<'a> {
                         None => format!(
                             "sync=cartridge: system '{}' has no fixed program \
                              entry address; use sync=pc or a condition",
-                            store_a.header().system_def().id
+                            store_a.header().system
                         ),
                     };
                     return Err(Error::Diff(msg));
@@ -734,7 +734,7 @@ fn try_align_cartridge_entry(
     map_a: &mut Vec<usize>,
     map_b: &mut Vec<usize>,
 ) -> bool {
-    let (entry, after_entry) = match store_a.header().system_def().entry_addrs {
+    let (entry, after_entry) = match store_a.header().entry_addrs {
         Some(addrs) => addrs,
         None => return false,
     };
@@ -771,6 +771,21 @@ mod tests {
         pcs: Vec<u16>,
     }
 
+    fn u16_defs(names: &[String]) -> Vec<crate::header::HeaderFieldDef> {
+        names
+            .iter()
+            .map(|name| crate::header::HeaderFieldDef {
+                name: name.clone(),
+                field_type: FieldType::UInt16,
+                subsystem: Some("cpu".into()),
+                layer: Some("registers".into()),
+                nullable: false,
+                dictionary: false,
+                source: None,
+            })
+            .collect()
+    }
+
     impl PcStore {
         fn new(pcs: Vec<u16>) -> Self {
             let mut store = Self {
@@ -780,6 +795,9 @@ mod tests {
                     emulator: "test".into(),
                     emulator_version: "0".into(),
                     rom_sha256: "0".into(),
+                    system: "dmg".into(),
+                    isa: "sm83".into(),
+                    entry_addrs: Some((0x0100, 0x0101)),
                     model: "DMG".into(),
                     boot_rom: BootRom::Skip,
                     profile: "test".into(),
@@ -792,7 +810,8 @@ mod tests {
                 },
                 pcs,
             };
-            store.header.ensure_self_describing();
+            store.header.field_defs = u16_defs(&store.header.fields);
+            store.header.ensure_self_describing().unwrap();
             store
         }
     }
@@ -827,6 +846,9 @@ mod tests {
                 emulator: "test".into(),
                 emulator_version: "0".into(),
                 rom_sha256: "0".into(),
+                system: "dmg".into(),
+                isa: "sm83".into(),
+                entry_addrs: Some((0x0100, 0x0101)),
                 model: "DMG".into(),
                 boot_rom: BootRom::Skip,
                 profile: "test".into(),
@@ -837,7 +859,8 @@ mod tests {
                 notes: String::new(),
                 ..Default::default()
             };
-            header.ensure_self_describing();
+            header.field_defs = u16_defs(&header.fields);
+            header.ensure_self_describing().unwrap();
             Self { header, pcs, op_addrs }
         }
     }

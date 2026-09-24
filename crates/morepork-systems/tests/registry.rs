@@ -1,0 +1,431 @@
+//! The registry types every adapter's columns, expands profiles over each
+//! system's vocabulary, and completes producers' headers.
+
+use morepork::header::TraceHeader;
+use morepork::profile::FieldType;
+use morepork_systems::{column_defs, describe, parse_profile, Error};
+
+const Z80_TI_VDP: &[&str] = &[
+    "pc",
+    "sp",
+    "a",
+    "f",
+    "b",
+    "c",
+    "d",
+    "e",
+    "h",
+    "l",
+    "ix",
+    "iy",
+    "wz",
+    "a_alt",
+    "f_alt",
+    "b_alt",
+    "c_alt",
+    "d_alt",
+    "e_alt",
+    "h_alt",
+    "l_alt",
+    "i",
+    "r",
+    "im",
+    "iff1",
+    "iff2",
+    "halted",
+    "vdp_r0",
+    "vdp_r1",
+    "vdp_r2",
+    "vdp_r3",
+    "vdp_r4",
+    "vdp_r5",
+    "vdp_r6",
+    "vdp_r7",
+    "vdp_frame_flag",
+    "vdp_fifth_sprite_flag",
+    "vdp_coincidence_flag",
+    "vdp_fifth_sprite_index",
+    "vdp_address",
+    "vdp_awaiting_second_byte",
+    "vdp_read_buffer",
+    "vdp_line",
+    "vdp_line_xtal",
+    "result",
+    "code",
+    "observed",
+    "expected",
+];
+
+const OPENMSX: &[&str] = &[
+    "pc",
+    "sp",
+    "a",
+    "f",
+    "b",
+    "c",
+    "d",
+    "e",
+    "h",
+    "l",
+    "ix",
+    "iy",
+    "vdp_r0",
+    "vdp_r1",
+    "vdp_r2",
+    "vdp_r3",
+    "vdp_r4",
+    "vdp_r5",
+    "vdp_r6",
+    "vdp_r7",
+    "vdp_frame_flag",
+    "vdp_fifth_sprite_flag",
+    "vdp_coincidence_flag",
+    "vdp_fifth_sprite_index",
+    "vdp_address",
+    "vdp_awaiting_second_byte",
+    "vdp_read_buffer",
+    "result",
+    "code",
+    "observed",
+    "expected",
+];
+
+const MAME_Z80: &[&str] = &[
+    "pc", "sp", "a", "f", "b", "c", "d", "e", "h", "l", "ix", "iy", "result", "code", "observed",
+    "expected",
+];
+
+const MAME_VCS: &[&str] = &[
+    "pc", "a", "x", "y", "s", "p", "result", "code", "observed", "expected",
+];
+
+const STELLA: &[&str] = &[
+    "pc", "a", "x", "y", "s", "p", "line", "beam", "result", "code", "observed", "expected",
+];
+
+const GOPHER2600: &[&str] = &[
+    "pc",
+    "a",
+    "x",
+    "y",
+    "s",
+    "p",
+    "line",
+    "beam",
+    "riot_timer",
+    "riot_porta_pins",
+    "riot_portb_pins",
+    "result",
+    "code",
+    "observed",
+    "expected",
+];
+
+const MISSINGNO_VCS: &[&str] = &[
+    "pc",
+    "a",
+    "x",
+    "y",
+    "s",
+    "p",
+    "cpu_ready",
+    "cycles",
+    "line",
+    "beam",
+    "riot_timer",
+    "riot_porta_pins",
+    "riot_portb_pins",
+    "result",
+    "code",
+    "observed",
+    "expected",
+];
+
+/// The IO-register map the C Game Boy adapters share.
+const GB_IO: &[&str] = &[
+    "lcdc",
+    "stat",
+    "scy",
+    "scx",
+    "ly",
+    "lyc",
+    "wy",
+    "wx",
+    "bgp",
+    "obp0",
+    "obp1",
+    "dma",
+    "div",
+    "tima",
+    "tma",
+    "tac",
+    "if_",
+    "ie",
+    "sb",
+    "sc",
+    "ch1_sweep",
+    "ch1_duty_len",
+    "ch1_vol_env",
+    "ch1_freq_lo",
+    "ch1_freq_hi",
+    "ch2_duty_len",
+    "ch2_vol_env",
+    "ch2_freq_lo",
+    "ch2_freq_hi",
+    "ch3_dac",
+    "ch3_len",
+    "ch3_vol",
+    "ch3_freq_lo",
+    "ch3_freq_hi",
+    "ch4_len",
+    "ch4_vol_env",
+    "ch4_freq",
+    "ch4_control",
+    "master_vol",
+    "sound_pan",
+    "sound_on",
+];
+
+/// The CPU and pixel columns the C Game Boy adapters can emit (each takes
+/// the subset its emulator exposes).
+const GB_CPU: &[&str] = &[
+    "pc", "op_addr", "sp", "a", "f", "b", "c", "d", "e", "h", "l", "ime", "pix",
+];
+
+/// The PPU pipeline cells GateBoy reads beyond the IO map.
+const GATEBOY_PPU: &[&str] = &[
+    "bgw_fifo_a",
+    "bgw_fifo_b",
+    "spr_fifo_a",
+    "spr_fifo_b",
+    "pal_pipe",
+    "tfetch_state",
+    "sfetch_state",
+    "tile_temp_a",
+    "tile_temp_b",
+    "pix_count",
+    "sprite_count",
+    "scan_count",
+    "rendering",
+    "win_mode",
+];
+
+#[test]
+fn every_gb_adapter_column_resolves() {
+    for system in ["dmg", "cgb"] {
+        for columns in [GB_IO, GB_CPU, GATEBOY_PPU] {
+            column_defs(system, columns).unwrap_or_else(|e| panic!("{system}: {e}"));
+        }
+    }
+}
+
+/// Each adapter's columns, by the system ids it writes.
+const ADAPTERS: &[(&str, &[&str], &[&str])] = &[
+    ("gearsystem", &["sg1000"], Z80_TI_VDP),
+    ("gearcoleco", &["colecovision"], Z80_TI_VDP),
+    ("ares", &["colecovision", "sg1000", "msx1"], Z80_TI_VDP),
+    ("openmsx", &["msx1"], OPENMSX),
+    (
+        "mame (TI VDP machines)",
+        &["sg1000", "colecovision"],
+        MAME_Z80,
+    ),
+    ("mame (vcs)", &["vcs"], MAME_VCS),
+    ("stella", &["vcs"], STELLA),
+    ("gopher2600", &["vcs"], GOPHER2600),
+    ("morepork-missingno-vcs", &["vcs"], MISSINGNO_VCS),
+];
+
+#[test]
+fn every_adapter_column_resolves_for_its_system() {
+    for (adapter, systems, columns) in ADAPTERS {
+        for system in *systems {
+            let defs = column_defs(system, columns)
+                .unwrap_or_else(|e| panic!("{adapter} on {system}: {e}"));
+            assert_eq!(defs.len(), columns.len(), "{adapter} on {system}");
+        }
+    }
+}
+
+#[test]
+fn an_unknown_column_names_the_system_and_the_column() {
+    let err = column_defs("sg1000", &["pc", "reg0"]).unwrap_err();
+    assert!(
+        matches!(&err, Error::UnknownColumn { system, column } if system == "sg1000" && column == "reg0")
+    );
+    assert_eq!(err.to_string(), "system 'sg1000' has no column 'reg0'");
+}
+
+#[test]
+fn coleco_is_not_a_system_id() {
+    assert!(matches!(
+        column_defs("coleco", &["pc"]),
+        Err(Error::UnknownSystem(_))
+    ));
+    assert!(column_defs("colecovision", &["pc"]).is_ok());
+}
+
+#[test]
+fn bridge_observations_belong_to_their_system() {
+    let op_addr = &column_defs("dmg", &["op_addr"]).unwrap()[0];
+    assert_eq!(op_addr.field_type, FieldType::UInt16);
+    assert!(column_defs("sg1000", &["op_addr"]).is_err());
+    let line = &column_defs("vcs", &["line"]).unwrap()[0];
+    assert_eq!(line.field_type, FieldType::UInt16);
+}
+
+#[test]
+fn columns_carry_the_schema_types() {
+    let defs = column_defs(
+        "sg1000",
+        &[
+            "vdp_frame_flag",
+            "vdp_line_xtal",
+            "cycles",
+            "ram_write_addr",
+        ],
+    )
+    .unwrap();
+    let types: Vec<FieldType> = defs.iter().map(|d| d.field_type).collect();
+    assert_eq!(
+        types,
+        [
+            FieldType::Bool,
+            FieldType::UInt16,
+            FieldType::UInt16,
+            FieldType::UInt16
+        ]
+    );
+    assert!(defs[3].nullable);
+    assert_eq!(defs[0].subsystem.as_deref(), Some("vdp"));
+}
+
+fn header(system: &str, fields: &[&str]) -> TraceHeader {
+    TraceHeader {
+        _header: true,
+        system: system.into(),
+        fields: fields.iter().map(|f| f.to_string()).collect(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn describe_states_the_schema_identity() {
+    let mut h = header("dmg", &["op_addr", "pc", "a"]);
+    describe(&mut h).unwrap();
+    assert_eq!(h.isa, "sm83");
+    assert_eq!(h.entry_addrs, Some((0x0100, 0x0101)));
+    assert_eq!(h.instruction_addr_field.as_deref(), Some("op_addr"));
+    assert_eq!(h.field_defs.len(), 3);
+
+    let mut h = header("colecovision", &["pc"]);
+    describe(&mut h).unwrap();
+    assert_eq!(h.isa, "z80");
+    assert_eq!(h.entry_addrs, None);
+
+    assert!(describe(&mut header("sg1000", &["pc", "status"])).is_err());
+}
+
+#[test]
+fn a_described_header_round_trips_its_entry_addrs() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.morepork");
+    let mut h = header("cgb", &["op_addr", "a"]);
+    describe(&mut h).unwrap();
+    let mut w = morepork::format::write::MoreporkWriter::create(&path, &h, &[]).unwrap();
+    w.set_u16(0, 0x0100);
+    w.set_u8(1, 0x11);
+    w.finish_entry().unwrap();
+    w.finish().unwrap();
+
+    let store = morepork::store::open_trace_store(&path).unwrap();
+    let read = store.header();
+    assert_eq!(read.entry_addrs, Some((0x0100, 0x0101)));
+    assert_eq!(read.system, "cgb");
+    assert_eq!(read.isa, "sm83");
+}
+
+const SG1000_PROFILE: &str = r#"
+[profile]
+name = "sg1000-smoke"
+description = "SG-1000 CPU + VDP registers"
+trigger = "instruction"
+system = "sg1000"
+
+[fields]
+cpu = "registers"
+vdp = "registers"
+
+[fields.memory]
+test_result = "C000"
+"#;
+
+#[test]
+fn profile_selections_expand_over_the_schema() {
+    let p = parse_profile(SG1000_PROFILE).unwrap();
+    assert_eq!(p.system, "sg1000");
+    let fields: Vec<&str> = p.fields.iter().map(String::as_str).collect();
+    assert!(fields.starts_with(&["a", "f", "b", "c", "d", "e", "h", "l", "a_alt"]));
+    assert!(fields.contains(&"vdp_r7"));
+    assert!(fields.contains(&"vdp_fifth_sprite_index"));
+    // Boundary-tier fields are the `internal` layer, not `registers`.
+    assert!(!fields.contains(&"wz"));
+    assert!(!fields.contains(&"vdp_line"));
+    assert_eq!(fields.last(), Some(&"test_result"));
+}
+
+#[test]
+fn profile_layers_follow_tiers_and_observations() {
+    let p = parse_profile(
+        r#"
+[profile]
+name = "t"
+description = "t"
+trigger = "instruction"
+
+[fields]
+cpu = ["registers", "timing"]
+"#,
+    )
+    .unwrap();
+    assert_eq!(p.system, "dmg");
+    assert!(p.fields.contains(&"pc".to_string()));
+    assert!(p.fields.contains(&"op_addr".to_string()));
+    assert!(p.fields.contains(&"cycles".to_string()));
+    assert!(!p.fields.contains(&"ime_enable_pending".to_string()));
+}
+
+#[test]
+fn profile_rejections() {
+    let base = |system: &str, fields: &str| {
+        format!(
+            "[profile]\nname = \"t\"\ndescription = \"t\"\ntrigger = \"instruction\"\nsystem = \"{system}\"\n\n[fields]\n{fields}\n"
+        )
+    };
+    let err = parse_profile(&base("n64", "cpu = \"registers\""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("unknown system 'n64'"), "{err}");
+    let err = parse_profile(&base("dmg", "vdp = \"registers\""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("unknown subsystem 'vdp'"), "{err}");
+    let err = parse_profile(&base("dmg", "cpu = \"bogus\""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("does not have layer 'bogus'"), "{err}");
+    let err = parse_profile(&base(
+        "dmg",
+        "cpu = \"registers\"\n\n[fields.memory]\npc = \"C000\"",
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("conflicts with a built-in field"), "{err}");
+    let err = parse_profile(&base(
+        "dmg",
+        "cpu = \"registers\"\n\n[fields.extensions]\nx = [\"ly\"]",
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("shadows a built-in field"), "{err}");
+}

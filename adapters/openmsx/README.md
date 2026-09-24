@@ -24,9 +24,11 @@ deterministic:
 2. The hook logs one line per instruction, **entirely in-process** (Tcl
    inside openMSX, no round-trips): the Z80 register file *plus the VDP
    state that gdbstub oracles cannot see* — the eight write registers, the
-   status register, and the internal machinery the morepork `ti_vdp`
-   catalogue names: `addr` (`VRAM pointer`), `latch` (`VDP register latch
-   status`), `buffer` (`VDP data latch value`). The suite's sanity ROM
+   status register (split into `vdp_frame_flag`, `vdp_fifth_sprite_flag`,
+   `vdp_coincidence_flag`, `vdp_fifth_sprite_index`), and the internal
+   machinery missingno's ti-vdp schema names: `vdp_address` (`VRAM
+   pointer`), `vdp_awaiting_second_byte` (`VDP register latch status`),
+   `vdp_read_buffer` (`VDP data latch value`). The suite's sanity ROM
    traces INIT→verdict (~320 instructions) in about a millisecond.
 3. A **watchpoint on the RESULT byte** (`$E000`, `$A5` PASS / `$5A` FAIL)
    tears the trace down at the verdict; the RESULT block lands on the

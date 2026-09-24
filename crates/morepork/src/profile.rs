@@ -23,85 +23,12 @@ pub enum FieldType {
     Str,
 }
 
-/// Complete metadata for a single trace field.
-#[derive(Debug, Clone)]
-pub struct FieldDef {
-    pub name: &'static str,
-    pub field_type: FieldType,
-    pub nullable: bool,
-    pub dictionary: bool,
-}
-
-// ---------------------------------------------------------------------------
-// Subsystem / layer definitions
-// ---------------------------------------------------------------------------
-
-/// A capture layer within a subsystem.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Layer {
-    Registers,
-    Internal,
-    Writes,
-    Output,
-    Timing,
-}
-
-impl Layer {
-    fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "registers" => Some(Layer::Registers),
-            "internal" => Some(Layer::Internal),
-            "writes" => Some(Layer::Writes),
-            "output" => Some(Layer::Output),
-            "timing" => Some(Layer::Timing),
-            _ => None,
-        }
-    }
-}
-
-/// A hardware subsystem definition with its available layers.
-pub struct SubsystemDef {
-    pub name: &'static str,
-    pub layers: &'static [(Layer, &'static [FieldDef])],
-}
-
-impl SubsystemDef {
-    /// Get all fields for the given layers.
-    pub(crate) fn fields_for_layers(&self, layers: &[Layer]) -> Vec<&'static FieldDef> {
-        self.layers
-            .iter()
-            .filter(|(l, _)| layers.contains(l))
-            .flat_map(|(_, fields)| fields.iter())
-            .collect()
-    }
-
-    /// Get all fields across all layers.
-    pub(crate) fn all_fields(&self) -> Vec<&'static FieldDef> {
-        self.layers
-            .iter()
-            .flat_map(|(_, fields)| fields.iter())
-            .collect()
-    }
-
-    /// Get the available layer names for this subsystem.
-    pub(crate) fn available_layers(&self) -> Vec<Layer> {
-        self.layers.iter().map(|(l, _)| *l).collect()
-    }
-}
-
-// The GB-catalogue field-lookup free helpers were removed once the missingno
-// producer began authoring its trace headers from its own state schema: they
-// existed only so that producer could type its emitters through morepork.
-// Readers resolve types from the self-describing header (`TraceHeader::resolve_*`);
-// a non-missingno GB adapter that still selects fields through a profile reaches
-// the catalogue via its system registry entry (`System::lookup_field`).
-
 // ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
 //
 // **Extension fields.** Adapters can surface emulator-internal debug state
-// without changing this catalogue by declaring extension fields in the
+// outside the system's state vocabulary by declaring extension fields in the
 // trace header. A profile opts into them via:
 //
 // ```toml
@@ -117,7 +44,9 @@ impl SubsystemDef {
 // Readers consult `TraceHeader::resolve_field_type` for typing — no need
 // for any consumer to recompile to handle new extensions.
 
-/// A capture profile loaded from a TOML file.
+/// A capture profile loaded from a TOML file. Parsing reads the TOML; the
+/// subsystem-layer selections name the system's state vocabulary, so they
+/// are expanded into `fields` by `morepork-systems`, which holds it.
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub name: String,
@@ -125,7 +54,11 @@ pub struct Profile {
     /// The system the profile targets ("dmg" when the TOML omits it).
     pub system: String,
     pub trigger: Trigger,
-    /// Flattened, ordered list of field names to capture.
+    /// Subsystem → layer selection, as the TOML states it.
+    pub selections: BTreeMap<String, LayerSelection>,
+    /// Flattened, ordered list of field names to capture: the expanded
+    /// selections, then the memory watches. Holds only the memory watches
+    /// until the selections are expanded.
     pub fields: Vec<String>,
     /// Memory address reads: maps field name -> address.
     pub memory: BTreeMap<String, u16>,
@@ -165,12 +98,41 @@ struct ProfileMeta {
 /// - `true` or `"all"` — all layers
 /// - `"registers"` — a single layer
 /// - `["registers", "internal"]` — multiple layers
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(untagged)]
-enum LayerSelection {
+pub enum LayerSelection {
     Bool(bool),
     Single(String),
     Multiple(Vec<String>),
+}
+
+impl LayerSelection {
+    /// The selected layer names out of those the subsystem has, in the
+    /// subsystem's order.
+    pub fn resolve<'a>(
+        &self,
+        subsystem: &str,
+        available: &[&'a str],
+    ) -> std::result::Result<Vec<&'a str>, String> {
+        let named: Vec<&str> = match self {
+            LayerSelection::Bool(true) => return Ok(available.to_vec()),
+            LayerSelection::Bool(false) => return Ok(vec![]),
+            LayerSelection::Single(s) => vec![s.as_str()],
+            LayerSelection::Multiple(layers) => layers.iter().map(String::as_str).collect(),
+        };
+        if named.contains(&"all") {
+            return Ok(available.to_vec());
+        }
+        for name in &named {
+            if !available.contains(name) {
+                return Err(format!(
+                    "subsystem '{subsystem}' does not have layer '{name}': expected one of {}",
+                    available.join(", ")
+                ));
+            }
+        }
+        Ok(available.iter().copied().filter(|l| named.contains(l)).collect())
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -184,8 +146,7 @@ struct FieldGroupsToml {
     /// Each adapter resolves its own list at trace-creation time.
     #[serde(default)]
     extensions: BTreeMap<String, Vec<String>>,
-    /// Every other key is a subsystem layer selection, validated against
-    /// the profile's family catalogue.
+    /// Every other key is a subsystem layer selection.
     #[serde(flatten)]
     subsystems: BTreeMap<String, LayerSelection>,
 }
@@ -198,49 +159,6 @@ fn parse_hex_addr(s: &str) -> std::result::Result<u16, String> {
     u16::from_str_radix(s, 16).map_err(|_| format!("invalid hex address: {s}"))
 }
 
-fn resolve_layers(
-    selection: &LayerSelection,
-    subsystem: &SubsystemDef,
-) -> std::result::Result<Vec<Layer>, String> {
-    match selection {
-        LayerSelection::Bool(true) => Ok(subsystem.available_layers()),
-        LayerSelection::Bool(false) => Ok(vec![]),
-        LayerSelection::Single(s) if s == "all" => Ok(subsystem.available_layers()),
-        LayerSelection::Single(s) => {
-            let layer = Layer::from_str(s)
-                .ok_or_else(|| format!("unknown layer '{s}' for subsystem '{}'", subsystem.name))?;
-            if !subsystem.available_layers().contains(&layer) {
-                return Err(format!(
-                    "subsystem '{}' does not have layer '{s}'",
-                    subsystem.name
-                ));
-            }
-            Ok(vec![layer])
-        }
-        LayerSelection::Multiple(layers) => {
-            let mut result = Vec::new();
-            for s in layers {
-                if s == "all" {
-                    return Ok(subsystem.available_layers());
-                }
-                let layer = Layer::from_str(s).ok_or_else(|| {
-                    format!("unknown layer '{s}' for subsystem '{}'", subsystem.name)
-                })?;
-                if !subsystem.available_layers().contains(&layer) {
-                    return Err(format!(
-                        "subsystem '{}' does not have layer '{s}'",
-                        subsystem.name
-                    ));
-                }
-                if !result.contains(&layer) {
-                    result.push(layer);
-                }
-            }
-            Ok(result)
-        }
-    }
-}
-
 impl Profile {
     /// Load a profile from a TOML file.
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
@@ -248,75 +166,21 @@ impl Profile {
         Self::parse(&contents)
     }
 
-    /// Parse a profile from a TOML string.
+    /// Parse a profile from a TOML string, leaving its selections unexpanded.
     pub fn parse(toml_str: &str) -> Result<Self> {
         let raw: ProfileToml = toml::from_str(toml_str)?;
 
-        let system_id = raw.profile.system.as_deref().unwrap_or("dmg");
-        let system = crate::system::system(system_id).ok_or_else(|| {
-            let known: Vec<&str> = crate::system::SYSTEMS.iter().map(|s| s.id).collect();
-            Error::Profile(format!(
-                "unknown system '{system_id}': expected one of {}",
-                known.join(", ")
-            ))
-        })?;
-
-        // Reject subsystem keys the system doesn't have (previously a typo'd
-        // key was silently ignored).
-        for key in raw.fields.subsystems.keys() {
-            if !system.subsystems.iter().any(|s| s.name == key) {
-                let known: Vec<&str> = system.subsystems.iter().map(|s| s.name).collect();
-                return Err(Error::Profile(format!(
-                    "unknown subsystem '{key}' for system '{}': expected one of {}",
-                    system.id,
-                    known.join(", ")
-                )));
-            }
-        }
-
-        // Resolve each subsystem's layer selection into fields, in the
-        // family's catalogue order (not TOML key order).
         let mut fields = Vec::new();
-        for subsystem in system.subsystems {
-            if let Some(sel) = raw.fields.subsystems.get(subsystem.name) {
-                let layers = resolve_layers(sel, subsystem).map_err(Error::Profile)?;
-                for field_def in subsystem.fields_for_layers(&layers) {
-                    if fields.contains(&field_def.name.to_string()) {
-                        return Err(Error::Profile(format!(
-                            "duplicate field: {}",
-                            field_def.name
-                        )));
-                    }
-                    fields.push(field_def.name.to_string());
-                }
-            }
-        }
-
-        // Parse memory address fields
         let mut memory = BTreeMap::new();
         for (name, addr_str) in &raw.fields.memory {
-            if fields.contains(name) || system.lookup_field(name).is_some() {
-                return Err(Error::Profile(format!(
-                    "memory field '{name}' conflicts with a built-in field"
-                )));
-            }
             let addr = parse_hex_addr(addr_str)
                 .map_err(|e| Error::Profile(format!("memory field '{name}': {e}")))?;
             fields.push(name.clone());
             memory.insert(name.clone(), addr);
         }
 
-        // Extensions don't add anything to `fields` here — adapters merge
-        // their own extension list into `fields` at trace-creation time
-        // (when they know which adapter they are). Validate names don't
-        // shadow built-ins or memory entries.
         for (adapter, ext_fields) in &raw.fields.extensions {
             for name in ext_fields {
-                if system.lookup_field(name).is_some() {
-                    return Err(Error::Profile(format!(
-                        "extensions.{adapter}: '{name}' shadows a built-in field"
-                    )));
-                }
                 if memory.contains_key(name) {
                     return Err(Error::Profile(format!(
                         "extensions.{adapter}: '{name}' conflicts with a memory field"
@@ -328,8 +192,9 @@ impl Profile {
         Ok(Profile {
             name: raw.profile.name,
             description: raw.profile.description,
-            system: system.id.to_string(),
+            system: raw.profile.system.unwrap_or_else(|| "dmg".to_string()),
             trigger: raw.profile.trigger,
+            selections: raw.fields.subsystems,
             fields,
             memory,
             extensions: raw.fields.extensions,

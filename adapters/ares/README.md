@@ -2,7 +2,7 @@
 
 A morepork adapter embedding [ares](https://ares-emu.net/) as an
 **independent-lineage trace oracle** for the TI VDP test suite, covering
-the suite's hosts from one binary: `-system coleco` (`.col`), `sg1000`
+the suite's hosts from one binary: `-system colecovision` (`.col`; `coleco` is accepted), `sg1000`
 and `sc3000` (`.sg` — the SC-3000 captures as the `sg1000` system with
 the machine in `model`, matching the mame adapter), and `msx1` (`.mx1`,
 **experimental** — see limitations).
@@ -60,12 +60,12 @@ at 99.6% agreement with the matching MAME captures (again only the
 pre-init power-on entries differ).
 
 ```
-morepork-ares -system coleco -rom test.col -bios colecovision.rom -out trace.morepork
+morepork-ares -system colecovision -rom test.col -bios colecovision.rom -out trace.morepork
 morepork-ares -system sg1000 -rom test.sg -out trace.morepork
 morepork-ares -system sc3000 -rom test.sg -out trace.morepork
 ```
 
-Flags: `-system coleco|sg1000|sc3000|msx1` `-rom` `-bios` (coleco/msx1)
+Flags: `-system colecovision|sg1000|sc3000|msx1` `-rom` `-bios` (colecovision/msx1)
 `-out` `-spec NTSC` `-frames` (budget cap) `-frame=false`.
 
 ## Known limitations

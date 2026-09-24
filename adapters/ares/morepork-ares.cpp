@@ -19,7 +19,7 @@
 // built at runtime by calling the core's own colour pipeline, so no
 // calibration table can drift.
 //
-//   morepork-ares -system coleco -rom test.col -bios colecovision.rom -out trace.morepork
+//   morepork-ares -system colecovision -rom test.col -bios colecovision.rom -out trace.morepork
 //   morepork-ares -system sg1000 -rom test.sg  -out trace.morepork
 //   morepork-ares -system sc3000 -rom test.sg  -out trace.morepork
 //   morepork-ares -system msx1   -rom test.mx1 -bios cbios_msx1.rom -out trace.morepork
@@ -56,10 +56,11 @@ static const uint8_t kTiVdpPalette[16 * 3] = {
 
 static const char* kFields[] = {
     "pc", "sp", "a", "f", "b", "c", "d", "e", "h", "l", "ix", "iy", "wz",
-    "a_", "f_", "b_", "c_", "d_", "e_", "h_", "l_", "i", "r",
+    "a_alt", "f_alt", "b_alt", "c_alt", "d_alt", "e_alt", "h_alt", "l_alt", "i", "r",
     "im", "iff1", "iff2", "halted",
-    "reg0", "reg1", "reg2", "reg3", "reg4", "reg5", "reg6", "reg7",
-    "status", "addr", "latch", "buffer", "line", "dot",
+    "vdp_r0", "vdp_r1", "vdp_r2", "vdp_r3", "vdp_r4", "vdp_r5", "vdp_r6", "vdp_r7",
+    "vdp_frame_flag", "vdp_fifth_sprite_flag", "vdp_coincidence_flag", "vdp_fifth_sprite_index",
+    "vdp_address", "vdp_awaiting_second_byte", "vdp_read_buffer", "vdp_line", "vdp_line_xtal",
     "result", "code", "observed", "expected",
 };
 static const size_t kNumFields = sizeof(kFields) / sizeof(kFields[0]);
@@ -96,7 +97,7 @@ static uint64_t sgColor(uint32_t i) { return ares::SG1000::vdp.color(i); }
 static uint64_t msxColor(uint32_t i) { return ares::MSX::vdp.colorMSX(i); }
 
 static const SysDef kSystems[] = {
-    {"coleco", "coleco", "NTSC", "ColecoVision", "ColecoVision",
+    {"colecovision", "colecovision", "NTSC", "ColecoVision", "ColecoVision",
      "[Coleco] ColecoVision (NTSC)", "ColecoVision", "ColecoVision Cartridge",
      true, 0x7000,
      &ares::ColecoVision::cpu, &ares::ColecoVision::vdp,
@@ -189,13 +190,6 @@ static void vdpRegisters(ares::TMS9918& vdp, uint8_t out[8]) {
   out[7] = ((uint8_t)vdp.dac.io.colorForeground << 4) | (uint8_t)vdp.dac.io.colorBackground;
 }
 
-static uint8_t vdpStatus(ares::TMS9918& vdp) {
-  return ((uint8_t)vdp.irqFrame.pending << 7)
-       | ((uint8_t)vdp.sprite.io.overflow << 6)
-       | ((uint8_t)vdp.sprite.io.collision << 5)
-       | (uint8_t)vdp.sprite.io.overflowIndex;
-}
-
 static void logInstruction() {
   if (!cap.tracing || cap.verdict) return;
   if (cap.instructions++ > cap.capInstructions) { cap.tracing = false; return; }
@@ -230,14 +224,19 @@ static void logInstruction() {
   uint8_t regs[8];
   vdpRegisters(vdp, regs);
   for (int i = 0; i < 8; i++) u8f(regs[i]);
-  u8f(vdpStatus(vdp));
+  // The status byte's F / 5S / C bits and its low five bits.
+  boolf((bool)vdp.irqFrame.pending);
+  boolf((bool)vdp.sprite.io.overflow);
+  boolf((bool)vdp.sprite.io.collision);
+  u8f((uint8_t)vdp.sprite.io.overflowIndex);
   // controlValue is the live address pointer; controlLatch is the
   // write-phase flag (set after the first control byte).
   u16f((uint16_t)(vdp.io.controlValue & 0x3FFF));
   boolf((bool)vdp.io.controlLatch);
   u8f((uint8_t)vdp.io.vramLatch);
   u16f((uint16_t)vdp.io.vcounter);
-  u16f((uint16_t)vdp.io.hcounter);
+  // XTAL periods within the line: two per dot.
+  u16f((uint16_t)(vdp.io.hcounter * 2));
   uint8_t result = sys.ramRead(sys.resultAddr);
   u8f(result);
   u8f(sys.ramRead(sys.resultAddr + 1));
@@ -280,7 +279,7 @@ int main(int argc, char** argv) {
   const char* bios = nullptr;
   const char* out = "trace.morepork";
   std::string spec = "NTSC";
-  std::string system = "coleco";
+  std::string system = "colecovision";
   int maxFrames = 30;
   bool wantFrame = true;
   for (int i = 1; i < argc; i++) {
@@ -297,7 +296,7 @@ int main(int argc, char** argv) {
     else if (a == "-frame=true" || a == "-frame=1") wantFrame = true;
     else {
       std::fprintf(stderr,
-                   "usage: morepork-ares -system coleco|sg1000|sc3000|msx1 -rom <rom>"
+                   "usage: morepork-ares -system colecovision|sg1000|sc3000|msx1 -rom <rom>"
                    " [-bios <rom>] [-out trace.morepork] [-spec NTSC] [-frames N] [-frame=false]\n");
       return 2;
     }
@@ -306,11 +305,12 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "error: -rom is required\n");
     return 2;
   }
+  if (system == "coleco") system = "colecovision";
   const SysDef* sys = nullptr;
   for (const auto& s : kSystems)
     if (system == s.cli) sys = &s;
   if (!sys) {
-    std::fprintf(stderr, "error: unknown -system %s (coleco, sg1000, sc3000, msx1)\n", system.c_str());
+    std::fprintf(stderr, "error: unknown -system %s (colecovision, sg1000, sc3000, msx1)\n", system.c_str());
     return 2;
   }
   if (sys->needsBios && !bios) {

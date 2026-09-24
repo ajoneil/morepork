@@ -8,19 +8,18 @@ The core is one binary trace format and one toolchain shared across systems, plu
 
 ## Supported systems
 
-Each trace is tagged with a **`system`** (which machine) and an **`isa`** (which CPU). The `isa` selects the disassembler and flag vocabulary; the `system` selects the field catalogue and query phrases. Everything else is self-described by the trace header, so the format and CLI stay system-agnostic.
+Each trace is tagged with a **`system`** (which machine) and an **`isa`** (which CPU). The `isa` selects the disassembler and flag vocabulary; the `system` is the machine's id in [missingno](https://github.com/ajoneil/missingno), whose state schema is the column vocabulary — every adapter writes the schema's names. Everything else is self-described by the trace header, so the format and CLI stay system-agnostic.
 
 | System | CPU | Captured state |
 | --- | --- | --- |
 | **Game Boy** (`dmg`) | Sharp SM83 (`sm83`) | CPU registers & flags, PPU (LCDC/STAT/LY…), timer, interrupts, memory watches |
 | **Game Boy Color** (`cgb`) | Sharp SM83 (`sm83`) | as Game Boy, plus colour PPU state and double-speed timing |
-| **Atari VCS / 2600** (`vcs`) | MOS 6507 (`6502`) | 6507 registers & flags, TIA beam position (line/clock), RIOT timer and ports |
+| **Atari VCS / 2600** (`vcs`) | MOS 6507 (`6502`) | 6507 registers & flags, TIA beam position (`line`/`beam`), RIOT timer and ports |
 | **Sega SG-1000 / SC-3000** (`sg1000`) | Zilog Z80 (`z80`) | full Z80 register file incl. shadow set, TMS9918A VDP registers/status/beam |
-| **ColecoVision** (`coleco`) | Zilog Z80 (`z80`) | same Z80 + TMS9918A catalogue |
-| **MSX1** (`msx1`) | Zilog Z80 (`z80`) | same Z80 + TMS9918A catalogue |
-| **NES** (`nes`) | Ricoh 2A03 (`6502`) | 6502 registers & flags, PPU control/mask/beam |
+| **ColecoVision** (`colecovision`) | Zilog Z80 (`z80`) | same Z80 + TMS9918A fields |
+| **MSX1** (`msx1`) | Zilog Z80 (`z80`) | the Z80 and TMS9918A chips' own fields (missingno has no MSX1 system) |
 
-Systems that share silicon share an ISA: the Game Boy's DMG and CGB are both `sm83`; the NES's 2A03 and the VCS's 6507 are both `6502`; the SG-1000 line shares the `z80` ISA and the TMS9918A ("TI VDP") catalogue.
+Systems that share silicon share an ISA: the Game Boy's DMG and CGB are both `sm83`; the NES's 2A03 and the VCS's 6507 are both `6502`; the SG-1000 line shares the `z80` ISA and the TMS9918A ("TI VDP") fields.
 
 ## Adapters
 
@@ -45,9 +44,9 @@ The first JSONL line is a header declaring the `system`, the fields captured, an
 {"pc":256,"sp":65534,"a":1,"f":176,"b":0,"c":19,"d":0,"e":216,"h":1,"l":77,"lcdc":145,"stat":128,"ly":153}
 ```
 
-Values are numeric (not hex strings). The valid field names depend on the `system`; include whatever level of detail your emulator can supply.
+Values are numeric (not hex strings). The valid field names are the `system`'s schema vocabulary; include whatever level of detail your emulator can supply. `morepork convert` types a JSONL header without `field_defs` through the system registry (a header with no `system` is a Game Boy trace).
 
-Capture **profiles** (TOML) declare the target `system`, the trigger granularity (`instruction` / `cycle` / `mcycle` / `tcycle`), and which subsystem-layer fields to capture; the profile is validated against the system's field catalogue. Traces at different granularities can still be compared — higher-granularity traces are downsampled to match.
+Capture **profiles** (TOML) declare the target `system`, the trigger granularity (`instruction` / `cycle` / `mcycle` / `tcycle`), and which subsystem-layer fields to capture; the profile is expanded over the system's schema. Traces at different granularities can still be compared — higher-granularity traces are downsampled to match.
 
 ## CLI
 
@@ -82,7 +81,7 @@ make ffi        # build target/release/libmorepork_ffi.a + header
 make adapters   # build the adapters (vendored emulator sources are fetched/cloned per adapter)
 ```
 
-morepork is a Rust workspace; `cargo build --release --features cli` is equivalent to `make cli`, and `cargo test -p morepork` runs the library tests. See `docs/multi-system.md` for the architecture and what adding a system involves.
+morepork is a Rust workspace: the `morepork` library, the `morepork-systems` registry (which depends on missingno's system crates), the `morepork-cli` binary and the `morepork-ffi` bindings. `cargo build --release -p morepork-cli` is equivalent to `make cli`, and `cargo test --workspace` runs the tests. See `docs/multi-system.md` for the architecture and what adding a system involves.
 
 ## Origins
 

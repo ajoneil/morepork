@@ -3,9 +3,12 @@
 morepork captures detailed execution traces from emulators and provides tooling to
 inspect and compare them. The repository hosts:
 
-- A Rust core library (`crates/morepork`) that defines the trace format, profile schema,
+- A Rust core library (`crates/morepork`) that defines the trace format, profile parsing,
   query engine, disassembler, snapshots, and downsampling.
-- C FFI bindings (`crates/morepork-ffi`) on top of that core.
+- The system registry (`crates/morepork-systems`): each system's column vocabulary,
+  taken from missingno's state schemas.
+- The CLI (`crates/morepork-cli`, binary `morepork`) and C FFI bindings
+  (`crates/morepork-ffi`), both on the library plus the registry.
 - Per-emulator **adapters** (`adapters/<emu>/`) that drive each emulator and emit traces by
   linking against the Rust core via the C FFI (or, for the Rust adapters, the core crate
   directly).
@@ -29,14 +32,19 @@ make clean      # rm -rf build/
 
 ### Rust workspace
 
-- `cargo build --release --features cli` — same as `make cli`.
-- `cargo test -p morepork` — run library tests (integration + roundtrip in
-  `crates/morepork/tests/`).
+- `cargo build --release -p morepork-cli` — same as `make cli`.
+- `cargo test --workspace` — library tests (`crates/morepork/tests/`), registry tests
+  (`crates/morepork-systems/tests/`, including every adapter's column list), FFI tests.
 - `cargo check` — type check across the workspace.
-- The workspace is defined in the root `Cargo.toml` (core, FFI, and the `mame`/`openmsx`
-  adapters). `adapters/missingno` is **excluded** from the workspace and builds
-  independently (its `missingno-vcs` dependency is a path dep on a sibling
+- The workspace is defined in the root `Cargo.toml` (library, registry, CLI, FFI, and the
+  `mame`/`openmsx` adapters). `adapters/missingno` is **excluded** from the workspace and
+  builds independently (its `missingno-vcs` dependency is a path dep on a sibling
   `~/Projects/missingno` checkout).
+- The registry depends on missingno's crates by git (`branch = "main"`); iterating against
+  an unpushed missingno checkout takes a local `[patch."https://github.com/ajoneil/missingno"]`
+  block pointing at it, never committed. The committed
+  `[patch."https://github.com/ajoneil/morepork"]` block makes missingno's cores use this
+  checkout's library, so the registry's column defs and the writer are one crate.
 
 ### Running the CLI
 
@@ -54,7 +62,7 @@ target/release/morepork convert trace.morepork.jsonl -o trace.morepork
 
 **Multi-system design:** the architecture, constraints, and order of work live in
 `docs/multi-system.md` — read it before touching `profile.rs`, `header.rs`, `query.rs`,
-or the `system/` and `hardware/` modules. Long-running efforts keep their live status
+the `system/` module, or `morepork-systems`. Long-running efforts keep their live status
 in `receipts/<effort>/ROADMAP.md` (receipts/ is gitignored — never reference specific
 receipt paths from committed files).
 
@@ -73,14 +81,18 @@ receipt paths from committed files).
 - Trace-file backward compatibility is **not** required — regenerate traces freely
   after format changes.
 
-### Systems (`crates/morepork/src/system/`, `src/hardware/`)
+### Systems (`crates/morepork-systems/`, `crates/morepork/src/system/`)
 
-A static registry hosts one `System` per machine (`dmg`, `cgb`, `nes`, `vcs`, `sg1000`,
-`coleco`, `msx1`) on shared `Isa`s (`sm83`, `6502`, `z80`). Chips shared across systems
-(the 6502, the Z80, the TMS9918A "TI VDP") live in `hardware/`; single-system silicon
-stays with its system (the SM83 in `system/gb`). Each system entry carries its field
-catalogue, semantic query phrases, and diff-alignment hints; GB frame reconstruction
-(`system/gb/framebuffer.rs`, `vram.rs`) is a system capability keyed on `pix_format`.
+The machine-state vocabulary is missingno's: a column is a field of the system's
+`SystemStateSchema`, a shared trace observation (`missingno_trace::TRACE_OBSERVATIONS`),
+or one of the system's capture-bridge observations. The registry (`morepork-systems`)
+knows `dmg`, `cgb`, `vcs`, `sg1000`, `colecovision` and `msx1` (the last composed from
+the Z80 and TI VDP chip crates) and types columns by name (`column_defs`, `describe`);
+an unknown column is an error. The library holds no field tables: a trace's system comes
+from its header (`system`, `isa`, `entry_addrs`, `field_defs`), plus morepork's own ISA
+flag tables (`system/isa.rs`) and query phrases keyed by system id
+(`system/phrases.rs`). GB frame reconstruction (`system/gb/framebuffer.rs`, `vram.rs`)
+keys on `pix_format`.
 
 ### Profiles (`crates/morepork/src/profile.rs`)
 
@@ -102,8 +114,9 @@ vdp = ["registers", "internal"]
 test_result = "C000"      # arbitrary memory watch fields
 ```
 
-Field metadata (type, dictionary-encoded, nullable) is fixed in code per subsystem layer
-(`Layer::Registers | Internal | Writes | Output | Timing`).
+The library parses the TOML; `morepork_systems::load_profile` expands the selections over
+the system's vocabulary (a layer is a schema tier — `registers` observable, `internal`
+boundary — or an observation's own layer). Types come from the schema.
 
 ### Query engine (`query.rs`, `comparison.rs`)
 
@@ -131,8 +144,10 @@ Current adapters and their systems:
 - **mgba** (C, FFI) — GB
 - **gateboy** (C++, FFI) — GB (gate-level)
 - **bgb** (C, FFI) — GB/CGB (experimental, Wine)
-- **missingno** (Rust, workspace-excluded) — GB/CGB (`morepork-missingno`) + VCS
-  (`morepork-missingno-vcs`; needs the sibling missingno checkout)
+- **missingno** (Rust, workspace-excluded) — GB/CGB (`morepork-missingno`), VCS
+  (`morepork-missingno-vcs`; needs the sibling missingno checkout), SG-1000
+  (`morepork-missingno-sg1000`) and ColecoVision (`morepork-missingno-colecovision`; BIOS
+  via `-bios` or `COLECOVISION_BIOS`)
 - **stella** (C++, FFI) — VCS
 - **gopher2600** (Go/cgo, FFI) — VCS
 - **mame** (Rust, core crate, workspace member) — VCS + SG-1000/SC-3000/ColecoVision
@@ -141,7 +156,10 @@ Current adapters and their systems:
 - **gearsystem** (C++, FFI) — SG-1000
 - **gearcoleco** (C++, FFI) — ColecoVision
 
-C/C++/Go adapters link `libmorepork_ffi.a` (header at `crates/morepork-ffi/morepork.h`).
+Every adapter writes its system's schema names (the TI VDP adapters take `-system
+colecovision`, with `coleco` accepted); `crates/morepork-systems/tests/registry.rs` lists
+each adapter's columns and must follow any rename. C/C++/Go adapters link
+`libmorepork_ffi.a` (header at `crates/morepork-ffi/morepork.h`).
 Per-adapter build details live in `adapters/<emu>/Makefile` and may invoke nested
 cmake/scons builds against vendored emulator sources (which are gitignored). Some
 adapters carry checked-in patches against their upstream (`sameboy-tcycle.patch`,
@@ -150,6 +168,6 @@ generates the canonical VCS NTSC/PAL/SECAM palette tables shared by the VCS adap
 
 ### CI (`.github/workflows/`)
 
-- `build.yml` — builds the CLI + FFI library, runs `cargo test -p morepork`, then builds
+- `build.yml` — builds the CLI + FFI library, runs `cargo test --workspace`, then builds
   the GB adapter matrix (gambatte, sameboy, missingno, docboy) against freshly cloned
   upstreams, and uploads artifacts. The other adapters are not built in CI.

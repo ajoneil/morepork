@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/morepork",
+    "crates/morepork-systems",
+    "crates/morepork-cli",
     "crates/morepork-ffi",
     "adapters/mame",
     "adapters/openmsx",
@@ -9,3 +11,9 @@ members = [
 # missingno stays out of the workspace: its missingno-vcs dependency is a
 # path dep on a sibling checkout outside this repo.
 exclude = ["adapters/missingno"]
+
+# missingno's system crates reach the trace writer through their own git
+# dependency on this repository; the registry hands their column defs to
+# this workspace's writer, so both must be the one crate.
+[patch."https://github.com/ajoneil/morepork"]
+morepork = { path = "crates/morepork" }

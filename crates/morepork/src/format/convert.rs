@@ -38,7 +38,7 @@ fn reader_to_store(
     // JSONL headers are hand-written by emulators; fill in field metadata
     // before it drives type resolution below. The writer groups storage
     // by the enriched defs.
-    header.ensure_self_describing();
+    header.ensure_self_describing()?;
 
     {
         let mut writer = MoreporkWriter::create(&tmp_path, &header, &[])?;

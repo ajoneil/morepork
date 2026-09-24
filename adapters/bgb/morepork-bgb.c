@@ -725,7 +725,7 @@ int main(int argc, char *argv[]) {
     char header_json[4096];
     int hpos = snprintf(header_json, sizeof(header_json),
         "{\"_header\":true,\"format_version\":\"0.1.0\","
-        "\"emulator\":\"bgb\",\"emulator_version\":\"1.6.4\","
+        "\"emulator\":\"bgb\",\"emulator_version\":\"1.6.4\",\"system\":\"dmg\","
         "\"rom_sha256\":\"%s\",\"model\":\"%s\","
         "\"boot_rom\":\"%s\",\"profile\":\"%s\","
         "\"fields\":[",

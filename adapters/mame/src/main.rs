@@ -162,8 +162,8 @@ static SYSTEMS: &[SysDef] = &[
     // on the -rompath; the suite's `.col` builds sit at 0x8000 with the
     // RESULT block at 0x7000.
     SysDef {
-        cli: "coleco",
-        id: "coleco",
+        cli: "colecovision",
+        id: "colecovision",
         model: None,
         cpu_tag: "maincpu",
         result_addr: "7000",
@@ -300,7 +300,7 @@ struct Args {
 fn usage() -> ! {
     eprintln!(
         "usage: morepork-mame [flags]\n\
-         \x20 -system vcs|sg1000|sc3000|coleco   target system (default vcs)\n\
+         \x20 -system vcs|sg1000|sc3000|colecovision   target system (default vcs; coleco is accepted)\n\
          \x20 -rom <path>          ROM (.bin/.a26 for vcs; .sg/.col for the TI VDP machines)\n\
          \x20 -out <path>          output .morepork path (default trace.morepork)\n\
          \x20 -spec NTSC|PAL       TV spec (vcs: a2600 vs a2600p; coleco: coleco vs colecop; sg1000/sc3000: NTSC only)\n\
@@ -380,8 +380,12 @@ fn main() {
         eprintln!("error: -rom is required");
         std::process::exit(2);
     }
-    let Some(sys) = SYSTEMS.iter().find(|s| s.cli == args.system) else {
-        eprintln!("error: unknown -system {:?} (vcs, sg1000, sc3000, coleco)", args.system);
+    let system = match args.system.as_str() {
+        "coleco" => "colecovision",
+        other => other,
+    };
+    let Some(sys) = SYSTEMS.iter().find(|s| s.cli == system) else {
+        eprintln!("error: unknown -system {:?} (vcs, sg1000, sc3000, colecovision)", args.system);
         std::process::exit(2);
     };
     if let Err(e) = run(sys, &args) {
@@ -814,7 +818,8 @@ fn write_trace(
     if frame.is_some() {
         header_json["pix_format"] = serde_json::json!("indexed8");
     }
-    let header: TraceHeader = serde_json::from_value(header_json)?;
+    let mut header: TraceHeader = serde_json::from_value(header_json)?;
+    morepork_systems::describe(&mut header).map_err(|e| e.to_string())?;
     let mut writer = MoreporkWriter::create(out, &header, &[])?;
 
     let (res, code, obs, exp) = verdict;

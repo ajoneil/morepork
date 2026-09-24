@@ -63,7 +63,7 @@ pub unsafe extern "C" fn morepork_profile_load(path: *const c_char) -> *mut More
         Err(_) => return std::ptr::null_mut(),
     };
 
-    let profile = match Profile::load(path_str) {
+    let profile = match morepork_systems::load_profile(path_str) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("morepork_profile_load: {e}");
@@ -216,13 +216,20 @@ pub unsafe extern "C" fn morepork_writer_new(
         Err(_) => return std::ptr::null_mut(),
     };
 
-    let header: TraceHeader = match serde_json::from_str(json_str) {
+    let mut header: TraceHeader = match serde_json::from_str(json_str) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("morepork_writer_new: failed to parse header: {e}");
             return std::ptr::null_mut();
         }
     };
+
+    // The adapter's columns are typed by its system's vocabulary; a column
+    // the system does not have fails here, at adapter start.
+    if let Err(e) = morepork_systems::describe(&mut header) {
+        eprintln!("morepork_writer_new: {e}");
+        return std::ptr::null_mut();
+    }
 
     let field_names = header.fields.clone();
     let field_types: Vec<FieldType> = field_names.iter()
@@ -424,6 +431,49 @@ pub unsafe extern "C" fn morepork_writer_close(w: *mut MoreporkWriter) -> i32 {
         Err(e) => {
             eprintln!("morepork_writer_close: {e}");
             -1
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    unsafe fn open(dir: &std::path::Path, header: &str) -> *mut MoreporkWriter {
+        let path = CString::new(dir.join("t.morepork").to_str().unwrap()).unwrap();
+        morepork_writer_new(path.as_ptr(), header.as_ptr() as *const c_char, header.len())
+    }
+
+    #[test]
+    fn writer_types_columns_through_the_registry() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = r#"{"_header":true,"system":"sg1000","fields":["pc","vdp_r1","vdp_frame_flag","result"]}"#;
+        unsafe {
+            let w = open(dir.path(), header);
+            assert!(!w.is_null());
+            assert_eq!(morepork_writer_field_type(w, 0), 1);
+            assert_eq!(morepork_writer_field_type(w, 1), 0);
+            assert_eq!(morepork_writer_field_type(w, 2), 3);
+            assert_eq!(morepork_writer_field_type(w, 3), 0);
+            assert_eq!(morepork_writer_close(w), 0);
+        }
+    }
+
+    #[test]
+    fn writer_rejects_a_column_its_system_lacks() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = r#"{"_header":true,"system":"sg1000","fields":["pc","reg0"]}"#;
+        unsafe {
+            assert!(open(dir.path(), header).is_null());
+        }
+    }
+
+    #[test]
+    fn writer_rejects_an_unknown_system() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = r#"{"_header":true,"system":"coleco","fields":["pc"]}"#;
+        unsafe {
+            assert!(open(dir.path(), header).is_null());
         }
     }
 }

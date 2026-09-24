@@ -3,8 +3,63 @@
 use morepork::format::FieldGroup;
 use morepork::format::read::MoreporkStore;
 use morepork::format::write::MoreporkWriter;
-use morepork::header::{BootRom, PixFormat, TraceHeader, Trigger};
+use morepork::header::{BootRom, HeaderFieldDef, PixFormat, TraceHeader, Trigger};
+use morepork::profile::FieldType;
 use morepork::store::TraceStore;
+
+fn def(name: &str, field_type: FieldType, subsystem: &str, layer: &str) -> HeaderFieldDef {
+    HeaderFieldDef {
+        name: name.into(),
+        field_type,
+        subsystem: Some(subsystem.into()),
+        layer: Some(layer.into()),
+        nullable: false,
+        dictionary: false,
+        source: None,
+    }
+}
+
+fn nullable(mut d: HeaderFieldDef) -> HeaderFieldDef {
+    d.nullable = true;
+    d
+}
+
+fn dictionary(mut d: HeaderFieldDef) -> HeaderFieldDef {
+    d.dictionary = true;
+    d
+}
+
+/// [`test_field_defs`] for the named columns.
+fn named_defs(names: &[&str]) -> Vec<HeaderFieldDef> {
+    let all = test_field_defs();
+    names
+        .iter()
+        .map(|n| all.iter().find(|d| d.name == *n).unwrap().clone())
+        .collect()
+}
+
+/// The declarations a producer states for [`test_header`]'s columns.
+fn test_field_defs() -> Vec<HeaderFieldDef> {
+    use FieldType::*;
+    vec![
+        def("pc", UInt16, "cpu", "registers"),
+        def("sp", UInt16, "cpu", "registers"),
+        def("a", UInt8, "cpu", "registers"),
+        dictionary(def("f", UInt8, "cpu", "registers")),
+        def("b", UInt8, "cpu", "registers"),
+        def("c", UInt8, "cpu", "registers"),
+        def("d", UInt8, "cpu", "registers"),
+        def("e", UInt8, "cpu", "registers"),
+        def("h", UInt8, "cpu", "registers"),
+        def("l", UInt8, "cpu", "registers"),
+        dictionary(def("lcdc", UInt8, "ppu", "registers")),
+        dictionary(def("stat", UInt8, "ppu", "registers")),
+        def("ly", UInt8, "ppu", "registers"),
+        nullable(def("pix", Str, "ppu", "output")),
+        nullable(def("vram_addr", UInt16, "ppu", "writes")),
+        nullable(def("vram_data", UInt8, "ppu", "writes")),
+    ]
+}
 
 fn test_header() -> TraceHeader {
     TraceHeader {
@@ -13,6 +68,8 @@ fn test_header() -> TraceHeader {
         emulator: "test".into(),
         emulator_version: "1.0".into(),
         rom_sha256: "0000".into(),
+        system: "dmg".into(),
+        isa: "sm83".into(),
         model: "DMG".into(),
         boot_rom: BootRom::Skip,
         profile: "test".into(),
@@ -34,6 +91,7 @@ fn test_header() -> TraceHeader {
             "vram_addr".into(),
             "vram_data".into(),
         ],
+        field_defs: test_field_defs(),
         trigger: Trigger::Tcycle,
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
@@ -223,10 +281,13 @@ fn test_large_chunk_boundary() {
         emulator: "test".into(),
         emulator_version: "1.0".into(),
         rom_sha256: "0000".into(),
+        system: "dmg".into(),
+        isa: "sm83".into(),
         model: "DMG".into(),
         boot_rom: BootRom::Skip,
         profile: "test".into(),
         fields: vec!["pc".into(), "a".into()],
+        field_defs: named_defs(&["pc", "a"]),
         trigger: Trigger::Instruction,
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
@@ -291,10 +352,13 @@ fn test_framebuffer() {
         emulator: "test".into(),
         emulator_version: "1.0".into(),
         rom_sha256: "0000".into(),
+        system: "dmg".into(),
+        isa: "sm83".into(),
         model: "DMG".into(),
         boot_rom: BootRom::Skip,
         profile: "test".into(),
         fields: vec!["pc".into()],
+        field_defs: named_defs(&["pc"]),
         trigger: Trigger::Instruction,
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
@@ -359,7 +423,7 @@ fn test_extension_fields_roundtrip() {
 
     // Header with one built-in field plus two adapter-defined extensions
     // (a bool and a u8) — exercises type resolution and column setup
-    // through the writer for fields that aren't in the static catalogue.
+    // through the writer for fields outside the system's vocabulary.
     let mut extension_fields = std::collections::BTreeMap::new();
     extension_fields.insert(
         "halt_bug".into(),
@@ -386,10 +450,13 @@ fn test_extension_fields_roundtrip() {
         emulator: "test".into(),
         emulator_version: "1.0".into(),
         rom_sha256: "0000".into(),
+        system: "dmg".into(),
+        isa: "sm83".into(),
         model: "DMG".into(),
         boot_rom: BootRom::Skip,
         profile: "ext_test".into(),
         fields: vec!["pc".into(), "halt_bug".into(), "debug_counter".into()],
+        field_defs: vec![def("pc", FieldType::UInt16, "cpu", "registers")],
         trigger: Trigger::Instruction,
         pix_format: PixFormat::default(),
         extension_fields,
@@ -477,10 +544,13 @@ fn test_empty_trace() {
         emulator: "test".into(),
         emulator_version: "1.0".into(),
         rom_sha256: "0000".into(),
+        system: "dmg".into(),
+        isa: "sm83".into(),
         model: "DMG".into(),
         boot_rom: BootRom::Skip,
         profile: "test".into(),
         fields: vec!["pc".into()],
+        field_defs: named_defs(&["pc"]),
         trigger: Trigger::Instruction,
         pix_format: PixFormat::default(),
         extension_fields: std::collections::BTreeMap::new(),
@@ -680,6 +750,7 @@ fn rejects_headers_without_field_metadata() {
         format_version: "0.1.0".into(),
         emulator: "test".into(),
         fields: vec!["pc".into(), "a".into()],
+        field_defs: named_defs(&["pc", "a"]),
         trigger: Trigger::Instruction,
         ..Default::default()
     };

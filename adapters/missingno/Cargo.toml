@@ -14,6 +14,16 @@ path = "src/main.rs"
 name = "morepork-missingno-vcs"
 path = "src/vcs.rs"
 
+# The TI VDP corpus contract (-rom/-out/-frames/-spec), one binary per
+# machine: thin drivers over the cores' own capture bridges.
+[[bin]]
+name = "morepork-missingno-sg1000"
+path = "src/sg1000.rs"
+
+[[bin]]
+name = "morepork-missingno-colecovision"
+path = "src/colecovision.rs"
+
 [dependencies]
 # Track the latest missingno (no rev pin) — CI resolves it fresh on each build.
 # `morepork` is missingno's own trace feature (renamed from `gbtrace` when
@@ -28,4 +38,14 @@ clap = { version = "4", features = ["derive"] }
 # unpushed emulator work); the trace format is this repo's own crate.
 missingno-vcs = { path = "../../../missingno/crates/systems/vcs" }
 morepork = { path = "../../crates/morepork" }
+morepork-systems = { path = "../../crates/morepork-systems" }
+missingno-sg1000 = { git = "https://github.com/ajoneil/missingno", branch = "main", features = ["morepork"] }
+missingno-colecovision = { git = "https://github.com/ajoneil/missingno", branch = "main", features = ["morepork"] }
+missingno-ti-vdp = { git = "https://github.com/ajoneil/missingno", branch = "main" }
 sha2 = "0.11"
+
+# missingno's cores reach the trace writer through their own git dependency
+# on this repository; the registry hands their column defs to this crate's
+# writer, so both must be the one crate.
+[patch."https://github.com/ajoneil/morepork"]
+morepork = { path = "../../crates/morepork" }

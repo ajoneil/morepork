@@ -77,7 +77,8 @@ pub trait TraceStore {
 
     /// Evaluate a condition within a range and return matching global indices.
     fn query_range(&self, condition_str: &str, start: usize, end: usize) -> std::result::Result<Vec<u32>, String> {
-        let condition = crate::query::parse_condition(condition_str, self.header().system_def())?;
+        let system = self.header().system_def().map_err(|e| e.to_string())?;
+        let condition = crate::query::parse_condition(condition_str, &system)?;
         let total = self.entry_count();
         let start = start.min(total);
         let end = end.min(total);

@@ -46,14 +46,14 @@ static lib (built automatically if missing).
 
 ## Captured fields (Tier 1 profile)
 
-`pc a x y s p line clock result code observed expected`, one entry per
-instruction. No `timer`/`port_a`/`port_b` yet (reading those safely without the
+`pc a x y s p line beam result code observed expected`, one entry per
+instruction. No `riot_timer`/`riot_porta_pins`/`riot_portb_pins` yet (reading those safely without the
 debugger subsystem is a TODO), and no frame snapshot yet.
 
 ## Trace alignment
 
 The Stella and Gopher2600 per-instruction traces align **100% on the instruction
-stream** (`pc a x y s p`) and **99.9% on `clock`**, so `morepork diff` between them
+stream** (`pc a x y s p`) and **99.9% on `beam`**, so `morepork diff` between them
 is clean. Getting there required matching two conventions (both handled in the
 Gopher2600 adapter):
 
@@ -61,7 +61,7 @@ Gopher2600 adapter):
   `CLEAN_START`'s stack writes to TIA mirrors) stalls the CPU for many cycles;
   Stella's `execute(1)` absorbs the halt into one instruction, so the Gopher2600
   adapter skips halt cycles (RDY low) to match.
-- **Canonical `clock` origin** 0..227 with 0 = start of HBLANK.
+- **Canonical `beam` origin** 0..227 with 0 = start of HBLANK.
 
 Residual differences are genuine, not noise:
 - The first few entries differ in `a/x/y` and the `D` flag — power-on state
@@ -72,4 +72,4 @@ Residual differences are genuine, not noise:
 
 ## TODO / known gaps
 
-- Add `timer`/ports (via a side-effect-free RIOT read) and frame snapshots.
+- Add `riot_timer`/ports (via a side-effect-free RIOT read) and frame snapshots.

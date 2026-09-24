@@ -6,8 +6,8 @@ System, and NES cores through system-agnostic seams (`docs/adding-a-system.md` i
 the missingno repo, https://github.com/ajoneil/missingno). This document is the
 equivalent map for the trace side: how the format, core library, CLI, and FFI
 stay system-agnostic, where system knowledge lives (the registry
-currently hosts the `dmg`, `cgb`, `nes`, `vcs`, `sg1000`, `coleco`, and
-`msx1` systems, on the `sm83`, `6502`, and `z80` ISAs), and what adding a
+currently knows the `dmg`, `cgb`, `vcs`, `sg1000`, `colecovision`, and `msx1`
+systems, on the `sm83`, `6502`, and `z80` ISAs), and what adding a
 system involves. Trust the
 seams named here, but verify signatures against the source before building on
 them.
@@ -22,11 +22,11 @@ replace the old monolithic `family` tag:
   instruction-set vocabulary, keyed on this id) and the flag vocabulary.
   Systems that share silicon share an ISA: the Game Boy's DMG and CGB are both
   `sm83`; the NES's 2A03 and the VCS's 6507 are both `6502`.
-- **`system`** (`"dmg"`, `"cgb"`, `"nes"`, `"vcs"`, `"sg1000"`) — the machine
-  identity.
-  Selects the default field catalogue, semantic query phrases, and
-  diff-alignment hints. Distinct from `model` (the free-form hardware
-  revision, `"DMG-B"`/`"CGB-C"`).
+- **`system`** (`"dmg"`, `"cgb"`, `"vcs"`, `"sg1000"`, `"colecovision"`,
+  `"msx1"`) — the machine identity: missingno's state-schema id. Selects the
+  column vocabulary (at write time, through the registry) and the semantic
+  query phrases. Distinct from `model` (the free-form hardware revision,
+  `"DMG-B"`/`"CGB-C"`).
 
 Frame reconstruction keys off `pix_format` (`shade2`/`rgb555` → the GB pixel
 replay, `indexed8` → the system-agnostic indexed-frame path), not the system.
@@ -34,9 +34,24 @@ replay, `indexed8` → the system-agnostic indexed-frame path), not the system.
 **DMG↔CGB** are two `system`s on the shared `sm83` ISA + GB render: same
 disassembler, flags, phrases, and reconstruction; the CGB adds a `cgb`
 subsystem (colour palettes, KEY1 double-speed, VRAM/WRAM banks, HDMA).
-**A new machine** (NES, SMS, VCS, …) adds a
-`system` (and an `isa` if its CPU is new): a new field catalogue, frame
+**A new machine** (NES, SMS, …) adds a `system` (and an `isa` if its CPU is
+new): a state schema on the missingno side, its registry entry here, frame
 geometry, and — when the ISA is new — decode table and flag semantics.
+
+## The vocabulary is missingno's schema
+
+A column's name, type, subsystem and layer come from missingno: each
+system's `SystemStateSchema` (its fields; the observable tier is the
+`registers` layer, the boundary tier `internal`), the trace observations
+every corpus-driven producer carries (`missingno_trace::TRACE_OBSERVATIONS`:
+`cycles`, `result`, `code`, `observed`, `expected`, `ram_write_addr`,
+`ram_write_data`), and the system's own capture-bridge observations (the
+Game Boy's `op_addr`/`pix`/`pix_x`, the VCS's `cycles`/`line`). morepork keeps
+no second spelling of any system's state. Every adapter emits those names,
+decomposing composite bytes the schema splits (the TI VDP status byte is
+`vdp_frame_flag`, `vdp_fifth_sprite_flag`, `vdp_coincidence_flag` and
+`vdp_fifth_sprite_index`); a column outside the vocabulary fails when the
+writer is created.
 
 ## What is generic (do not "fix" these)
 
@@ -51,8 +66,9 @@ The data plane is system-agnostic and must stay that way:
 - `comparison.rs` — the diff engine operates on arbitrary columns; system
   specifics enter only through alignment hints.
 - `morepork-ffi` — the C writer API is column-index + field-name driven (the
-  adapter builds the header JSON itself and pushes typed values by column).
-  No register structs, no screen dimensions.
+  adapter builds the header JSON itself and pushes typed values by column;
+  the registry types the columns). No register structs, no screen
+  dimensions.
 
 ## The architecture
 
@@ -62,12 +78,14 @@ Two principles, in tension-free layers:
 
 Readers need **zero system-specific knowledge** for info/query/diff/table work, and
 self-description is *required*: the reader rejects a header without field
-metadata (there is no catalogue fallback — old traces get a clear
-"regenerate" error). The header carries, beyond the ordered `fields` list:
+metadata or with an ISA morepork has no flag table for. The header carries,
+beyond the ordered `fields` list:
 
-- `system: String` — `"dmg"`, `"cgb"`, `"nes"`, `"vcs"`, … Absent means `"dmg"`.
-- `isa: String` — `"sm83"`, `"6502"`. Empty on construction; the writer derives
-  it from `system` (so disassembly stays self-describing for unknown systems).
+- `system: String` — the schema id.
+- `isa: String` — `"sm83"`, `"6502"`, `"z80"`.
+- `entry_addrs` — the diff-alignment hint: the program-entry address every
+  trace of the system reaches and the address after it (GB:
+  `0x0100`/`0x0101`); absent for systems without a fixed entry.
 - `field_defs` — ordered typed declarations `{ name, type, subsystem, layer,
   nullable, dictionary }`; the source of truth for resolution.
 - `field_groups` — the chunk storage layout actually used for this file (each
@@ -79,11 +97,13 @@ metadata (there is no catalogue fallback — old traces get a clear
   (tag 1) are the only kinds anything writes or decodes; the writer stamps
   those two, and a reader resolves any higher tag by name from this list.
 
-`MoreporkWriter::create` enriches the header itself — field defs and the
-instruction-address column from the system catalogue, the `frame`/`memory`
-snapshot-kind names, and storage groups from the defs when the caller passes
-none — so every producer (FFI adapters, missingno, `convert`) writes
-self-describing traces without changes on their side.
+The producer states all of this: missingno's bridges from the schema, every
+other producer through the registry (`morepork_systems::describe`, which the
+FFI's `morepork_writer_new` calls). `MoreporkWriter::create` only completes
+what is not vocabulary — defs for declared `extension_fields`, the
+instruction-address column when none is named, the `frame`/`memory`
+snapshot-kind names, and storage groups from the defs — and rejects a column
+nothing declares.
 
 `pix_format` values: `shade2` (DMG greyscale pix stream), `rgb555` (CGB colour
 pix stream), and `indexed8` — the system-agnostic form, one palette index per
@@ -92,72 +112,55 @@ aspect carried in each `frame` snapshot payload (`snapshot::IndexedFrame`,
 mirroring missingno's `IndexedFrame`; VCS frame height is emergent, SMS CRAM
 is mutable, so both ride per-frame). GB traces keep their raw frame payloads.
 
-### 2. System knowledge lives in one registry in the core
+### 2. The library reads systems from headers; the registry sits above it
 
-`crates/morepork/src/system/` — a static registry (like missingno's `FAMILIES`
-table): `mod.rs` holds the `Isa` and `System` structs plus the `ISAS`/`SYSTEMS`
-registries, and one module per machine — `gb/` (the `dmg` and `cgb` systems,
-which share the SM83 disassembler, catalogue base, and rendering), `nes.rs`,
-`vcs.rs`, `sg1000.rs`. Chips shared across systems live in the sibling
-`crates/morepork/src/hardware/`, mirroring missingno's `crates/hardware/` vs
-`crates/systems/` split: `hardware/mos6502.rs` carries the flag vocabulary and
-CPU field catalogue shared by the NES's 2A03 and the VCS's 6507 (each system
-keeps only its CPU-address-to-ROM-offset mapping), `hardware/z80.rs` and
-`hardware/ti_vdp.rs` the same for the SG-1000 line (ColecoVision and MSX
-carry the identical Z80 + TMS9918A pair), while single-system silicon
-stays with its system (the SM83 in `system/gb`, like missingno's
-`systems/gb/src/isa.rs`). An `Isa` carries the flag vocabulary; a
-`System` names its `Isa` and provides:
+missingno's cores depend on the `morepork` library for the writer, so the
+crate that depends on those cores cannot be the library. The workspace is
+therefore split:
 
-- **Default field catalogue** (`subsystems`) — validates profiles and types
-  their fields at write time. The GB catalogue lives in
-  `system/gb/catalogue.rs`.
-- **Flag vocabulary** (`isa.flags`) — name → (field, bit), carried by the
-  system's `Isa` (shared across systems on the same ISA), driving the query
-  engine's `flag …` conditions.
-- **Semantic query phrases** (`exact_phrases`, `numbered_phrases`) — named
-  conditions (`"lcd on"`, `"ppu enters mode N"`, `"vblank starts"`) that
-  desugar to the generic `Condition` variants; `parse_condition` takes the
-  system whose vocabulary it parses.
-- **Diff alignment hint** (`entry_addrs`) — the address every trace of the
-  system reaches at program entry plus the entry's second instruction (GB:
-  cartridge entry `0x0100`/`0x0101`); systems without a fixed entry use the
-  generic first-common-address alignment.
-- **Frame reconstruction** — the GB `pix`/`ly` replay and VRAM/tile logic
-  (`system/gb/framebuffer.rs`, `system/gb/vram.rs`) are system capabilities,
-  not format features. The generic path is `frame` snapshots. The render gate
-  keys on `pix_format` (`shade2`/`rgb555` → this GB replay); promote to a
-  function-table hook when a second render model implements reconstruction.
-- **Snapshot payloads** — `frame` and `memory` are the only snapshot kinds,
-  both system-agnostic (`src/snapshot.rs`: `IndexedFrame`, `MemoryRegion`).
-  Console state is no longer re-founded from morepork-side `gb.*` payloads —
-  missingno restores from its own `missingno_core` state vocabulary — so the
-  registry defines no typed per-system snapshot layouts.
+- `crates/morepork` — the library: format, writer, reader, query,
+  comparison, snapshots, render, disassembly. Vocabulary-free:
+  `TraceHeader::system_def()` builds a `SystemView` from the header (id, ISA,
+  entry hint) plus morepork's own trace-level vocabulary — the flag bits of
+  each ISA (`system/isa.rs`, driving `flag …` queries) and each system's
+  semantic query phrases (`system/phrases.rs`, keyed by system id:
+  `"lcd on"`, `"ppu enters mode N"`, `"vblank starts"`). GB frame
+  reconstruction (`system/gb/framebuffer.rs`, `vram.rs`) keys on
+  `pix_format`.
+- `crates/morepork-systems` — the registry: depends on `missingno-core`,
+  `missingno-trace` and the system crates (by git, `morepork` feature).
+  `schema(id)`, `trace_observations()`, `bridge_observations(id)`,
+  `column_defs(id, names)` (an unknown name is an error naming the system
+  and column), `describe(&mut header)`, and profile expansion. The MSX1 has
+  no missingno system; its vocabulary is composed from the Z80 and TI VDP
+  chip crates' own fields.
+- `crates/morepork-cli` (the `morepork` binary) and `crates/morepork-ffi` —
+  both on the library plus the registry. `convert` types a legacy JSONL
+  header through the registry; a legacy header with no `system` is a Game Boy
+  (`dmg`) trace there, and nowhere else.
 
-What stays *out* of the registry: everything in the "generic" list. The
-registry is consulted only for rendering, semantic query sugar, catalogue
-defaults/validation, and diff alignment hints; disassembly is ISA-keyed
-through the shared `missingno_core` instruction set (`src/disasm.rs`), not a
-per-system entry.
+Snapshot payloads — `frame` and `memory` are the only snapshot kinds, both
+system-agnostic (`src/snapshot.rs`: `IndexedFrame`, `MemoryRegion`).
 
 ### Profiles
 
 ```toml
 [profile]
-name = "nes-smoke"
-system = "nes"          # absent = "dmg"
-trigger = "cycle"
+name = "sg1000-smoke"
+system = "sg1000"       # absent = "dmg"
+trigger = "instruction"
 
 [fields]
-cpu = ["pc", "a", "x", "y", "s", "p"]
+cpu = "registers"
 ```
 
-`[fields]` keys are validated against the system catalogue (unknown subsystem
-keys are an error), resolved in catalogue order. `[fields.memory]` and
-`[fields.extensions]` are system-independent. (A profile's `system` is the
-write-side catalogue baseline; the trace header's `system` is set by the
-adapter from `--model`, so a shared `dmg` profile can be captured as `cgb` —
-the CGB catalogue is a superset, so shared fields still validate.)
+The library parses a profile; the registry expands it
+(`morepork_systems::load_profile`, which `morepork_profile_load` calls).
+`[fields]` keys are the system's subsystems (unknown keys are an error); a
+layer is a schema tier (`registers`, `internal`) or an observation's own
+layer (`timing`, `output`). `[fields.memory]` and `[fields.extensions]` are
+system-independent. (The trace header's `system` is set by the adapter from
+`--model`, so a shared `dmg` profile can be captured as `cgb`.)
 
 ## Compatibility constraints
 
@@ -180,7 +183,7 @@ the CGB catalogue is a superset, so shared fields still validate.)
    - `morepork::header::{TraceHeader (all fields), HeaderFieldDef,
      ExtensionField, PixFormat}`.
    - `morepork::profile::FieldType`.
-   - `morepork::{BootRom, Profile (.trigger/.fields/.extensions/.memory/.name),
+   - `morepork::{BootRom, Profile (.trigger/.name, parsed unexpanded),
      Trigger, Error::Profile}`.
    - `morepork::snapshot::{IndexedFrame, MemoryRegion, build_memory_payload}` —
      the system-agnostic frame/memory payloads (the NES and VCS tracers write
@@ -198,26 +201,26 @@ the CGB catalogue is a superset, so shared fields still validate.)
 | CPU state | 6502: `a,x,y,s,p,pc` (+rdy) | same 6502 core (6507) | Z80: full main+shadow set, `ix,iy,sp,pc,wz,i,r,im,iff1/2` |
 | Stepping | `step_cycle` / `step_instruction` / `step_frame` | same + own core-side `Debugger` | `Cpu::step` returns T-states |
 | Frame | 256×240 fixed, 6-bit colour indices | `Vec<[u8; VISIBLE_CLOCKS]>`, **emergent height**, TIA indices | 256×192, CRAM-indexed + per-frame 32-byte CRAM |
-| Disassembler | ✓ shared `hardware/mos6502` + iNES map | ✓ shared core + 6507 cartridge map | ✗ none exists |
+| Disassembler | ✓ shared 6502 core + iNES map | ✓ shared core + 6507 cartridge map | ✗ none exists |
 | Trace hooks in missingno | ✓ `missingno-nes/src/trace.rs` | ✓ `missingno-vcs/src/trace.rs` | none (its `bus_trace()` is test-only) |
 
-NES went second because it exercises every seam (catalogue, flags, disasm,
+NES went second because it exercises every seam (fields, flags, disasm,
 indexed frames) with fixed geometry; VCS third as the stress test of the
 per-frame-dimensions model (its emergent height is why `IndexedFrame`
 carries dimensions per frame). SMS waits for a Z80 disassembler or ships
 with hex-dump disassembly.
 
 **SG-1000** (`sg1000`, the first `z80` system) entered ahead of SMS as the
-host for TI VDP (TMS9918A) verification work: Z80 + `hardware/ti_vdp` + SN76489, fixed
+host for TI VDP (TMS9918A) verification work: Z80 + TMS9918A + SN76489, fixed
 256×192 `indexed8` frames, cartridge at 0x0000 with no BIOS. The SC-3000
 (same envelope plus a keyboard) captures as `sg1000` with the machine in
-`model`. **ColecoVision** (`coleco`) and **MSX1** (`msx1`) carry the
-identical Z80 + TMS9918A pair as thin sibling entries — different machine
-wrappers (BIOS ownership, cart windows, test-RAM/port addresses) that live
-in the adapters, not the registry. missingno has no cores for any of these
-yet, so the oracles are external adapters (MAME, openMSX); disassembly
-shares SMS's blocker (the `hardware/z80` crate's `InstructionSet` impl in
-missingno).
+`model`. **ColecoVision** (`colecovision`) and **MSX1** (`msx1`) carry the
+identical Z80 + TMS9918A pair — different machine wrappers (BIOS ownership,
+cart windows, test-RAM/port addresses) that live in the adapters. missingno
+has SG-1000 and ColecoVision cores (driven here by
+`morepork-missingno-sg1000` and `morepork-missingno-colecovision`) but no
+MSX1; disassembly shares SMS's blocker (the missingno Z80 crate's
+`InstructionSet` impl).
 
 On the missingno side each family's tracer is a `trace` module in its core
 crate behind a `morepork` feature (a `Tracer` with per-field emitters,
@@ -240,19 +243,20 @@ change with the name; regenerate traces after.
 
 The generalization landed in this order, each step leaving
 `cargo test -p morepork` green: self-describing format → system registry
-(GB moved behind it, `Indexed8`/`IndexedFrame`) → NES (catalogue, flags,
+(GB moved behind it, `Indexed8`/`IndexedFrame`) → NES (fields, flags,
 6502 disassembler, missingno tracer) → VCS (the emergent-height stress
 test, on the shared `mos6502` core) → SG-1000 (the `z80` ISA and shared
-`ti_vdp` catalogue in `hardware/`) → ColecoVision and MSX1 as thin
-siblings. The pre-captured GB trace corpus, the in-repo GB test suites and
+TI VDP) → ColecoVision and MSX1 as thin siblings → the vocabulary
+handed to missingno's schemas (the registry crate; the NES, whose missingno
+core has no schema yet, left the registry). The pre-captured GB trace corpus, the in-repo GB test suites and
 trace-generation pipeline, and the web viewer were retired along the way —
 they remain in git history. What remains:
 
 1. **Z80 disassembly** — the `z80` ISA and flag vocabulary are registered,
-   but decode needs an `InstructionSet` impl in missingno's `hardware/z80`
+   but decode needs an `InstructionSet` impl in missingno's Z80
    crate (its decode table exists; only the display mapping is missing).
    Until it lands, `z80` traces disassemble as hex. Unblocks SMS too.
 2. **SMS** — beyond the disassembler, its missingno core has no trace
    hooks yet, and its VDP (11 registers, CRAM, counter ports) gets its
-   own `hardware/` module distinct from `ti_vdp`.
+   own schema distinct from the TI VDP's.
 3. **Rename** — blocked on the name decision; deliberately last.

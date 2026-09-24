@@ -26,7 +26,7 @@ jobs:
         run: make ffi
 
       - name: Run tests
-        run: cargo test -p morepork
+        run: cargo test --workspace
 
       - name: Upload CLI
         uses: actions/upload-artifact@v6

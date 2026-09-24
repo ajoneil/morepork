@@ -2,16 +2,10 @@
 name = "morepork"
 version = "0.1.0"
 edition = "2021"
-description = "Reader, writer, and profile parser for the GB Trace emulator comparison format"
-
-[[bin]]
-name = "morepork"
-path = "src/main.rs"
-required-features = ["cli"]
+description = "Reader, writer, query and comparison engine for the morepork execution-trace format"
 
 [features]
 default = []
-cli = ["dep:clap", "png"]
 png = ["dep:png"]
 
 [dependencies]
@@ -25,7 +19,6 @@ thiserror = "2"
 arrow = { version = "59", default-features = false, features = ["ipc"] }
 zstd = "0.14"
 png = { version = "0.18", optional = true }
-clap = { version = "4", features = ["derive"], optional = true }
 tempfile = "3"
 
 [dev-dependencies]

@@ -39,7 +39,7 @@ Inspect with the morepork CLI:
 ```
 morepork info  trace.morepork
 morepork query trace.morepork -w "pc=0xfc01"
-morepork query trace.morepork -w "timer changes"
+morepork query trace.morepork -w "riot_timer changes"
 ```
 
 ## Captured fields (MVP / Tier 1 profile)
@@ -49,9 +49,9 @@ One entry per instruction (`trigger: instruction`):
 | Field | Source |
 |---|---|
 | `pc a x y s p` | 6507 register file (`vcs.CPU.*`) |
-| `line clock` | TIA beam position (`vcs.TV.GetCoords()`) |
-| `timer` | RIOT INTIM (`$0284`) |
-| `port_a port_b` | SWCHA `$0280` / SWCHB `$0282` |
+| `line beam` | TIA beam position (`vcs.TV.GetCoords()`) |
+| `riot_timer` | RIOT INTIM (`$0284`) |
+| `riot_porta_pins riot_portb_pins` | SWCHA `$0280` / SWCHB `$0282` |
 | `result code observed expected` | test-suite RESULT convention RAM (`$80–$83`) |
 
 The field set + memory addresses are currently **hardcoded** for Tier 1.

@@ -775,7 +775,7 @@ int main(int argc, char *argv[]) {
 
         std::string header_json = "{\"_header\":true,\"format_version\":\"0.1.0\","
             "\"emulator\":\"gateboy\",\"emulator_version\":\"metroboy-git\","
-            "\"rom_sha256\":\"" + rom_hash + "\",\"model\":\"DMG\","
+            "\"rom_sha256\":\"" + rom_hash + "\",\"system\":\"dmg\",\"model\":\"DMG\","
             "\"boot_rom\":\"" + boot_rom_info + "\",\"profile\":\"" + profile.name + "\","
             "\"fields\":[";
         for (size_t i = 0; i < all_fields.size(); i++) {

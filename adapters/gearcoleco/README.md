@@ -8,11 +8,11 @@ coleco driver.
 ## How it works
 
 Gearcoleco's core is a plain C++ library that exposes everything the
-morepork `ti_vdp` catalogue names **without patches**: the full Z80
+missingno ti-vdp schema names **without patches**: the full Z80
 register file (shadow set, `wz`, `i`/`r`, `iff1/2`, `im`, `halted` via
 `Processor::GetState()`), the eight VDP write registers, side-effect-free
 status (`Video::GetStatusReg()`, not the CPU-visible `GetStatusFlags()`),
-the internal `addr`/`latch`/`buffer` machinery, and the beam position
+the internal `vdp_address`/`vdp_awaiting_second_byte`/`vdp_read_buffer` machinery, and the beam position
 (`GetRenderLine()`/`GetCycleCounter()` → `line`/`dot`).
 
 The adapter drives `Processor::RunInstruction()` directly, mirroring the

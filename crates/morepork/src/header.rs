@@ -95,7 +95,7 @@ pub enum PixFormat {
 
 /// Adapter-defined field with its type metadata, declared in the trace
 /// header. Used for non-standard fields (emulator-internal debug state)
-/// that aren't part of the built-in field catalogue. Readers consult
+/// that aren't part of the system's state vocabulary. Readers consult
 /// `TraceHeader::extension_fields` to resolve types for these names.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExtensionField {
@@ -120,9 +120,8 @@ fn is_false(b: &bool) -> bool {
 
 /// Typed declaration of one trace field, carried in the header so the file
 /// is self-describing: readers resolve type, nullability, encoding, and
-/// semantic grouping from here without consulting the built-in catalogue.
-/// Traces written before this existed omit it; readers then fall back to
-/// the static catalogue, which therefore remains as the legacy-trace path.
+/// semantic grouping from here. Traces written before this existed omit it;
+/// `morepork convert` types them through the system registry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HeaderFieldDef {
     pub name: String,
@@ -149,8 +148,6 @@ pub struct HeaderFieldDef {
 ///
 /// In the JSONL interchange format only `_header: true` is required; every
 /// other field has a serde default.
-/// Field types are resolved from name via the built-in catalogue, so an emulator
-/// can emit data lines with no header and the reader will synthesise one.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TraceHeader {
     /// Always `true`. Identifies this line as the header.
@@ -172,16 +169,15 @@ pub struct TraceHeader {
     #[serde(default)]
     pub rom_sha256: String,
 
-    /// The system this trace was captured on (`"dmg"`, `"cgb"`, `"nes"`,
-    /// `"vcs"`). Absent (legacy traces) ⇒ `"dmg"`. Distinct from `model`,
-    /// which names the hardware revision within a system (`"DMG-B"`).
-    #[serde(default = "default_system")]
+    /// The system this trace was captured on — missingno's schema id
+    /// (`"dmg"`, `"cgb"`, `"vcs"`, `"sg1000"`, `"colecovision"`). Distinct
+    /// from `model`, which names the hardware revision within a system
+    /// (`"DMG-B"`).
+    #[serde(default)]
     pub system: String,
 
-    /// The instruction-set architecture (`"sm83"`, `"6502"`). Selects the
-    /// disassembler and flag vocabulary. Empty on construction; the writer
-    /// fills it from `system` in `ensure_self_describing`, so disassembly
-    /// stays self-describing even for a system a reader doesn't know.
+    /// The instruction-set architecture (`"sm83"`, `"6502"`, `"z80"`).
+    /// Selects the disassembler and flag vocabulary.
     #[serde(default)]
     pub isa: String,
 
@@ -212,7 +208,7 @@ pub struct TraceHeader {
     pub pix_format: PixFormat,
 
     /// Adapter-defined extension fields. Maps field name → type metadata
-    /// for fields that aren't in the built-in catalogue. Adapters declare
+    /// for fields that aren't in the system's state vocabulary. Adapters declare
     /// these at trace-creation time so the writer / reader can construct
     /// appropriate column buffers and a downstream consumer can resolve
     /// types without having to know about adapter-internal fields.
@@ -236,6 +232,11 @@ pub struct TraceHeader {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instruction_addr_field: Option<String>,
 
+    /// Diff-alignment hint: the program-entry address every trace of this
+    /// system reaches, and the address after it (GB: 0x0100, 0x0101).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_addrs: Option<(u16, u16)>,
+
     /// Kind name for each numeric snapshot tag, indexed by tag value
     /// (`snapshot_kinds[0]` names tag 0). `frame` and `memory` are
     /// format-level kinds; system-specific state uses the family's
@@ -254,9 +255,6 @@ fn default_format_version() -> String {
 fn default_emulator() -> String {
     "unknown".to_string()
 }
-fn default_system() -> String {
-    "dmg".to_string()
-}
 
 impl TraceHeader {
     /// Validate header invariants. Empty `fields` is permitted at this
@@ -267,14 +265,15 @@ impl TraceHeader {
                 "_header must be true".into(),
             ));
         }
-        // Reject extension fields that shadow built-in field names —
-        // type resolution would be ambiguous (the built-in catalogue and
-        // the header would each claim a type, with no clear winner).
-        for name in self.extension_fields.keys() {
-            if self.system_def().lookup_field(name).is_some() {
-                return Err(crate::error::Error::InvalidHeader(format!(
-                    "extension field '{name}' shadows a built-in field"
-                )));
+        // An extension field the header also declares differently would
+        // make type resolution ambiguous.
+        for (name, ext) in &self.extension_fields {
+            if let Some(def) = self.field_def(name) {
+                if def.field_type != ext.field_type || def.nullable != ext.nullable {
+                    return Err(crate::error::Error::InvalidHeader(format!(
+                        "extension field '{name}' conflicts with its field_def"
+                    )));
+                }
             }
         }
         Ok(())
@@ -285,17 +284,13 @@ impl TraceHeader {
         self.field_defs.iter().find(|d| d.name == name)
     }
 
-    /// The system this trace was captured on. Unknown or empty ids resolve
-    /// to DMG — every trace written before the `system` field existed is a
-    /// Game Boy trace, and an unknown id still gets working generic tooling.
-    pub fn system_def(&self) -> &'static crate::system::System {
-        crate::system::system(&self.system).unwrap_or(&crate::system::gb::DMG)
+    /// The system this trace was captured on, as the header states it.
+    pub fn system_def(&self) -> crate::error::Result<crate::system::SystemView<'_>> {
+        crate::system::SystemView::of(self)
     }
 
-    /// Resolve a field's type from `field_defs` (headers are
-    /// self-describing; `ensure_self_describing` fills them from the
-    /// family catalogue and `extension_fields` at write time). Unknown
-    /// names fall back to `UInt8`.
+    /// Resolve a field's type from `field_defs`. Unknown names fall back to
+    /// `UInt8`.
     pub fn resolve_field_type(&self, name: &str) -> FieldType {
         self.field_def(name)
             .map(|d| d.field_type)
@@ -312,64 +307,28 @@ impl TraceHeader {
         self.field_def(name).map(|d| d.dictionary).unwrap_or(false)
     }
 
-    /// Fill `field_defs` and `instruction_addr_field` from the built-in
-    /// catalogue and `extension_fields` when absent. The binary writer
-    /// calls this, so every new trace is self-describing regardless of
-    /// which producer (FFI adapter, missingno, `convert`) built the header.
-    pub fn ensure_self_describing(&mut self) {
-        if self.system.is_empty() {
-            // Struct-literal construction with `..Default::default()`
-            // yields "" (the derive ignores serde defaults).
-            self.system = default_system();
-        }
-        if self.isa.is_empty() {
-            self.isa = self.system_def().isa.id.to_string();
-        }
-        if self.field_defs.is_empty() {
-            let system = self.system_def();
-            self.field_defs = self
-                .fields
-                .iter()
-                .map(|name| {
-                    if let Some(def) = system.lookup_field(name) {
-                        let (subsystem, layer) = system
-                            .field_group(name)
-                            .map(|(s, l)| (Some(s.to_string()), Some(l.to_string())))
-                            .unwrap_or((None, None));
-                        HeaderFieldDef {
-                            name: name.clone(),
-                            field_type: def.field_type,
-                            subsystem,
-                            layer,
-                            nullable: def.nullable,
-                            dictionary: def.dictionary,
-                            source: None,
-                        }
-                    } else if let Some(ext) = self.extension_fields.get(name) {
-                        HeaderFieldDef {
-                            name: name.clone(),
-                            field_type: ext.field_type,
-                            subsystem: None,
-                            layer: None,
-                            nullable: ext.nullable,
-                            dictionary: false,
-                            source: ext.source.clone(),
-                        }
-                    } else {
-                        // Profile-defined memory watches and unknown names:
-                        // the same u8 fallback readers have always used.
-                        HeaderFieldDef {
-                            name: name.clone(),
-                            field_type: FieldType::UInt8,
-                            subsystem: None,
-                            layer: None,
-                            nullable: false,
-                            dictionary: false,
-                            source: None,
-                        }
-                    }
-                })
-                .collect();
+    /// Complete a header before it is written: a def for each declared
+    /// extension field the producer did not already type, the
+    /// instruction-address column, and the snapshot kinds. Every column must
+    /// be declared — the producer supplies the defs (an FFI adapter's header
+    /// is typed by the system registry).
+    pub fn ensure_self_describing(&mut self) -> crate::error::Result<()> {
+        for name in &self.fields {
+            if self.field_def(name).is_some() {
+                continue;
+            }
+            let ext = self.extension_fields.get(name).ok_or_else(|| {
+                crate::error::Error::InvalidHeader(format!("column '{name}' has no field_def"))
+            })?;
+            self.field_defs.push(HeaderFieldDef {
+                name: name.clone(),
+                field_type: ext.field_type,
+                subsystem: None,
+                layer: None,
+                nullable: ext.nullable,
+                dictionary: false,
+                source: ext.source.clone(),
+            });
         }
         if self.instruction_addr_field.is_none() {
             self.instruction_addr_field = ["op_addr", "pc"]
@@ -383,6 +342,7 @@ impl TraceHeader {
             // to stamp beyond the two the format itself defines.
             self.snapshot_kinds = ["frame", "memory"].iter().map(|k| k.to_string()).collect();
         }
+        Ok(())
     }
 
     /// The kind name for a snapshot tag, from the header's `snapshot_kinds`.

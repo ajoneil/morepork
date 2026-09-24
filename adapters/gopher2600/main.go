@@ -75,9 +75,9 @@ type memoryField struct {
 
 // The Tier 1 capture profile (hardcoded for the MVP).
 var memoryFields = []memoryField{
-	{"timer", 0x0284},  // INTIM
-	{"port_a", 0x0280}, // SWCHA
-	{"port_b", 0x0282}, // SWCHB
+	{"riot_timer", 0x0284},      // INTIM
+	{"riot_porta_pins", 0x0280}, // SWCHA
+	{"riot_portb_pins", 0x0282}, // SWCHB
 	{"result", 0x0080},
 	{"code", 0x0081},
 	{"observed", 0x0082},
@@ -85,7 +85,7 @@ var memoryFields = []memoryField{
 }
 
 func fieldOrder() []string {
-	fields := []string{"pc", "a", "x", "y", "s", "p", "line", "clock"}
+	fields := []string{"pc", "a", "x", "y", "s", "p", "line", "beam"}
 	for _, mf := range memoryFields {
 		fields = append(fields, mf.name)
 	}
@@ -325,8 +325,8 @@ func run(romPath, outPath, spec string, maxFrames int, captureFrame bool, swchb 
 		// Canonical VCS clock convention: 0..227 with 0 = start of HBLANK.
 		// Gopher's coord origin is visible-start (HBLANK is -68..-1), so shift
 		// by the HBLANK width to match (Stella's clocksThisLine is already
-		// HBLANK-origin). Keeps the `clock` field comparable across adapters.
-		setU8("clock", uint8(c.Clock+68))
+		// HBLANK-origin). Keeps the `beam` field comparable across adapters.
+		setU16("beam", uint16(c.Clock+68))
 		for _, mf := range memoryFields {
 			v, _ := vcs.Mem.Peek(mf.addr)
 			setU8(mf.name, v)

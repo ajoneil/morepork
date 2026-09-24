@@ -6,7 +6,7 @@ use morepork::JsonlReader;
 use morepork::header::TraceHeader;
 
 #[derive(Parser)]
-#[command(name = "morepork", about = "Inspect and compare GB Trace files")]
+#[command(name = "morepork", about = "Inspect and compare execution traces")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -158,8 +158,8 @@ fn cmd_info(path: &PathBuf) -> i32 {
     println!("File:      {}", path.display());
     println!("Emulator:  {}", h.emulator);
     println!("Version:   {}", h.emulator_version);
-    println!("System:    {}", h.system_def().id);
-    println!("ISA:       {}", h.system_def().isa.id);
+    println!("System:    {}", h.system);
+    println!("ISA:       {}", h.isa);
     println!("Model:     {}", h.model);
     println!("Profile:   {}", h.profile);
     println!("Trigger:   {:?}", h.trigger);
@@ -242,9 +242,9 @@ fn cmd_render(path: &PathBuf, output_dir: Option<PathBuf>, frame_filter: Option<
 
     // The remaining pix encodings (shade2 / rgb555) are the Game Boy pixel
     // stream; reconstruction is SM83/gb-specific (both DMG and CGB share it).
-    let system = store.header().system_def();
-    if system.isa.id != "sm83" {
-        eprintln!("Error: frame rendering is not implemented for system '{}'", system.id);
+    let header = store.header();
+    if header.isa != "sm83" {
+        eprintln!("Error: frame rendering is not implemented for system '{}'", header.system);
         return 1;
     }
     let frames = morepork::system::gb::framebuffer::reconstruct_frames(store.as_ref());
@@ -409,7 +409,15 @@ fn cmd_convert(input: &PathBuf, output: Option<PathBuf>) -> i32 {
         }
     };
 
-    let header = reader.header().clone();
+    let mut header = reader.header().clone();
+    // Traces written before headers stated their system are Game Boy traces.
+    if header.system.is_empty() {
+        header.system = "dmg".to_string();
+    }
+    if let Err(e) = morepork_systems::describe(&mut header) {
+        eprintln!("Error typing the trace's columns: {e}");
+        return 1;
+    }
     convert_to_morepork(reader, &output, &header)
 }
 
@@ -550,7 +558,11 @@ fn cmd_downsample(input: &PathBuf, output: Option<PathBuf>, target: &str, keep: 
         EveryNth(usize),
     }
     let filter = if let Some(cond_str) = keep {
-        match morepork::query::parse_condition(cond_str, store.header().system_def()) {
+        let system = match store.header().system_def() {
+            Ok(s) => s,
+            Err(e) => { eprintln!("Error: {e}"); return 1; }
+        };
+        match morepork::query::parse_condition(cond_str, &system) {
             Ok(c) => Filter::Condition(c),
             Err(e) => { eprintln!("Error: bad --keep condition: {e}"); return 1; }
         }
@@ -565,7 +577,11 @@ fn cmd_downsample(input: &PathBuf, output: Option<PathBuf>, target: &str, keep: 
                 // T-cycle of an M-cycle — picking it gives one entry per M-cycle
                 // at the "after previous M-cycle's commits" sample point, which
                 // is the natural alignment for an M-cycle-cadence trace.
-                match morepork::query::parse_condition("mcycle_phase=0x0e", store.header().system_def()) {
+                let system = match store.header().system_def() {
+                    Ok(s) => s,
+                    Err(e) => { eprintln!("Error: {e}"); return 1; }
+                };
+                match morepork::query::parse_condition("mcycle_phase=0x0e", &system) {
                     Ok(c) => Filter::Condition(c),
                     Err(e) => { eprintln!("Error: internal default condition failed: {e}"); return 1; }
                 }

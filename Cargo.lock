@@ -793,9 +793,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "missingno-colecovision"
+version = "26.10.0"
+dependencies = [
+ "missingno-core",
+ "missingno-ti-psg",
+ "missingno-ti-vdp",
+ "missingno-trace",
+ "missingno-zilog-z80",
+ "morepork",
+]
+
+[[package]]
 name = "missingno-core"
-version = "26.9.0"
-source = "git+https://github.com/ajoneil/missingno?branch=main#f5c5458d67b0867a9372dc0d753fca764b3ed740"
+version = "26.10.0"
 dependencies = [
  "rgb",
  "serde",
@@ -803,9 +814,86 @@ dependencies = [
 ]
 
 [[package]]
+name = "missingno-gb"
+version = "26.10.0"
+dependencies = [
+ "bitflags",
+ "missingno-core",
+ "missingno-trace",
+ "morepork",
+ "rgb",
+ "serde",
+ "sha2",
+]
+
+[[package]]
+name = "missingno-gbc"
+version = "26.10.0"
+dependencies = [
+ "missingno-core",
+ "missingno-gb",
+ "rgb",
+]
+
+[[package]]
 name = "missingno-mos-6502"
-version = "26.9.0"
-source = "git+https://github.com/ajoneil/missingno?branch=main#f5c5458d67b0867a9372dc0d753fca764b3ed740"
+version = "26.10.0"
+dependencies = [
+ "missingno-core",
+]
+
+[[package]]
+name = "missingno-sg1000"
+version = "26.10.0"
+dependencies = [
+ "missingno-core",
+ "missingno-ti-psg",
+ "missingno-ti-vdp",
+ "missingno-trace",
+ "missingno-zilog-z80",
+ "morepork",
+ "serde",
+]
+
+[[package]]
+name = "missingno-ti-psg"
+version = "26.10.0"
+dependencies = [
+ "missingno-core",
+]
+
+[[package]]
+name = "missingno-ti-vdp"
+version = "26.10.0"
+dependencies = [
+ "missingno-core",
+ "rgb",
+]
+
+[[package]]
+name = "missingno-trace"
+version = "26.10.0"
+dependencies = [
+ "missingno-core",
+ "morepork",
+]
+
+[[package]]
+name = "missingno-vcs"
+version = "26.10.0"
+dependencies = [
+ "missingno-core",
+ "missingno-mos-6502",
+ "missingno-trace",
+ "morepork",
+ "rgb",
+ "serde",
+ "sha2",
+]
+
+[[package]]
+name = "missingno-zilog-z80"
+version = "26.10.0"
 dependencies = [
  "missingno-core",
 ]
@@ -815,7 +903,6 @@ name = "morepork"
 version = "0.1.0"
 dependencies = [
  "arrow",
- "clap",
  "flate2",
  "missingno-core",
  "missingno-mos-6502",
@@ -830,11 +917,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "morepork-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "morepork",
+ "morepork-systems",
+ "png",
+]
+
+[[package]]
 name = "morepork-ffi"
 version = "0.1.0"
 dependencies = [
  "morepork",
+ "morepork-systems",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -843,6 +942,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "morepork",
+ "morepork-systems",
  "serde_json",
  "sha2",
  "tempfile",
@@ -853,10 +953,29 @@ name = "morepork-openmsx"
 version = "0.1.0"
 dependencies = [
  "morepork",
+ "morepork-systems",
  "png",
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "morepork-systems"
+version = "0.1.0"
+dependencies = [
+ "missingno-colecovision",
+ "missingno-core",
+ "missingno-gb",
+ "missingno-gbc",
+ "missingno-sg1000",
+ "missingno-ti-vdp",
+ "missingno-trace",
+ "missingno-vcs",
+ "missingno-zilog-z80",
+ "morepork",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

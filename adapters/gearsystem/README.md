@@ -16,7 +16,7 @@ Same embedding shape as the gearcoleco adapter: drive
 `Processor::RunInstruction()` directly (mirroring `RunToVBlank`'s tick
 loop — Gearsystem ticks video+audio only), log every instruction with
 the full Z80 file, the eight VDP registers, status
-(side-effect-free), the `addr`/`latch`/`buffer` internals, beam
+(side-effect-free), the `vdp_address`/`vdp_awaiting_second_byte`/`vdp_read_buffer` internals, beam
 `line`/`dot`, and the RESULT block sampled live. The framebuffer holds
 raw TMS colour indices in TMS9918 modes, so the `indexed8` frame is a
 straight copy. No BIOS — SG-1000 carts boot at `$0000`. ~50ms per ROM.

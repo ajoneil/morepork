@@ -4,6 +4,8 @@
 #   make cli       - Build target/release/morepork
 #   make ffi       - Build target/release/libmorepork_ffi.a
 #   make adapters  - Build every adapter binary in adapters/<emu>/
+#   make missingno-sg1000 / missingno-colecovision
+#                  - Build the missingno adapter binaries for the TI VDP corpus
 #   make clean     - Remove build artifacts
 
 SHELL := /bin/bash
@@ -22,17 +24,17 @@ ADAPTERS := stella gopher2600 mame openmsx ares gearcoleco gearsystem \
 FFI_LIB := $(PROJECT_DIR)/target/release/libmorepork_ffi.a
 FFI_HEADER := $(PROJECT_DIR)/crates/morepork-ffi/morepork.h
 
-.PHONY: all cli ffi adapters $(ADAPTERS) clean
+.PHONY: all cli ffi adapters $(ADAPTERS) missingno-sg1000 missingno-colecovision clean
 
 all: cli
 
 cli: $(CLI)
 
-$(CLI): $(wildcard crates/morepork/src/*.rs crates/morepork/src/**/*.rs)
+$(CLI): $(wildcard crates/morepork/src/*.rs crates/morepork/src/**/*.rs crates/morepork-cli/src/*.rs crates/morepork-systems/src/*.rs)
 	@echo "Building morepork..."
-	@cargo build --release --features cli 2>&1 | tail -1
+	@cargo build --release -p morepork-cli 2>&1 | tail -1
 
-$(FFI_LIB): $(wildcard crates/morepork-ffi/src/*.rs crates/morepork/src/*.rs crates/morepork/src/**/*.rs)
+$(FFI_LIB): $(wildcard crates/morepork-ffi/src/*.rs crates/morepork-systems/src/*.rs crates/morepork/src/*.rs crates/morepork/src/**/*.rs)
 	@echo "Building morepork-ffi..."
 	@cargo build --release -p morepork-ffi 2>&1 | tail -1
 
@@ -47,6 +49,9 @@ adapters: $(ADAPTERS)
 $(ADAPTERS): $(FFI_LIB)
 	@echo "Building $@ adapter..."
 	@$(MAKE) -C adapters/$@ -j$$(nproc)
+
+# adapters/missingno builds all of its binaries (GB, VCS, SG-1000, ColecoVision) at once.
+missingno-sg1000 missingno-colecovision: missingno
 
 clean:
 	rm -rf $(BUILD_DIR)

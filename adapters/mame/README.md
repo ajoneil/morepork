@@ -37,7 +37,7 @@ Two candidate mechanisms (finalise against installed MAME):
    JSONL.
 
 Either way the output is native morepork. Fields match the other adapters:
-`pc a x y s p line clock` + the RESULT convention RAM bytes (`$80–$83`).
+`pc a x y s p line beam` + the RESULT convention RAM bytes (`$80–$83`).
 
 ## How it works (implemented — full-speed)
 
@@ -91,7 +91,7 @@ compute ROMs (t01), synced to the harness anchor, with matching PASS verdicts.
   memory only, so the final frame comes from a separate gdbstub-free launch
   whose autoboot Lua dumps the screen's pixels (`captureFrame`), reverse-mapped
   to canonical palette indices. Best-effort: a capture failure only warns.
-- **No `line`/`clock`** — the TIA beam isn't exposed over gdbstub/tracelog.
+- **No `line`/`beam`** — the TIA beam isn't exposed over gdbstub/tracelog.
 - **Console switches are best-effort** (autoboot Lua sets `:SWB`), so t06 isn't
   dependable on MAME; input tests are rarely in ROM suites, so not chased.
 - **`read-tap` was a dead end** — reading `cpu.state[...]` inside a memory-tap
@@ -138,7 +138,7 @@ against MAME 0.288:
   renders as backdrop and never appears in a capture.
 - **Sega machines are NTSC only**: the `sg1000`/`sc3000` machines carry a
   TMS9918A and MAME has no PAL sibling for them; `-spec PAL` is refused.
-- **`-system coleco -spec PAL` runs `colecop`**, MAME's PAL ColecoVision
+- **`-system colecovision -spec PAL` runs `colecop`**, MAME's PAL ColecoVision
   (TMS9929A, 313 lines, and the board's one-wait-per-M1 bus — measured:
   a 35 T poll loop counts 39 T there). Its BIOS romset member is
   `colecop/r72114a_8317.u2`; the NTSC dump staged under that name boots

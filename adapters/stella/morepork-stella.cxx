@@ -66,7 +66,7 @@ void update_input() {}
 
 static std::string jsonHeader(const std::string& spec, const std::string& romSha,
                               bool withFrame) {
-  // fields: pc a x y s p line clock result code observed expected
+  // fields: pc a x y s p line beam result code observed expected
   std::string h = "{";
   h += "\"_header\":true,";
   h += "\"format_version\":\"0.1.0\",";
@@ -76,7 +76,7 @@ static std::string jsonHeader(const std::string& spec, const std::string& romSha
   h += "\"system\":\"vcs\",";
   h += "\"model\":\"" + spec + "\",";
   h += "\"profile\":\"tier1\",";
-  h += "\"fields\":[\"pc\",\"a\",\"x\",\"y\",\"s\",\"p\",\"line\",\"clock\","
+  h += "\"fields\":[\"pc\",\"a\",\"x\",\"y\",\"s\",\"p\",\"line\",\"beam\","
        "\"result\",\"code\",\"observed\",\"expected\"],";
   if (withFrame) h += "\"pix_format\":\"indexed8\",";
   h += "\"trigger\":\"instruction\"";
@@ -207,7 +207,7 @@ int main(int argc, char** argv) {
     return (size_t)c;
   };
   size_t cPC = col("pc"), cA = col("a"), cX = col("x"), cY = col("y"),
-         cS = col("s"), cP = col("p"), cLine = col("line"), cClk = col("clock"),
+         cS = col("s"), cP = col("p"), cLine = col("line"), cClk = col("beam"),
          cRes = col("result"), cCode = col("code"), cObs = col("observed"),
          cExp = col("expected");
 
@@ -236,7 +236,7 @@ int main(int argc, char** argv) {
     morepork_writer_set_u8(w, cS, cpu.gbSP());
     morepork_writer_set_u8(w, cP, cpu.gbPS());
     morepork_writer_set_u16(w, cLine, (uint16_t)tia.scanlines());
-    morepork_writer_set_u8(w, cClk, (uint8_t)tia.clocksThisLine());
+    morepork_writer_set_u16(w, cClk, (uint16_t)tia.clocksThisLine());
     morepork_writer_set_u8(w, cRes, ram[0x00]);  // $80 RESULT
     morepork_writer_set_u8(w, cCode, ram[0x01]); // $81 CODE
     morepork_writer_set_u8(w, cObs, ram[0x02]);  // $82 OBSERVED

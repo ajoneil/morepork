@@ -3,7 +3,7 @@
 // test suite's `.col` builds alongside MAME's coleco driver.
 //
 // Gearcoleco embeds cleanly (the core is a plain C++ library) and exposes
-// everything the ti-vdp catalogue names without patches: the full Z80
+// everything the ti-vdp schema names without patches: the full Z80
 // register file including the shadow set, WZ, I/R, IFF1/2, IM and HALT;
 // the eight VDP write registers, side-effect-free status
 // (Video::GetStatusReg, not the CPU-visible GetStatusFlags), the internal
@@ -52,10 +52,11 @@ static const uint8_t kTiVdpPalette[16 * 3] = {
 
 static const char* kFields[] = {
     "pc", "sp", "a", "f", "b", "c", "d", "e", "h", "l", "ix", "iy", "wz",
-    "a_", "f_", "b_", "c_", "d_", "e_", "h_", "l_", "i", "r",
+    "a_alt", "f_alt", "b_alt", "c_alt", "d_alt", "e_alt", "h_alt", "l_alt", "i", "r",
     "im", "iff1", "iff2", "halted",
-    "reg0", "reg1", "reg2", "reg3", "reg4", "reg5", "reg6", "reg7",
-    "status", "addr", "latch", "buffer", "line", "dot",
+    "vdp_r0", "vdp_r1", "vdp_r2", "vdp_r3", "vdp_r4", "vdp_r5", "vdp_r6", "vdp_r7",
+    "vdp_frame_flag", "vdp_fifth_sprite_flag", "vdp_coincidence_flag", "vdp_fifth_sprite_index",
+    "vdp_address", "vdp_awaiting_second_byte", "vdp_read_buffer", "vdp_line", "vdp_line_xtal",
     "result", "code", "observed", "expected",
 };
 static const size_t kNumFields = sizeof(kFields) / sizeof(kFields[0]);
@@ -68,7 +69,7 @@ static std::string jsonHeader(const std::string& spec, const std::string& romSha
   h += "\"emulator\":\"gearcoleco\",";
   h += "\"emulator_version\":\"" GEARCOLECO_PIN "\",";
   h += "\"rom_sha256\":\"" + romSha + "\",";
-  h += "\"system\":\"coleco\",";
+  h += "\"system\":\"colecovision\",";
   h += "\"model\":\"" + spec + "\",";
   h += "\"profile\":\"tier1\",";
   h += "\"fields\":[";
@@ -207,14 +208,19 @@ int main(int argc, char** argv) {
     boolf(*st->IFF2);
     boolf(*st->Halt);
     for (int i = 0; i < 8; i++) u8f(vr[i]);
-    u8f(video->GetStatusReg());
+    uint8_t status = video->GetStatusReg();
+    boolf(status & 0x80);
+    boolf(status & 0x40);
+    boolf(status & 0x20);
+    u8f(status & 0x1F);
     u16f(video->GetAddressReg());
-    // Catalogue semantics: latch set after the first control byte;
-    // GetLatch() returns m_bFirstByteInSequence, the inverse.
+    // Set after the first control byte; GetLatch() returns
+    // m_bFirstByteInSequence, the inverse.
     boolf(!video->GetLatch());
     u8f(video->GetBufferReg());
     u16f((uint16_t)video->GetRenderLine());
-    u16f((uint16_t)video->GetCycleCounter());
+    // XTAL periods within the line: two per dot.
+    u16f((uint16_t)(video->GetCycleCounter() * 2));
     u8f(result);
     u8f(mem->Read(kResultAddr + 1));
     u8f(mem->Read(kResultAddr + 2));

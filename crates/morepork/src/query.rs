@@ -66,8 +66,8 @@ pub enum Condition {
 // ---------------------------------------------------------------------------
 //
 // Flag names and semantic phrases desugar to the generic conditions above;
-// only the family's tables (`system::System`) know register names and bit
-// meanings.
+// only the system's tables (`system::SystemView`: its ISA's flags and its
+// phrases) know register names and bit meanings.
 
 /// Parse a number from condition syntax. Always treats the digits as hex
 /// (with or without a `0x` prefix).
@@ -78,10 +78,10 @@ pub fn parse_number(s: &str) -> Option<u64> {
 }
 
 /// Map a CPU flag name to the system's ISA flag definition.
-fn flag_def<'f>(
-    system: &'f crate::system::System,
+fn flag_def(
+    system: &crate::system::SystemView<'_>,
     name: &str,
-) -> Result<&'f crate::system::FlagDef, String> {
+) -> Result<&'static crate::system::FlagDef, String> {
     let name = name.to_lowercase();
     system
         .isa
@@ -107,7 +107,7 @@ fn flag_def<'f>(
 /// `numbered_phrases`), e.g. the GB's `lcd on` or `ppu enters mode N`.
 pub fn parse_condition(
     s: &str,
-    system: &crate::system::System,
+    system: &crate::system::SystemView<'_>,
 ) -> Result<Condition, String> {
     let s = s.trim();
 
@@ -140,12 +140,12 @@ pub fn parse_condition(
     }
 
     // Semantic phrases
-    for (phrase, build) in system.exact_phrases {
+    for (phrase, build) in system.phrases.exact {
         if s == *phrase {
             return Ok(build());
         }
     }
-    for (prefix, max, build) in system.numbered_phrases {
+    for (prefix, max, build) in system.phrases.numbered {
         if let Some(rest) = s.strip_prefix(prefix) {
             let n: u8 = rest.trim().parse()
                 .map_err(|_| format!("invalid number in '{s}': {rest}"))?;

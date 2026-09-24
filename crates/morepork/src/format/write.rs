@@ -217,7 +217,7 @@ impl MoreporkWriter {
         // storage grouping actually used, and the instruction-address
         // column all go into the header.
         let mut header = header.clone();
-        header.ensure_self_describing();
+        header.ensure_self_describing()?;
         if header.field_groups.is_empty() {
             header.field_groups = if groups.is_empty() {
                 // No grouping given: group by the field defs' subsystem and

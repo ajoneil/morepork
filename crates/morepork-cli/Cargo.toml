@@ -1,0 +1,15 @@
+[package]
+name = "morepork-cli"
+version = "0.1.0"
+edition = "2021"
+description = "The morepork command-line tool: inspect, query, render and compare traces"
+
+[[bin]]
+name = "morepork"
+path = "src/main.rs"
+
+[dependencies]
+morepork = { path = "../morepork", features = ["png"] }
+morepork-systems = { path = "../morepork-systems" }
+clap = { version = "4", features = ["derive"] }
+png = "0.18"

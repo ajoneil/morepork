@@ -1,0 +1,22 @@
+[package]
+name = "morepork-systems"
+version = "0.1.0"
+edition = "2021"
+description = "The system registry: each system's column vocabulary, from missingno's state schemas"
+
+[dependencies]
+morepork = { path = "../morepork" }
+missingno-core = { git = "https://github.com/ajoneil/missingno", branch = "main" }
+missingno-trace = { git = "https://github.com/ajoneil/missingno", branch = "main" }
+missingno-gb = { git = "https://github.com/ajoneil/missingno", branch = "main", features = ["morepork"] }
+missingno-gbc = { git = "https://github.com/ajoneil/missingno", branch = "main", features = ["morepork"] }
+missingno-vcs = { git = "https://github.com/ajoneil/missingno", branch = "main", features = ["morepork"] }
+missingno-sg1000 = { git = "https://github.com/ajoneil/missingno", branch = "main", features = ["morepork"] }
+missingno-colecovision = { git = "https://github.com/ajoneil/missingno", branch = "main", features = ["morepork"] }
+# msx1 has no missingno system; its vocabulary is composed from the chips'.
+missingno-zilog-z80 = { git = "https://github.com/ajoneil/missingno", branch = "main" }
+missingno-ti-vdp = { git = "https://github.com/ajoneil/missingno", branch = "main" }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

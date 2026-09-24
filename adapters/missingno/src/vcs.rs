@@ -170,8 +170,8 @@ fn step_instruction_counted(vcs: &mut Vcs) -> u16 {
 // Field order in every trace entry; the four verdict bytes mirror the
 // suite convention at zero page $80..$83.
 const FIELDS: &[&str] = &[
-    "pc", "a", "x", "y", "s", "p", "rdy", "cycles", "line", "clock", "timer",
-    "port_a", "port_b", "result", "code", "observed", "expected",
+    "pc", "a", "x", "y", "s", "p", "cpu_ready", "cycles", "line", "beam", "riot_timer",
+    "riot_porta_pins", "riot_portb_pins", "result", "code", "observed", "expected",
 ];
 
 fn capture(writer: &mut MoreporkWriter, vcs: &Vcs, cycles: u16) -> Result<(), morepork::Error> {
@@ -183,13 +183,13 @@ fn capture(writer: &mut MoreporkWriter, vcs: &Vcs, cycles: u16) -> Result<(), mo
             "y" => writer.set_u8(col, vcs.cpu.y),
             "s" => writer.set_u8(col, vcs.cpu.s),
             "p" => writer.set_u8(col, vcs.cpu.p),
-            "rdy" => writer.set_bool(col, vcs.cpu.rdy),
+            "cpu_ready" => writer.set_bool(col, vcs.cpu.rdy),
             "cycles" => writer.set_u16(col, cycles),
             "line" => writer.set_u16(col, vcs.scanline() as u16),
-            "clock" => writer.set_u8(col, vcs.tia.beam() as u8),
-            "timer" => writer.set_u8(col, vcs.peek(0x284)),
-            "port_a" => writer.set_u8(col, vcs.peek(0x280)),
-            "port_b" => writer.set_u8(col, vcs.peek(0x282)),
+            "beam" => writer.set_u16(col, vcs.tia.beam() as u16),
+            "riot_timer" => writer.set_u8(col, vcs.peek(0x284)),
+            "riot_porta_pins" => writer.set_u8(col, vcs.peek(0x280)),
+            "riot_portb_pins" => writer.set_u8(col, vcs.peek(0x282)),
             "result" => writer.set_u8(col, vcs.peek(0x0080)),
             "code" => writer.set_u8(col, vcs.peek(0x0081)),
             "observed" => writer.set_u8(col, vcs.peek(0x0082)),
@@ -235,7 +235,7 @@ fn run(args: &Args) -> Result<(), String> {
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
 
-    let header = TraceHeader {
+    let mut header = TraceHeader {
         _header: true,
         format_version: "0.1.0".into(),
         emulator: "missingno".into(),
@@ -249,6 +249,7 @@ fn run(args: &Args) -> Result<(), String> {
         pix_format: PixFormat::Indexed8,
         ..Default::default()
     };
+    morepork_systems::describe(&mut header).map_err(|e| e.to_string())?;
     let mut writer =
         MoreporkWriter::create(&args.out, &header, &[]).map_err(|e| e.to_string())?;
 

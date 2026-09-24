@@ -47,31 +47,42 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 //
 // One log line per instruction, decimal columns in this order. The two
 // VRAM-pointer bytes are logged separately (little-endian) and combined
-// into the catalogue's u16 `addr` on the Rust side.
+// into the schema's u16 `vdp_address` on the Rust side.
 
 #[derive(Clone, Copy)]
 enum Kind {
     U8,
     U16,
     Bool,
+    /// The status byte, split into its F / 5S / C flags and its low five bits.
+    Status,
 }
 
-/// Trace fields in file order; `addr` consumes two log columns.
+/// The columns the status byte splits into, in order.
+const STATUS_FIELDS: [&str; 4] = [
+    "vdp_frame_flag",
+    "vdp_fifth_sprite_flag",
+    "vdp_coincidence_flag",
+    "vdp_fifth_sprite_index",
+];
+
+/// Log fields in file order; `vdp_address` consumes two log columns and the
+/// status byte writes four trace columns.
 static FIELDS: &[(&str, Kind)] = &[
     ("pc", Kind::U16), ("sp", Kind::U16),
     ("a", Kind::U8), ("f", Kind::U8), ("b", Kind::U8), ("c", Kind::U8),
     ("d", Kind::U8), ("e", Kind::U8), ("h", Kind::U8), ("l", Kind::U8),
     ("ix", Kind::U16), ("iy", Kind::U16),
-    ("reg0", Kind::U8), ("reg1", Kind::U8), ("reg2", Kind::U8), ("reg3", Kind::U8),
-    ("reg4", Kind::U8), ("reg5", Kind::U8), ("reg6", Kind::U8), ("reg7", Kind::U8),
-    ("status", Kind::U8),
-    ("addr", Kind::U16),
-    ("latch", Kind::Bool),
-    ("buffer", Kind::U8),
+    ("vdp_r0", Kind::U8), ("vdp_r1", Kind::U8), ("vdp_r2", Kind::U8), ("vdp_r3", Kind::U8),
+    ("vdp_r4", Kind::U8), ("vdp_r5", Kind::U8), ("vdp_r6", Kind::U8), ("vdp_r7", Kind::U8),
+    ("status", Kind::Status),
+    ("vdp_address", Kind::U16),
+    ("vdp_awaiting_second_byte", Kind::Bool),
+    ("vdp_read_buffer", Kind::U8),
 ];
 
 /// The Tcl expression producing one log line, matching `FIELDS` (with
-/// `addr` as its two bytes).
+/// `vdp_address` as its two bytes).
 const LINE_TCL: &str = concat!(
     "[reg pc] [reg sp] [reg a] [reg f] [reg b] [reg c] [reg d] [reg e] ",
     "[reg h] [reg l] [reg ix] [reg iy] ",
@@ -85,7 +96,7 @@ const LINE_TCL: &str = concat!(
     "[debug read {VDP data latch value} 0]",
 );
 
-/// Log columns: every field is one column except `addr`, which is two.
+/// Log columns: every field is one column except `vdp_address`, which is two.
 const LOG_COLS: usize = 25;
 
 // --- openMSX control channel ---
@@ -476,7 +487,14 @@ fn write_trace(
         return Err("no trace entries (cartridge INIT never reached?)".into());
     }
 
-    let mut fields: Vec<String> = FIELDS.iter().map(|(n, _)| n.to_string()).collect();
+    let mut fields: Vec<String> = Vec::new();
+    for (name, kind) in FIELDS {
+        match kind {
+            Kind::Status => fields.extend(STATUS_FIELDS.map(String::from)),
+            _ => fields.push(name.to_string()),
+        }
+    }
+    let nfields = fields.len();
     fields.extend(["result", "code", "observed", "expected"].map(String::from));
     let mut header_json = serde_json::json!({
         "_header": true, "format_version": "0.1.0",
@@ -487,15 +505,16 @@ fn write_trace(
     if frame.is_some() {
         header_json["pix_format"] = serde_json::json!("indexed8");
     }
-    let header: TraceHeader = serde_json::from_value(header_json)?;
+    let mut header: TraceHeader = serde_json::from_value(header_json)?;
+    morepork_systems::describe(&mut header).map_err(|e| e.to_string())?;
     let mut writer = MoreporkWriter::create(out, &header, &[])?;
 
     let last = entries.len() - 1;
-    let nfields = FIELDS.len();
     for (i, entry) in entries.iter().enumerate() {
         let mut log_col = 0;
-        for (field_col, (name, kind)) in FIELDS.iter().enumerate() {
-            let value = if *name == "addr" {
+        let mut field_col = 0;
+        for (name, kind) in FIELDS {
+            let value = if *name == "vdp_address" {
                 let v = entry[log_col] | entry[log_col + 1] << 8;
                 log_col += 2;
                 v
@@ -508,7 +527,15 @@ fn write_trace(
                 Kind::U8 => writer.set_u8(field_col, value as u8),
                 Kind::U16 => writer.set_u16(field_col, value as u16),
                 Kind::Bool => writer.set_bool(field_col, value != 0),
+                Kind::Status => {
+                    writer.set_bool(field_col, value & 0x80 != 0);
+                    writer.set_bool(field_col + 1, value & 0x40 != 0);
+                    writer.set_bool(field_col + 2, value & 0x20 != 0);
+                    writer.set_u8(field_col + 3, (value & 0x1F) as u8);
+                    field_col += 3;
+                }
             }
+            field_col += 1;
         }
         let block = if i == last { verdict } else { [0; 4] };
         for (offset, value) in block.into_iter().enumerate() {
