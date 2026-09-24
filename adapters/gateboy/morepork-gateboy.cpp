@@ -482,6 +482,17 @@ static const std::unordered_map<std::string, ExtensionDecl> GATEBOY_EXTENSIONS =
     {"apu_write_addr", {"u16", true}}, {"apu_write_data", {"u8", true}},
 };
 
+// gbmicrotest's result block in HRAM, declared in the header as extension
+// fields too (subsystem "gbmicrotest", layer "result"), requested under the
+// same [fields.extensions] gateboy. The test writes the value it read to
+// $FF80, the value it expected to $FF81, and its verdict to $FF82 last: $01
+// pass, $FF fail.
+static const std::unordered_map<std::string, unsigned short> GBMICROTEST_FIELD_ADDR = {
+    {"gbmicrotest_actual", 0xFF80},
+    {"gbmicrotest_expected", 0xFF81},
+    {"gbmicrotest_result", 0xFF82},
+};
+
 static void build_emitters(const Profile &prof) {
     g_emitters.clear();
     for (const auto &field : prof.fields) {
@@ -508,6 +519,9 @@ static void build_emitters(const Profile &prof) {
         } else if (auto it = IO_FIELD_ADDR.find(field); it != IO_FIELD_ADDR.end()) {
             em.source = FieldEmitter::IO_READ;
             em.io_addr = it->second;
+        } else if (auto itg = GBMICROTEST_FIELD_ADDR.find(field); itg != GBMICROTEST_FIELD_ADDR.end()) {
+            em.source = FieldEmitter::IO_READ;
+            em.io_addr = itg->second;
         } else if (auto it3 = INTERNAL_U8_READERS.find(field); it3 != INTERNAL_U8_READERS.end()) {
             em.source = FieldEmitter::PPU_U8;
             em.read_u8 = it3->second;
@@ -822,6 +836,13 @@ int main(int argc, char *argv[]) {
         header_json += "],\"extension_fields\":{";
         bool first_ext = true;
         for (const auto &name : all_fields) {
+            if (GBMICROTEST_FIELD_ADDR.count(name)) {
+                if (!first_ext) header_json += ",";
+                first_ext = false;
+                header_json += "\"" + name + "\":{\"type\":\"u8\",\"source\":\"gateboy\","
+                    "\"subsystem\":\"gbmicrotest\",\"layer\":\"result\"}";
+                continue;
+            }
             auto ext = GATEBOY_EXTENSIONS.find(name);
             if (ext == GATEBOY_EXTENSIONS.end()) continue;
             if (!first_ext) header_json += ",";

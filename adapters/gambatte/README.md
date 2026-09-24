@@ -44,3 +44,7 @@ Options:
 Gambatte internally counts audio samples rather than T-cycles. The adapter converts using:
 - Normal speed: 1 sample = 4 T-cycles
 - CGB double speed: needs verification (not yet supported)
+
+## gbmicrotest result columns
+
+The adapter declares gbmicrotest's result block as header `extension_fields` (type `u8`, subsystem `gbmicrotest`, layer `result`), requested with `[fields.extensions] gambatte = [...]`: `gbmicrotest_actual` ($FF80, the value the test read), `gbmicrotest_expected` ($FF81, the value it expected) and `gbmicrotest_result` ($FF82, the verdict: $01 pass, $FF fail).

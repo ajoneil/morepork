@@ -54,6 +54,24 @@ static const struct IOField IO_FIELDS[] = {
     {NULL, 0}
 };
 
+// gbmicrotest's result block in HRAM, declared in the header as this
+// adapter's extension fields (subsystem "gbmicrotest", layer "result"). A
+// profile requests them under [fields.extensions] mgba. The test writes the
+// value it read to $FF80, the value it expected to $FF81, and its verdict to
+// $FF82 last: $01 pass, $FF fail.
+static const struct IOField GBMICROTEST_FIELDS[] = {
+    {"gbmicrotest_actual", 0xFF80},
+    {"gbmicrotest_expected", 0xFF81},
+    {"gbmicrotest_result", 0xFF82},
+    {NULL, 0}
+};
+
+static int find_gbmicrotest_addr(const char *name) {
+    for (const struct IOField *f = GBMICROTEST_FIELDS; f->name; f++)
+        if (strcmp(f->name, name) == 0) return f->addr;
+    return -1;
+}
+
 // CPU register fields
 static const char *REG8_FIELDS[] = {"a", "f", "b", "c", "d", "e", "h", "l", NULL};
 static const char *REG16_FIELDS[] = {"pc", "sp", NULL};
@@ -99,6 +117,11 @@ static struct Profile load_profile(const char *path) {
     size_t nfields = morepork_profile_num_fields(p);
     for (size_t i = 0; i < nfields && (int)i < MAX_FIELDS; i++) {
         strncpy(prof.fields[prof.nfields], morepork_profile_field_name(p, i), MAX_NAME - 1);
+        prof.nfields++;
+    }
+    size_t ne = morepork_profile_num_extensions(p, "mgba");
+    for (size_t i = 0; i < ne && prof.nfields < MAX_FIELDS; i++) {
+        strncpy(prof.fields[prof.nfields], morepork_profile_extension_name(p, "mgba", i), MAX_NAME - 1);
         prof.nfields++;
     }
 
@@ -177,6 +200,7 @@ static void build_emitters(const struct Profile *prof) {
             em->source = SRC_REG16;
         } else {
             int addr = find_io_addr(field);
+            if (addr < 0) addr = find_gbmicrotest_addr(field);
             if (addr >= 0) {
                 em->source = SRC_IO;
                 em->io_addr = addr;
@@ -504,7 +528,19 @@ int main(int argc, char *argv[]) {
                              "\"%s\"", g_emitters[i].name);
         }
         hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos,
-                         "],\"trigger\":\"instruction\"}");
+                         "],\"extension_fields\":{");
+        int first_ext = 1;
+        for (int i = 0; i < g_nemitters; i++) {
+            if (find_gbmicrotest_addr(g_emitters[i].name) < 0) continue;
+            if (!first_ext) hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos, ",");
+            hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos,
+                             "\"%s\":{\"type\":\"u8\",\"source\":\"mgba\","
+                             "\"subsystem\":\"gbmicrotest\",\"layer\":\"result\"}",
+                             g_emitters[i].name);
+            first_ext = 0;
+        }
+        hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos,
+                         "},\"trigger\":\"instruction\"}");
 
         g_writer = morepork_writer_new(output_path, header_json, hpos);
         if (!g_writer) {

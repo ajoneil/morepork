@@ -62,6 +62,32 @@ static const std::unordered_map<std::string, unsigned short> IO_FIELD_ADDR = {
     {"master_vol", 0xFF24}, {"sound_pan", 0xFF25}, {"sound_on", 0xFF26},
 };
 
+// gbmicrotest's result block in HRAM, declared in the header as this
+// adapter's extension fields (subsystem "gbmicrotest", layer "result"). A
+// profile requests them under [fields.extensions] sameboy. The test writes
+// the value it read to $FF80, the value it expected to $FF81, and its verdict
+// to $FF82 last: $01 pass, $FF fail.
+static const std::unordered_map<std::string, unsigned short> GBMICROTEST_FIELD_ADDR = {
+    {"gbmicrotest_actual", 0xFF80},
+    {"gbmicrotest_expected", 0xFF81},
+    {"gbmicrotest_result", 0xFF82},
+};
+
+// The header's `"extension_fields":{...},` entry for the emitted columns.
+template <typename Emitter>
+static std::string gbmicrotest_extension_json(const std::vector<Emitter> &emitters) {
+    std::string json = "\"extension_fields\":{";
+    bool first = true;
+    for (const auto &em : emitters) {
+        if (!GBMICROTEST_FIELD_ADDR.count(em.name)) continue;
+        if (!first) json += ",";
+        first = false;
+        json += "\"" + em.name + "\":{\"type\":\"u8\",\"source\":\"sameboy\","
+            "\"subsystem\":\"gbmicrotest\",\"layer\":\"result\"}";
+    }
+    return json + "},";
+}
+
 // CPU register fields: maps field name -> register enum + is_16bit.
 struct RegisterField {
     enum Reg { AF, BC, DE, HL, SP, PC,
@@ -105,6 +131,9 @@ static Profile load_profile(const std::string &path) {
         prof.fields.push_back(morepork_profile_field_name(p, i));
     }
 
+    size_t next = morepork_profile_num_extensions(p, "sameboy");
+    for (size_t i = 0; i < next; i++)
+        prof.fields.push_back(morepork_profile_extension_name(p, "sameboy", i));
     morepork_profile_free(p);
     return prof;
 }
@@ -231,6 +260,9 @@ static void build_emitters(const Profile &prof) {
         } else if (auto it2 = IO_FIELD_ADDR.find(field); it2 != IO_FIELD_ADDR.end()) {
             em.source = FieldEmitter::IO_READ;
             em.io_addr = it2->second;
+        } else if (auto itg = GBMICROTEST_FIELD_ADDR.find(field); itg != GBMICROTEST_FIELD_ADDR.end()) {
+            em.source = FieldEmitter::IO_READ;
+            em.io_addr = itg->second;
         } else {
             std::fprintf(stderr, "Warning: unknown field '%s', skipping\n", field.c_str());
             continue;
@@ -629,7 +661,7 @@ int main(int argc, char *argv[]) {
         if (i > 0) header_json += ",";
         header_json += "\"" + g_emitters[i].name + "\"";
     }
-    header_json += "],\"trigger\":\"";
+    header_json += "]," + gbmicrotest_extension_json(g_emitters) + "\"trigger\":\"";
     header_json += g_tcycle_mode ? "tcycle" : "instruction";
     header_json += "\"}";
 
