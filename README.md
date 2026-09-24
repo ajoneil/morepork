@@ -12,7 +12,7 @@ Each trace is tagged with a **`system`** (which machine) and an **`isa`** (which
 
 | System | CPU | Captured state |
 | --- | --- | --- |
-| **Game Boy** (`dmg`) | Sharp SM83 (`sm83`) | CPU registers & flags, PPU (LCDC/STAT/LY…), timer, interrupts, memory watches |
+| **Game Boy** (`dmg`) | Sharp SM83 (`sm83`) | CPU registers & flags, PPU (LCDC/STAT/LY…), timer, interrupts |
 | **Game Boy Color** (`cgb`) | Sharp SM83 (`sm83`) | as Game Boy, plus colour PPU state and double-speed timing |
 | **Atari VCS / 2600** (`vcs`) | MOS 6507 (`6502`) | 6507 registers & flags, TIA beam position (`line`/`beam`), RIOT timer and ports |
 | **Sega SG-1000 / SC-3000** (`sg1000`) | Zilog Z80 (`z80`) | full Z80 register file incl. shadow set, TMS9918A VDP registers/status/beam |

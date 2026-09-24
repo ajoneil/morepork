@@ -205,9 +205,8 @@ pub fn parse_profile(toml: &str) -> Result<Profile> {
 
 /// Expand a profile's subsystem-layer selections (`cpu = "registers"`) into
 /// field names — each selected subsystem's columns of the selected layers, in
-/// vocabulary order — ahead of the profile's memory watches. A layer is a
-/// schema tier's name (`registers` for observable, `internal` for boundary)
-/// or an observation's own layer.
+/// vocabulary order. A layer is a schema tier's name (`registers` for
+/// observable, `internal` for boundary) or an observation's own layer.
 pub fn expand_profile(profile: &mut Profile) -> Result<()> {
     let system = profile.system.clone();
     let vocabulary = vocabulary(&system)?;
@@ -260,13 +259,6 @@ pub fn expand_profile(profile: &mut Profile) -> Result<()> {
     }
 
     let in_vocabulary = |name: &str| vocabulary.iter().any(|d| d.name == name);
-    for name in profile.memory.keys() {
-        if in_vocabulary(name) {
-            return Err(Error::Profile(format!(
-                "memory field '{name}' conflicts with a built-in field"
-            )));
-        }
-    }
     for (adapter, names) in &profile.extensions {
         for name in names {
             if in_vocabulary(name) {
@@ -277,7 +269,6 @@ pub fn expand_profile(profile: &mut Profile) -> Result<()> {
         }
     }
 
-    fields.extend(profile.memory.keys().cloned());
     profile.fields = fields;
     Ok(())
 }

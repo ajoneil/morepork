@@ -160,7 +160,6 @@ struct Profile {
     std::string name;
     std::string trigger;
     std::vector<std::string> fields; // ordered
-    std::unordered_map<std::string, unsigned short> memory; // name -> address
 };
 
 static Profile load_profile(const std::string &path) {
@@ -182,11 +181,6 @@ static Profile load_profile(const std::string &path) {
     size_t next = morepork_profile_num_extensions(p, "gateboy");
     for (size_t i = 0; i < next; i++) {
         prof.fields.push_back(morepork_profile_extension_name(p, "gateboy", i));
-    }
-
-    size_t nmem = morepork_profile_num_memory(p);
-    for (size_t i = 0; i < nmem; i++) {
-        prof.memory[morepork_profile_memory_name(p, i)] = morepork_profile_memory_addr(p, i);
     }
 
     morepork_profile_free(p);
@@ -514,9 +508,6 @@ static void build_emitters(const Profile &prof) {
         } else if (auto it = IO_FIELD_ADDR.find(field); it != IO_FIELD_ADDR.end()) {
             em.source = FieldEmitter::IO_READ;
             em.io_addr = it->second;
-        } else if (auto it2 = prof.memory.find(field); it2 != prof.memory.end()) {
-            em.source = FieldEmitter::IO_READ;
-            em.io_addr = it2->second;
         } else if (auto it3 = INTERNAL_U8_READERS.find(field); it3 != INTERNAL_U8_READERS.end()) {
             em.source = FieldEmitter::PPU_U8;
             em.read_u8 = it3->second;

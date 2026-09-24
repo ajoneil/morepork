@@ -109,9 +109,6 @@ trigger = "instruction"
 [fields]
 cpu = "registers"
 vdp = ["registers", "internal"]
-
-[fields.memory]
-test_result = "C000"      # arbitrary memory watch fields
 ```
 
 The library parses the TOML; `morepork_systems::load_profile` expands the selections over

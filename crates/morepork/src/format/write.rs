@@ -179,7 +179,7 @@ pub struct MoreporkWriter {
 
 /// Group fields for chunk storage by their header defs: subsystem name for
 /// the registers layer, `<subsystem>_<layer>` otherwise, `other` for fields
-/// without a subsystem (memory watches, extensions).
+/// without a subsystem (extensions that declare none).
 fn groups_from_defs(header: &TraceHeader) -> Vec<FieldGroup> {
     let mut groups: Vec<FieldGroup> = Vec::new();
     for name in &header.fields {

@@ -87,7 +87,6 @@ struct Profile {
     std::string name;
     std::string trigger;
     std::vector<std::string> fields; // ordered
-    std::unordered_map<std::string, unsigned short> memory; // name -> address
 };
 
 static Profile load_profile(const std::string &path) {
@@ -104,11 +103,6 @@ static Profile load_profile(const std::string &path) {
     size_t nfields = morepork_profile_num_fields(p);
     for (size_t i = 0; i < nfields; i++) {
         prof.fields.push_back(morepork_profile_field_name(p, i));
-    }
-
-    size_t nmem = morepork_profile_num_memory(p);
-    for (size_t i = 0; i < nmem; i++) {
-        prof.memory[morepork_profile_memory_name(p, i)] = morepork_profile_memory_addr(p, i);
     }
 
     morepork_profile_free(p);
@@ -237,9 +231,6 @@ static void build_emitters(const Profile &prof) {
         } else if (auto it2 = IO_FIELD_ADDR.find(field); it2 != IO_FIELD_ADDR.end()) {
             em.source = FieldEmitter::IO_READ;
             em.io_addr = it2->second;
-        } else if (auto it3 = prof.memory.find(field); it3 != prof.memory.end()) {
-            em.source = FieldEmitter::IO_READ;
-            em.io_addr = it3->second;
         } else {
             std::fprintf(stderr, "Warning: unknown field '%s', skipping\n", field.c_str());
             continue;

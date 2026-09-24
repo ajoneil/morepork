@@ -66,17 +66,12 @@ static int find_io_addr(const char *name) {
 
 #define MAX_FIELDS 128
 #define MAX_NAME 64
-#define MAX_MEMORY_FIELDS 16
-
-struct MemoryField { char name[MAX_NAME]; unsigned short addr; };
 
 struct Profile {
     char name[MAX_NAME];
     char trigger[MAX_NAME];
     char fields[MAX_FIELDS][MAX_NAME];
     int nfields;
-    struct MemoryField memory[MAX_MEMORY_FIELDS];
-    int nmemory;
 };
 
 static struct Profile load_profile(const char *path) {
@@ -91,12 +86,6 @@ static struct Profile load_profile(const char *path) {
     for (size_t i = 0; i < nf && (int)i < MAX_FIELDS; i++) {
         strncpy(prof.fields[prof.nfields], morepork_profile_field_name(p, i), MAX_NAME - 1);
         prof.nfields++;
-    }
-    size_t nm = morepork_profile_num_memory(p);
-    for (size_t i = 0; i < nm && (int)i < MAX_MEMORY_FIELDS; i++) {
-        strncpy(prof.memory[prof.nmemory].name, morepork_profile_memory_name(p, i), MAX_NAME - 1);
-        prof.memory[prof.nmemory].addr = morepork_profile_memory_addr(p, i);
-        prof.nmemory++;
     }
     morepork_profile_free(p);
     return prof;
@@ -158,13 +147,6 @@ static void plan_emitters(const struct Profile *prof) {
     g_need_af = g_need_bc = g_need_de = g_need_hl = false;
     g_need_pc = g_need_sp = g_need_ime = false;
 
-    // Pre-seed IO slots with memory fields so they get priority in the
-    // format string (BGB has a 127-char limit and these are essential
-    // for pass/fail detection in test suites like gbmicrotest).
-    for (int m = 0; m < prof->nmemory; m++) {
-        io_slot_for(prof->memory[m].addr);
-    }
-
     for (int i = 0; i < prof->nfields; i++) {
         const char *field = prof->fields[i];
         struct FieldEmitter *em = &g_emitters[g_nemitters];
@@ -189,14 +171,6 @@ static void plan_emitters(const struct Profile *prof) {
         else {
             // Check IO fields
             int addr = find_io_addr(field);
-            if (addr < 0) {
-                for (int m = 0; m < prof->nmemory; m++) {
-                    if (strcmp(field, prof->memory[m].name) == 0) {
-                        addr = prof->memory[m].addr;
-                        break;
-                    }
-                }
-            }
             if (addr >= 0) {
                 em->source = SRC_IO;
                 em->io_addr = addr;

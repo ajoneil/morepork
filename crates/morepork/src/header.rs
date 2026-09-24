@@ -148,8 +148,8 @@ pub struct HeaderFieldDef {
     pub name: String,
     #[serde(rename = "type")]
     pub field_type: FieldType,
-    /// Hardware subsystem ("cpu", "ppu", …). None for profile-defined
-    /// memory watches and extension fields.
+    /// Hardware subsystem ("cpu", "ppu", …). None for extension fields
+    /// that declare none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subsystem: Option<String>,
     /// Capture layer within the subsystem ("registers", "internal", …).

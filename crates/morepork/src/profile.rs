@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::header::Trigger;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -57,11 +57,8 @@ pub struct Profile {
     /// Subsystem → layer selection, as the TOML states it.
     pub selections: BTreeMap<String, LayerSelection>,
     /// Flattened, ordered list of field names to capture: the expanded
-    /// selections, then the memory watches. Holds only the memory watches
-    /// until the selections are expanded.
+    /// selections. Empty until the selections are expanded.
     pub fields: Vec<String>,
-    /// Memory address reads: maps field name -> address.
-    pub memory: BTreeMap<String, u16>,
     /// Adapter-defined extension fields. Maps adapter name (e.g.
     /// "missingno", "gateboy") to a list of extension field names that
     /// adapter should emit. The Profile carries names only; type/metadata
@@ -137,9 +134,6 @@ impl LayerSelection {
 
 #[derive(Deserialize, Default)]
 struct FieldGroupsToml {
-    /// Arbitrary memory reads: name = "hex_address"
-    #[serde(default)]
-    memory: BTreeMap<String, String>,
     /// Adapter-defined extension fields. TOML form:
     /// `[fields.extensions]`
     /// `missingno = ["pending_vector_resolve", "halt_bug"]`
@@ -149,14 +143,6 @@ struct FieldGroupsToml {
     /// Every other key is a subsystem layer selection.
     #[serde(flatten)]
     subsystems: BTreeMap<String, LayerSelection>,
-}
-
-fn parse_hex_addr(s: &str) -> std::result::Result<u16, String> {
-    let s = s
-        .strip_prefix("0x")
-        .or_else(|| s.strip_prefix("0X"))
-        .unwrap_or(s);
-    u16::from_str_radix(s, 16).map_err(|_| format!("invalid hex address: {s}"))
 }
 
 impl Profile {
@@ -170,33 +156,13 @@ impl Profile {
     pub fn parse(toml_str: &str) -> Result<Self> {
         let raw: ProfileToml = toml::from_str(toml_str)?;
 
-        let mut fields = Vec::new();
-        let mut memory = BTreeMap::new();
-        for (name, addr_str) in &raw.fields.memory {
-            let addr = parse_hex_addr(addr_str)
-                .map_err(|e| Error::Profile(format!("memory field '{name}': {e}")))?;
-            fields.push(name.clone());
-            memory.insert(name.clone(), addr);
-        }
-
-        for (adapter, ext_fields) in &raw.fields.extensions {
-            for name in ext_fields {
-                if memory.contains_key(name) {
-                    return Err(Error::Profile(format!(
-                        "extensions.{adapter}: '{name}' conflicts with a memory field"
-                    )));
-                }
-            }
-        }
-
         Ok(Profile {
             name: raw.profile.name,
             description: raw.profile.description,
             system: raw.profile.system.unwrap_or_else(|| "dmg".to_string()),
             trigger: raw.profile.trigger,
             selections: raw.fields.subsystems,
-            fields,
-            memory,
+            fields: Vec::new(),
             extensions: raw.fields.extensions,
         })
     }

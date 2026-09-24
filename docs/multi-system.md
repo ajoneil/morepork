@@ -158,9 +158,10 @@ The library parses a profile; the registry expands it
 (`morepork_systems::load_profile`, which `morepork_profile_load` calls).
 `[fields]` keys are the system's subsystems (unknown keys are an error); a
 layer is a schema tier (`registers`, `internal`) or an observation's own
-layer (`timing`, `output`). `[fields.memory]` and `[fields.extensions]` are
-system-independent. (The trace header's `system` is set by the adapter from
-`--model`, so a shared `dmg` profile can be captured as `cgb`.)
+layer (`timing`, `output`). `[fields.extensions]` is system-independent; a
+producer that wants a memory column declares it as an extension field. (The
+trace header's `system` is set by the adapter from `--model`, so a shared
+`dmg` profile can be captured as `cgb`.)
 
 ## Compatibility constraints
 

@@ -77,20 +77,11 @@ static bool is_in_list(const char *name, const char **list) {
 #define MAX_FIELDS 128
 #define MAX_NAME 64
 
-#define MAX_MEMORY_FIELDS 16
-
-struct MemoryField {
-    char name[MAX_NAME];
-    unsigned short addr;
-};
-
 struct Profile {
     char name[MAX_NAME];
     char trigger[MAX_NAME];
     char fields[MAX_FIELDS][MAX_NAME];
     int nfields;
-    struct MemoryField memory[MAX_MEMORY_FIELDS];
-    int nmemory;
 };
 
 static struct Profile load_profile(const char *path) {
@@ -109,13 +100,6 @@ static struct Profile load_profile(const char *path) {
     for (size_t i = 0; i < nfields && (int)i < MAX_FIELDS; i++) {
         strncpy(prof.fields[prof.nfields], morepork_profile_field_name(p, i), MAX_NAME - 1);
         prof.nfields++;
-    }
-
-    size_t nmem = morepork_profile_num_memory(p);
-    for (size_t i = 0; i < nmem && (int)i < MAX_MEMORY_FIELDS; i++) {
-        strncpy(prof.memory[prof.nmemory].name, morepork_profile_memory_name(p, i), MAX_NAME - 1);
-        prof.memory[prof.nmemory].addr = morepork_profile_memory_addr(p, i);
-        prof.nmemory++;
     }
 
     morepork_profile_free(p);
@@ -193,15 +177,6 @@ static void build_emitters(const struct Profile *prof) {
             em->source = SRC_REG16;
         } else {
             int addr = find_io_addr(field);
-            if (addr < 0) {
-                // Check memory fields from profile
-                for (int m = 0; m < prof->nmemory; m++) {
-                    if (strcmp(field, prof->memory[m].name) == 0) {
-                        addr = prof->memory[m].addr;
-                        break;
-                    }
-                }
-            }
             if (addr >= 0) {
                 em->source = SRC_IO;
                 em->io_addr = addr;

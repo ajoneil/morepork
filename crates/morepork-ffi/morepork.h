@@ -49,15 +49,6 @@ size_t morepork_profile_num_fields(const MoreporkProfile *p);
 /* Get a field name by index. Returns NULL if out of bounds. */
 const char *morepork_profile_field_name(const MoreporkProfile *p, size_t index);
 
-/* Get the number of memory address fields. */
-size_t morepork_profile_num_memory(const MoreporkProfile *p);
-
-/* Get a memory field name by index. Returns NULL if out of bounds. */
-const char *morepork_profile_memory_name(const MoreporkProfile *p, size_t index);
-
-/* Get a memory field address by index. Returns 0 if out of bounds. */
-uint16_t morepork_profile_memory_addr(const MoreporkProfile *p, size_t index);
-
 /* Get the number of extension fields the profile asks `adapter` for
  * (its [fields.extensions] entry). Returns 0 when it names none. */
 size_t morepork_profile_num_extensions(const MoreporkProfile *p, const char *adapter);

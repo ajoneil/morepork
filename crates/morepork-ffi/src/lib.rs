@@ -42,10 +42,6 @@ pub struct MoreporkProfile {
     profile: Profile,
     /// Cached CStrings for field names (kept alive for pointer stability).
     field_cstrings: Vec<CString>,
-    /// Cached CStrings for memory field names.
-    memory_names: Vec<CString>,
-    /// Memory addresses in the same order as memory_names.
-    memory_addrs: Vec<u16>,
     /// Cached CStrings for each adapter's extension field names.
     extension_cstrings: std::collections::BTreeMap<String, Vec<CString>>,
     /// Cached trigger string.
@@ -79,14 +75,6 @@ pub unsafe extern "C" fn morepork_profile_load(path: *const c_char) -> *mut More
         .map(|f| CString::new(f.as_str()).unwrap())
         .collect();
 
-    let memory_names: Vec<CString> = profile
-        .memory
-        .keys()
-        .map(|k| CString::new(k.as_str()).unwrap())
-        .collect();
-
-    let memory_addrs: Vec<u16> = profile.memory.values().copied().collect();
-
     let extension_cstrings = profile
         .extensions
         .iter()
@@ -115,8 +103,6 @@ pub unsafe extern "C" fn morepork_profile_load(path: *const c_char) -> *mut More
     Box::into_raw(Box::new(MoreporkProfile {
         profile,
         field_cstrings,
-        memory_names,
-        memory_addrs,
         extension_cstrings,
         trigger_cstring,
         name_cstring,
@@ -159,35 +145,6 @@ pub unsafe extern "C" fn morepork_profile_field_name(
         Some(cs) => cs.as_ptr(),
         None => std::ptr::null(),
     }
-}
-
-/// Get the number of memory address fields.
-#[no_mangle]
-pub unsafe extern "C" fn morepork_profile_num_memory(p: *const MoreporkProfile) -> usize {
-    (*p).memory_names.len()
-}
-
-/// Get a memory field name by index. Returns null if out of bounds.
-#[no_mangle]
-pub unsafe extern "C" fn morepork_profile_memory_name(
-    p: *const MoreporkProfile,
-    index: usize,
-) -> *const c_char {
-    let profile = &*p;
-    match profile.memory_names.get(index) {
-        Some(cs) => cs.as_ptr(),
-        None => std::ptr::null(),
-    }
-}
-
-/// Get a memory field address by index. Returns 0 if out of bounds.
-#[no_mangle]
-pub unsafe extern "C" fn morepork_profile_memory_addr(
-    p: *const MoreporkProfile,
-    index: usize,
-) -> u16 {
-    let profile = &*p;
-    profile.memory_addrs.get(index).copied().unwrap_or(0)
 }
 
 /// Get the number of extension fields the profile asks `adapter` for

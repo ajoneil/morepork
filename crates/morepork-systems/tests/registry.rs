@@ -500,9 +500,6 @@ system = "sg1000"
 [fields]
 cpu = "registers"
 vdp = "registers"
-
-[fields.memory]
-test_result = "C000"
 "#;
 
 #[test]
@@ -516,7 +513,6 @@ fn profile_selections_expand_over_the_schema() {
     // Boundary-tier fields are the `internal` layer, not `registers`.
     assert!(!fields.contains(&"wz"));
     assert!(!fields.contains(&"vdp_line"));
-    assert_eq!(fields.last(), Some(&"test_result"));
 }
 
 #[test]
@@ -559,13 +555,12 @@ fn profile_rejections() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("does not have layer 'bogus'"), "{err}");
-    let err = parse_profile(&base(
+    // Memory watches are gone: a memory column is an extension field.
+    assert!(parse_profile(&base(
         "dmg",
-        "cpu = \"registers\"\n\n[fields.memory]\npc = \"C000\"",
+        "cpu = \"registers\"\n\n[fields.memory]\nwatch = \"C000\"",
     ))
-    .unwrap_err()
-    .to_string();
-    assert!(err.contains("conflicts with a built-in field"), "{err}");
+    .is_err());
     let err = parse_profile(&base(
         "dmg",
         "cpu = \"registers\"\n\n[fields.extensions]\nx = [\"ly\"]",
