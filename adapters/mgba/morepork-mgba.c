@@ -492,10 +492,11 @@ int main(int argc, char *argv[]) {
         char header_json[4096];
         int hpos = snprintf(header_json, sizeof(header_json),
             "{\"_header\":true,\"format_version\":\"0.1.0\","
-            "\"emulator\":\"mgba\",\"emulator_version\":\"0.10.x\",\"system\":\"dmg\","
+            "\"emulator\":\"mgba\",\"emulator_version\":\"0.10.x\",\"system\":\"%s\","
             "\"rom_sha256\":\"%s\",\"model\":\"%s\","
             "\"boot_rom\":\"%s\",\"profile\":\"%s\","
             "\"fields\":[",
+            strcmp(model, "CGB-E") == 0 ? "cgb" : "dmg",
             rom_hash, model, boot_rom_info, g_profile.name);
         for (int i = 0; i < g_nemitters; i++) {
             if (i > 0) hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos, ",");

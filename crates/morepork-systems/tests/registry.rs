@@ -189,9 +189,30 @@ const GB_IO: &[&str] = &[
 ];
 
 /// The CPU and pixel columns the C Game Boy adapters can emit (each takes
-/// the subset its emulator exposes).
+/// the subset its emulator exposes; see `GB_ADAPTERS`).
 const GB_CPU: &[&str] = &[
     "pc", "op_addr", "sp", "a", "f", "b", "c", "d", "e", "h", "l", "ime", "pix",
+];
+
+/// Each C Game Boy adapter's columns, as its built binary's header lists them
+/// under a profile selecting every subsystem: the system ids it writes, then
+/// the `GB_CPU` and `GB_IO` columns it omits. GateBoy adds `GATEBOY_PPU` and
+/// its extensions, BGB its extensions.
+const GB_ADAPTERS: &[(&str, &[&str], &[&str])] = &[
+    ("sameboy", &["dmg", "cgb"], &[]),
+    ("gambatte", &["dmg", "cgb"], &["ime"]),
+    ("mgba", &["dmg", "cgb"], &["op_addr"]),
+    ("docboy", &["dmg", "cgb"], &[]),
+    ("gateboy", &["dmg"], &["op_addr", "sb", "sc"]),
+    ("bgb", &["dmg"], &["op_addr", "pix"]),
+];
+
+/// BGB's gbmicrotest result block, as its header declares it: the HRAM bytes
+/// $FF80 (value read), $FF81 (value expected) and $FF82 (verdict).
+const BGB_EXTENSIONS: &[&str] = &[
+    "gbmicrotest_actual",
+    "gbmicrotest_expected",
+    "gbmicrotest_result",
 ];
 
 /// The PPU pipeline cells GateBoy reads beyond the IO map.
@@ -362,6 +383,72 @@ fn every_gb_adapter_column_resolves() {
             column_defs(system, columns).unwrap_or_else(|e| panic!("{system}: {e}"));
         }
     }
+}
+
+#[test]
+fn every_gb_adapter_emits_resolvable_columns() {
+    for (adapter, systems, omitted) in GB_ADAPTERS {
+        let columns: Vec<&str> = GB_CPU
+            .iter()
+            .chain(GB_IO)
+            .copied()
+            .filter(|n| !omitted.contains(n))
+            .collect();
+        for system in *systems {
+            let defs = column_defs(system, &columns)
+                .unwrap_or_else(|e| panic!("{adapter} on {system}: {e}"));
+            assert_eq!(defs.len(), columns.len(), "{adapter} on {system}");
+        }
+    }
+}
+
+fn bgb_extension_fields() -> BTreeMap<String, ExtensionField> {
+    BGB_EXTENSIONS
+        .iter()
+        .map(|&name| {
+            let ext = ExtensionField {
+                field_type: FieldType::UInt8,
+                nullable: false,
+                description: None,
+                source: Some("bgb".into()),
+                subsystem: Some("gbmicrotest".into()),
+                layer: Some("result".into()),
+            };
+            (name.to_string(), ext)
+        })
+        .collect()
+}
+
+#[test]
+fn bgb_result_columns_resolve_with_its_extension_declarations() {
+    // The shared corpus observations already claim the plain names.
+    for name in ["result", "code", "observed", "expected"] {
+        assert!(column_defs("dmg", &[name]).is_ok(), "{name}");
+    }
+    for &name in BGB_EXTENSIONS {
+        assert!(
+            column_defs("dmg", &[name]).is_err(),
+            "{name} is a dmg column"
+        );
+    }
+
+    let mut fields: Vec<&str> = ["pc", "a", "ly"].to_vec();
+    fields.extend(BGB_EXTENSIONS);
+    let mut h = header("dmg", &fields);
+    h.extension_fields = bgb_extension_fields();
+    describe(&mut h).unwrap();
+    for &name in BGB_EXTENSIONS {
+        let def = h.field_def(name).unwrap();
+        assert_eq!(def.field_type, FieldType::UInt8, "{name}");
+        assert_eq!(def.subsystem.as_deref(), Some("gbmicrotest"), "{name}");
+        assert_eq!(def.layer.as_deref(), Some("result"), "{name}");
+    }
+
+    let p = parse_profile(
+        "[profile]\nname = \"t\"\ndescription = \"t\"\ntrigger = \"instruction\"\n\n[fields]\ncpu = \"registers\"\n\n[fields.extensions]\nbgb = [\"gbmicrotest_actual\", \"gbmicrotest_expected\", \"gbmicrotest_result\"]\n",
+    )
+    .unwrap();
+    assert_eq!(p.extensions["bgb"], BGB_EXTENSIONS);
 }
 
 /// Each adapter's columns, by the system ids it writes.

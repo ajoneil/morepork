@@ -23,6 +23,17 @@ automated trace generation at scale.
 - Screenshot matching (`--reference`) uses a separate headless BGB run
   with `-screenonexit` and a `TOTALCLKS` breakpoint for frame limiting.
 
+## gbmicrotest result columns
+
+Beyond its DMG-vocabulary columns, the adapter declares gbmicrotest's result
+block as its own header `extension_fields` (type `u8`, subsystem
+`gbmicrotest`, layer `result`), which a profile requests with
+`[fields.extensions] bgb = [...]`:
+
+- `gbmicrotest_actual` — `$FF80`, the value the test read
+- `gbmicrotest_expected` — `$FF81`, the value it expected
+- `gbmicrotest_result` — `$FF82`, the verdict: `$01` pass, `$FF` fail
+
 ## Known issues
 
 - **Slow throughput**: ~8.8K instructions/sec through the debug message

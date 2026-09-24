@@ -62,6 +62,24 @@ static int find_io_addr(const char *name) {
     return -1;
 }
 
+// gbmicrotest's result block in HRAM, declared in the header as this
+// adapter's extension fields (subsystem "gbmicrotest", layer "result"). A
+// profile requests them under [fields.extensions] bgb. The test writes the
+// value it read to $FF80, the value it expected to $FF81, and its verdict to
+// $FF82 last: $01 pass, $FF fail.
+static const struct IOField BGB_EXTENSIONS[] = {
+    {"gbmicrotest_actual",   0xFF80},
+    {"gbmicrotest_expected", 0xFF81},
+    {"gbmicrotest_result",   0xFF82},
+    {NULL, 0}
+};
+
+static int find_extension_addr(const char *name) {
+    for (const struct IOField *f = BGB_EXTENSIONS; f->name; f++)
+        if (strcmp(f->name, name) == 0) return f->addr;
+    return -1;
+}
+
 // ── Profile loading ─────────────────────────────────────────────────
 
 #define MAX_FIELDS 128
@@ -85,6 +103,11 @@ static struct Profile load_profile(const char *path) {
     size_t nf = morepork_profile_num_fields(p);
     for (size_t i = 0; i < nf && (int)i < MAX_FIELDS; i++) {
         strncpy(prof.fields[prof.nfields], morepork_profile_field_name(p, i), MAX_NAME - 1);
+        prof.nfields++;
+    }
+    size_t ne = morepork_profile_num_extensions(p, "bgb");
+    for (size_t i = 0; i < ne && prof.nfields < MAX_FIELDS; i++) {
+        strncpy(prof.fields[prof.nfields], morepork_profile_extension_name(p, "bgb", i), MAX_NAME - 1);
         prof.nfields++;
     }
     morepork_profile_free(p);
@@ -147,6 +170,13 @@ static void plan_emitters(const struct Profile *prof) {
     g_need_af = g_need_bc = g_need_de = g_need_hl = false;
     g_need_pc = g_need_sp = g_need_ime = false;
 
+    // The result block takes the first IO slots: BGB's per-line message limit
+    // can drop trailing slots, and pass/fail detection needs these.
+    for (int i = 0; i < prof->nfields; i++) {
+        int addr = find_extension_addr(prof->fields[i]);
+        if (addr >= 0) io_slot_for((unsigned short)addr);
+    }
+
     for (int i = 0; i < prof->nfields; i++) {
         const char *field = prof->fields[i];
         struct FieldEmitter *em = &g_emitters[g_nemitters];
@@ -169,8 +199,9 @@ static void plan_emitters(const struct Profile *prof) {
         else if (is_reg_field(field, "sp"))     { em->source = SRC_SP; g_need_sp = true; }
         else if (is_reg_field(field, "ime"))    { em->source = SRC_IME; g_need_ime = true; }
         else {
-            // Check IO fields
+            // Check IO fields, then this adapter's extension fields
             int addr = find_io_addr(field);
+            if (addr < 0) addr = find_extension_addr(field);
             if (addr >= 0) {
                 em->source = SRC_IO;
                 em->io_addr = addr;
@@ -565,7 +596,7 @@ static volatile sig_atomic_t g_child_pid = 0;
 
 static void cleanup_child(int sig) {
     (void)sig;
-    if (g_child_pid > 0) kill(g_child_pid, SIGTERM);
+    if (g_child_pid > 0) kill(-g_child_pid, SIGTERM);
 }
 
 int main(int argc, char *argv[]) {
@@ -713,7 +744,20 @@ int main(int argc, char *argv[]) {
         first_field = 0;
     }
     hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos,
-                     "],\"trigger\":\"instruction\"}");
+                     "],\"extension_fields\":{");
+    int first_ext = 1;
+    for (int i = 0; i < g_nemitters; i++) {
+        if (g_emitters[i].source == SRC_SKIP) continue;
+        if (find_extension_addr(g_emitters[i].name) < 0) continue;
+        if (!first_ext) hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos, ",");
+        hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos,
+                         "\"%s\":{\"type\":\"u8\",\"source\":\"bgb\","
+                         "\"subsystem\":\"gbmicrotest\",\"layer\":\"result\"}",
+                         g_emitters[i].name);
+        first_ext = 0;
+    }
+    hpos += snprintf(header_json + hpos, sizeof(header_json) - hpos,
+                     "},\"trigger\":\"instruction\"}");
 
     // Screenshot tests: two passes.
     // 1. Fast pass: run BGB headless with -screenonexit to compare against
@@ -768,7 +812,9 @@ int main(int argc, char *argv[]) {
     }
 
     if (pid == 0) {
-        // Child: run BGB under xvfb-run + wine
+        // Child: run BGB under xvfb-run + wine, in its own process group so
+        // the kill reaches bgb.exe and Xvfb, which outlive xvfb-run itself.
+        setpgid(0, 0);
         // Redirect stdout/stderr to /dev/null
         freopen("/dev/null", "w", stdout);
         freopen("/dev/null", "w", stderr);
@@ -792,7 +838,7 @@ int main(int argc, char *argv[]) {
     FILE *fifo = fopen(fifo_path, "r");
     if (!fifo) {
         fprintf(stderr, "Error: cannot open FIFO %s: %s\n", fifo_path, strerror(errno));
-        kill(pid, SIGTERM);
+        kill(-pid, SIGTERM);
         waitpid(pid, NULL, 0);
         unlink(fifo_path);
         morepork_writer_close(writer);
@@ -938,7 +984,7 @@ int main(int argc, char *argv[]) {
     fclose(fifo);
 
     // Kill BGB (it may still be running if we stopped due to a condition)
-    kill(pid, SIGTERM);
+    kill(-pid, SIGTERM);
     int status = 0;
     waitpid(pid, &status, 0);
     g_child_pid = 0;

@@ -795,6 +795,7 @@ dependencies = [
 [[package]]
 name = "missingno-colecovision"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
  "missingno-ti-psg",
@@ -807,6 +808,7 @@ dependencies = [
 [[package]]
 name = "missingno-core"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "rgb",
  "serde",
@@ -816,6 +818,7 @@ dependencies = [
 [[package]]
 name = "missingno-gb"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "bitflags",
  "missingno-core",
@@ -829,6 +832,7 @@ dependencies = [
 [[package]]
 name = "missingno-gbc"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
  "missingno-gb",
@@ -838,6 +842,7 @@ dependencies = [
 [[package]]
 name = "missingno-mos-6502"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
 ]
@@ -845,6 +850,7 @@ dependencies = [
 [[package]]
 name = "missingno-sg1000"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
  "missingno-ti-psg",
@@ -858,6 +864,7 @@ dependencies = [
 [[package]]
 name = "missingno-ti-psg"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
 ]
@@ -865,6 +872,7 @@ dependencies = [
 [[package]]
 name = "missingno-ti-vdp"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
  "rgb",
@@ -873,6 +881,7 @@ dependencies = [
 [[package]]
 name = "missingno-trace"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
  "morepork",
@@ -881,6 +890,7 @@ dependencies = [
 [[package]]
 name = "missingno-vcs"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
  "missingno-mos-6502",
@@ -894,6 +904,7 @@ dependencies = [
 [[package]]
 name = "missingno-zilog-z80"
 version = "26.10.0"
+source = "git+https://github.com/ajoneil/missingno?branch=main#250414aac8615d53f8efbe35927bee79c24819d7"
 dependencies = [
  "missingno-core",
 ]

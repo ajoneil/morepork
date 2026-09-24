@@ -23,6 +23,10 @@ CXX      ?= g++
 CXXFLAGS  = -O2 -std=c++17 -Wall -Wextra -DENABLE_DEBUGGER -DENABLE_AUDIO
 FFI_DIR  ?= ../../crates/morepork-ffi
 FFI_LIB  ?= ../../target/release/libmorepork_ffi.a
+# The core's public compile definitions change its struct layouts, so the
+# adapter compiles with exactly the defines the library was built with.
+DOCBOY_DEFINES     = $(shell sed -n 's/^CXX_DEFINES = //p' $(DOCBOY_BUILD)/src/docboy/CMakeFiles/docboy.dir/flags.make)
+DOCBOY_DEFINES_CGB = $(shell sed -n 's/^CXX_DEFINES = //p' $(DOCBOY_BUILD_CGB)/src/docboy/CMakeFiles/docboy.dir/flags.make)
 INCLUDES  = -I$(DOCBOY_DIR)/src/docboy -I$(DOCBOY_DIR)/src/utils -I$(DOCBOY_DIR)/src/extra -I$(FFI_DIR)
 
 DOCBOY_LIB = $(DOCBOY_BUILD)/src/docboy/libdocboy.a
@@ -81,10 +85,10 @@ $(DOCBOY_LIB_CGB): $(DOCBOY_DIR)/.patched
 	cmake --build $(DOCBOY_BUILD_CGB) --target docboy extra -j$$(nproc)
 
 $(TARGET): morepork-docboy.cpp $(DOCBOY_LIB) $(FFI_LIB)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< -Wl,--start-group $(DOCBOY_LIB) $(EXTRA_LIB) $(UTILS_LIB) -Wl,--end-group $(FFI_LIB) -lm -ldl -lpthread
+	$(CXX) $(CXXFLAGS) $(DOCBOY_DEFINES) $(INCLUDES) -o $@ $< -Wl,--start-group $(DOCBOY_LIB) $(EXTRA_LIB) $(UTILS_LIB) -Wl,--end-group $(FFI_LIB) -lm -ldl -lpthread
 
 $(TARGET_CGB): morepork-docboy.cpp $(DOCBOY_LIB_CGB) $(FFI_LIB)
-	$(CXX) $(CXXFLAGS) -DENABLE_CGB $(INCLUDES) -o $@ $< -Wl,--start-group $(DOCBOY_LIB_CGB) $(EXTRA_LIB_CGB) $(UTILS_LIB_CGB) -Wl,--end-group $(FFI_LIB) -lm -ldl -lpthread
+	$(CXX) $(CXXFLAGS) -DENABLE_CGB $(DOCBOY_DEFINES_CGB) $(INCLUDES) -o $@ $< -Wl,--start-group $(DOCBOY_LIB_CGB) $(EXTRA_LIB_CGB) $(UTILS_LIB_CGB) -Wl,--end-group $(FFI_LIB) -lm -ldl -lpthread
 
 clean:
 	rm -f $(TARGET) $(TARGET_CGB)
